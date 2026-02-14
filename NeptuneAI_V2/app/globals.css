@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+@utility border-border {
+  border-color: var(--color-border);
+}
+
+@theme inline {
+  --color-background: hsl(225 25% 6%);
+  --color-foreground: hsl(210 20% 92%);
+  --color-card: hsl(225 22% 9%);
+  --color-card-foreground: hsl(210 20% 92%);
+  --color-popover: hsl(225 22% 9%);
+  --color-popover-foreground: hsl(210 20% 92%);
+  --color-primary: hsl(210 100% 56%);
+  --color-primary-foreground: hsl(225 25% 4%);
+  --color-secondary: hsl(225 18% 13%);
+  --color-secondary-foreground: hsl(210 15% 65%);
+  --color-muted: hsl(225 18% 12%);
+  --color-muted-foreground: hsl(210 12% 45%);
+  --color-accent: hsl(210 100% 56%);
+  --color-accent-foreground: hsl(225 25% 4%);
+  --color-destructive: hsl(0 72% 51%);
+  --color-destructive-foreground: hsl(0 0% 98%);
+  --color-border: hsl(225 18% 14%);
+  --color-input: hsl(225 18% 14%);
+  --color-ring: hsl(210 100% 56%);
+  --radius: 0.625rem;
+  --color-sidebar-background: hsl(225 28% 5%);
+  --color-sidebar-foreground: hsl(210 20% 92%);
+  --color-sidebar-primary: hsl(210 100% 56%);
+  --color-sidebar-primary-foreground: hsl(225 25% 4%);
+  --color-sidebar-accent: hsl(225 20% 10%);
+  --color-sidebar-accent-foreground: hsl(210 15% 65%);
+  --color-sidebar-border: hsl(225 18% 12%);
+  --color-sidebar-ring: hsl(210 100% 56%);
+}
+
+@layer base {
+  html,
+  body,
+  #__next {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+}
+
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+}
+
+.overflow-y-auto:hover {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(225 18% 20%) transparent;
+}
+
+.overflow-y-auto:hover::-webkit-scrollbar {
+  width: 4px;
+}
+
+.overflow-y-auto:hover::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-y-auto:hover::-webkit-scrollbar-thumb {
+  background: hsl(225 18% 20%);
+  border-radius: 99px;
+}
+
+.overflow-y-auto:hover::-webkit-scrollbar-thumb:hover {
+  background: hsl(225 18% 28%);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes thinking-dot-pulse {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.thinking-dot {
+  animation: thinking-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tx-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes tx-success {
+  0%, 100% { box-shadow: 0 0 0 0 hsla(160, 60%, 50%, 0.3); }
+  50% { box-shadow: 0 0 0 10px hsla(160, 60%, 50%, 0); }
+}
+
+.tx-spinner {
+  animation: tx-spin 2.5s linear infinite;
+}
+
+.tx-success-pulse {
+  animation: tx-success 1.5s ease-in-out 2;
+}
+
+@utility animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+@utility animate-glow {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Glowing bullet points */
+@keyframes bullet-glow {
+  0%, 100% {
+    box-shadow: 0 0 3px 0 hsl(210 100% 56% / 0.4);
+    opacity: 0.8;
+  }
+  50% {
+    box-shadow: 0 0 8px 2px hsl(210 100% 56% / 0.6);
+    opacity: 1;
+  }
+}
+
+@keyframes bullet-pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(2); opacity: 0; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+.bullet-glow {
+  animation: bullet-glow 2.5s ease-in-out infinite;
+}
+
+.bullet-pulse {
+  animation: bullet-pulse-ring 2.5s ease-in-out infinite;
+}
+
+/* Heartbeat for tx success */
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  14% { transform: scale(1.15); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.1); }
+  56% { transform: scale(1); }
+}
+
+.tx-heartbeat {
+  animation: heartbeat 1.5s ease-in-out infinite;
+}

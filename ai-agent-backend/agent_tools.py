@@ -1,0 +1,471 @@
+"""
+LangChain tools for the Neptune AI agent.
+Each tool is decorated with @tool and can be called by the LLM when needed.
+Supports multi-chain wallet connections via HOT Kit.
+"""
+import asyncio
+from typing import Optional, Dict, Any
+from langchain_core.tools import tool
+
+from tools import get_swap_quote as _get_swap_quote, get_available_tokens, create_near_intent_transaction
+from validators import fuzzy_match_token, validate_near_address, validate_evm_address, validate_address_for_chain, get_chain_address_format
+from knowledge_base import (
+    get_available_tokens_from_api, 
+    get_token_symbols_list, 
+    format_token_list_for_display,
+    format_tokens_with_chain_prefix,
+    get_token_by_symbol
+)
+
+
+@tool
+async def get_available_tokens_tool() -> str:
+    """
+    Get the FULL list of ALL available tokens that can be swapped.
+    Only use this when user wants to see ALL tokens, not a specific one.
+    DO NOT use this when user asks about a specific token like ETH or AURORA - use get_token_chains_tool instead.
+    
+    Returns: A formatted string with [CHAIN] TOKEN format.
+    """
+    try:
+        tokens = await get_available_tokens_from_api()
+        # Use chain prefix format
+        return format_tokens_with_chain_prefix(tokens, limit=80)
+    except Exception as e:
+        return f"⚠️ Can't get supported tokens for now: {str(e)}"
+
+
+@tool
+def get_token_chains_tool(token_symbol: str) -> str:
+    """
+    Get all chains and networks where a SPECIFIC token is available.
+    ALWAYS use this instead of get_available_tokens_tool when user asks about a specific token.
+    Use for queries like: "options for ETH", "where is AURORA available", "chains for USDC", "any ETH options?"
+    
+    Args:
+        token_symbol: The token symbol to query (e.g., "ETH", "USDC", "AURORA")
+    
+    Returns: List of chains where the token is available
+    """
+    from knowledge_base import _token_cache
+    
+    tokens = _token_cache if _token_cache else []
+    if not tokens:
+        return "⚠️ Token data not loaded yet. Please try again."
+    
+    symbol_upper = token_symbol.upper().strip()
+    
+    # Find all entries for this token
+    matching_tokens = [t for t in tokens if t["symbol"].upper() == symbol_upper]
+    
+    if not matching_tokens:
+        return f"❌ Token '{token_symbol}' not found. Use get_available_tokens_tool to see all available tokens."
+    
+    # Group by chain
+    chains = []
+    for t in matching_tokens:
+        chain = t.get("blockchain", "near").upper()
+        chains.append(f"• [{chain}] {symbol_upper}")
+    
+    result = f"**{symbol_upper} is available on {len(chains)} chain(s):**\n"
+    result += "\n".join(chains)
+    result += f"\n\n**Note:** You can swap FROM any chain where you have a connected wallet."
+    
+    return result
+
+
+@tool
+async def validate_token_names_tool(token_in: str, token_out: str) -> str:
+    """
+    Validate token names and check for typos or misspellings.
+    Use this when you suspect user might have misspelled a token name.
+    
+    Args:
+        token_in: The input token symbol (what user is swapping from)
+        token_out: The output token symbol (what user is swapping to)
+    
+    Returns: Validation result with suggestions if needed
+    """
+    try:
+        tokens = await get_available_tokens_from_api()
+        available = get_token_symbols_list(tokens)
+        
+        match_in = fuzzy_match_token(token_in, available)
+        match_out = fuzzy_match_token(token_out, available)
+        
+        if match_in['exact_match'] and match_out['exact_match']:
+            return f"✅ Both tokens are valid: {token_in.upper()} and {token_out.upper()}"
+        
+        issues = []
+        if not match_in['exact_match']:
+            if match_in['suggested_token']:
+                issues.append(f"'{token_in}' → Did you mean '{match_in['suggested_token']}'?")
+            else:
+                issues.append(f"'{token_in}' is not recognized")
+        
+        if not match_out['exact_match']:
+            if match_out['suggested_token']:
+                issues.append(f"'{token_out}' → Did you mean '{match_out['suggested_token']}'?")
+            else:
+                issues.append(f"'{token_out}' is not recognized")
+        
+        return "⚠️ Token validation issues:\n" + "\n".join(issues)
+    except Exception as e:
+        return f"⚠️ Can't validate tokens right now: {str(e)}"
+
+
+@tool
+def get_swap_quote_tool(
+    token_in: str, 
+    token_out: str, 
+    amount: float, 
+    account_id: str, 
+    connected_chains: str = "",
+    wallet_addresses: str = "",
+    destination_address: Optional[str] = None, 
+    destination_chain: Optional[str] = None
+) -> str:
+    """
+    Get a real-time swap quote for exchanging tokens via NEAR Intents.
+    
+    IMPORTANT SAFETY CHECKS (enforced by this tool):
+    - Source token's chain must match a chain where the user has a connected wallet
+    - Cross-chain swaps auto-fill destination address from connected wallets when possible
+    - Address format is validated for the destination chain
+    
+    Args:
+        token_in: Symbol of token to swap from (e.g., "NEAR", "ETH")
+        token_out: Symbol of token to swap to (e.g., "ETH", "USDC")
+        amount: Amount of token_in to swap
+        account_id: User's primary wallet address (required)
+        connected_chains: Comma-separated list of chains user has wallets on (e.g., "near,eth,solana")
+        wallet_addresses: Comma-separated chain:address pairs (e.g., "near:alice.near,eth:0x123")
+        destination_address: Explicit destination address for cross-chain swaps
+        destination_chain: Specify which chain for destination token
+    
+    Returns: Quote information or safety error with guidance
+    """
+    if not account_id or account_id == "Not connected":
+        return "⚠️ **Wallet Not Connected**\n\nPlease connect your wallet using the Connect button first. You can connect wallets from any chain — NEAR, Ethereum, Solana, Tron, and more."
+    
+    # Parse connected chains
+    user_chains = [c.strip().lower() for c in connected_chains.split(",") if c.strip()] if connected_chains else ["near"]
+    
+    # Parse wallet addresses into a dict
+    addr_map = {}
+    if wallet_addresses:
+        for pair in wallet_addresses.split(","):
+            if ":" in pair:
+                chain_key, addr = pair.split(":", 1)
+                addr_map[chain_key.strip().lower()] = addr.strip()
+    
+    # Get token cache
+    from knowledge_base import _token_cache, get_token_by_symbol
+    tokens = _token_cache if _token_cache else []
+    
+    # ── SAFETY CHECK 1: Validate source token exists ──
+    source_token = get_token_by_symbol(token_in.upper(), tokens, chain=None)
+    if not source_token:
+        return f"❌ Token '{token_in}' not found. Use get_available_tokens_tool to see available tokens."
+    
+    source_chain = source_token.get("blockchain", "near").lower()
+    
+    # Try to find source token on a connected chain specifically
+    source_on_connected = None
+    for chain in user_chains:
+        t = get_token_by_symbol(token_in.upper(), tokens, chain=chain)
+        if t:
+            source_on_connected = t
+            source_chain = chain
+            break
+    
+    # ── SAFETY CHECK 2: Source chain must be connected ──
+    if not source_on_connected:
+        # Check which chains this token exists on
+        all_chains_for_token = [
+            t.get("blockchain", "near").upper() 
+            for t in tokens 
+            if t["symbol"].upper() == token_in.upper()
+        ]
+        unique_chains = list(set(all_chains_for_token))
+        
+        return (
+            f"❌ **Cannot Swap — Wallet Not Connected**\n\n"
+            f"**{token_in.upper()}** exists on: {', '.join(unique_chains)}\n"
+            f"**Your connected wallets**: {', '.join(c.upper() for c in user_chains)}\n\n"
+            f"You need a connected wallet on one of those chains to swap {token_in.upper()}.\n"
+            f"Please connect the appropriate wallet via HOT Kit."
+        )
+    
+    # ── SAFETY CHECK 3: Resolve destination ──
+    dest_token = get_token_by_symbol(token_out.upper(), tokens, chain=destination_chain)
+    if not dest_token:
+        dest_token = get_token_by_symbol(token_out.upper(), tokens)
+    
+    if not dest_token:
+        return f"❌ Token '{token_out}' not found. Use get_available_tokens_tool to see available tokens."
+    
+    dest_chain = dest_token.get("blockchain", "near").lower()
+    
+    # Determine recipient address
+    is_cross_chain = dest_chain != source_chain
+    
+    if is_cross_chain:
+        if destination_address:
+            # User provided explicit address — validate it
+            if not validate_address_for_chain(destination_address, dest_chain):
+                expected_format = get_chain_address_format(dest_chain)
+                return (
+                    f"❌ **Invalid Address Format**\n\n"
+                    f"The address `{destination_address}` doesn't match the expected format for **{dest_chain.upper()}**.\n"
+                    f"Expected: {expected_format}\n\n"
+                    f"Please provide a valid {dest_chain.upper()} address."
+                )
+            recipient = destination_address
+        elif dest_chain in addr_map:
+            # Auto-fill from connected wallets
+            recipient = addr_map[dest_chain]
+            # Note: The LLM prompt tells the agent to confirm this with the user
+        else:
+            # No address available — ask user
+            expected_format = get_chain_address_format(dest_chain)
+            return (
+                f"⚠️ **Cross-Chain Swap — Address Needed**\n\n"
+                f"You want to receive **{token_out.upper()}** on **{dest_chain.upper()}** chain.\n"
+                f"You don't have a {dest_chain.upper()} wallet connected.\n\n"
+                f"Please provide your **{dest_chain.upper()} wallet address** ({expected_format})."
+            )
+    else:
+        # Same chain — use the connected wallet address for that chain
+        recipient = addr_map.get(source_chain, account_id)
+    
+    # ── Get the actual quote ──
+    quote = _get_swap_quote(token_in.upper(), token_out.upper(), amount, recipient_id=recipient)
+    
+    if "error" in quote:
+        return f"❌ Error getting quote: {quote['error']}"
+    
+    # Store quote globally for confirmation
+    global _last_quote
+    _last_quote = {
+        "token_in": token_in.upper(),
+        "token_out": token_out.upper(),
+        "amount": amount,
+        "amount_out": quote['amount_out'],
+        "min_amount_out": quote['amount_out'] * 0.99,  # 1% slippage
+        "deposit_address": quote['deposit_address'],
+        "recipient": recipient,
+        "is_cross_chain": is_cross_chain,
+        "dest_chain": dest_chain,
+        "source_chain": source_chain
+    }
+    
+    # Format response
+    dest_info = f" on **{dest_chain.upper()}**" if is_cross_chain else ""
+    auto_filled = dest_chain in addr_map and not destination_address and is_cross_chain
+    addr_note = f"\n💡 _Using your connected {dest_chain.upper()} address. Reply 'use [address]' to change._" if auto_filled else ""
+    
+    return (
+        f"✅ **Swap Quote**\n"
+        f"**Swap**: {amount} [{source_chain.upper()}] {token_in.upper()} → ~{quote['amount_out']:.6f} [{dest_chain.upper()}] {token_out.upper()}\n"
+        f"**Rate**: 1 {token_in.upper()} = {quote['rate']:.6f} {token_out.upper()}\n"
+        f"**Recipient**: `{recipient}`{dest_info}\n"
+        f"{addr_note}\n\n"
+        f"[QUOTE_ID: {id(_last_quote)}]\n"
+        f"Present this quote to the user. Ask them to reply 'yes' or 'confirm' to proceed, or 'no' to cancel."
+    )
+
+
+
+# Global storage for last quote
+_last_quote = None
+
+
+@tool
+def confirm_swap_tool() -> str:
+    """
+    Confirm and prepare the swap transaction after user approves the quote.
+    Call this ONLY when user explicitly confirms (says yes, okay, proceed, go ahead, etc).
+    This uses the most recent quote that was provided to the user.
+    
+    Returns: Status message about transaction preparation
+    """
+    global _last_quote
+    
+    if not _last_quote:
+        return "❌ No recent quote found. Please get a quote first by asking for a swap."
+    
+    try:
+        from tools import create_near_intent_transaction
+        
+        tx_payload = create_near_intent_transaction(
+            _last_quote["token_in"],
+            _last_quote["token_out"],
+            _last_quote["amount"],
+            _last_quote["min_amount_out"],
+            _last_quote["deposit_address"]
+        )
+        
+        # Return special marker that agents.py will detect
+        return f"[TRANSACTION_READY] Transaction prepared successfully. User needs to sign in their wallet."
+        
+    except Exception as e:
+        return f"❌ Error preparing transaction: {str(e)}"
+
+
+# ==============================
+# HOT Pay Tools (Payment Links)
+# ==============================
+
+@tool
+def create_payment_link_tool(amount: float, token: str, account_id: str, memo: str = "", item_id: str = None) -> str:
+    """
+    Create a crypto payment link using HOT Pay.
+    Anyone with the link can pay from 30+ blockchains using ANY token.
+    
+    Smart address routing:
+    - If user has a wallet connected on the token's native chain, uses that address
+    - Otherwise, payment is received on NEAR (bridged)
+    
+    USE when user asks to: "create a payment link", "generate invoice", "accept payment",
+    "send me money", "how can someone pay me", "create payment for 50 USDC"
+    
+    IMPORTANT: 
+    - This tool works best with a configured HOT Pay Item ID.
+    - If the user provides a specific Item ID, pass it as 'item_id'.
+    - If you receive a "Warning" that config is missing, you should ASK THE USER if they have a "HOT Pay Item ID" to provide.
+    
+    Args:
+        amount: Amount to receive (e.g., 50.0)
+        token: Token to receive (e.g., "USDC", "NEAR", "USDT")
+        account_id: User's primary wallet address (receives payment)
+        memo: Optional memo or order/invoice ID for tracking
+        item_id: Optional HOT Pay Item ID provided by the user.
+    
+    Returns: Payment link and details (or P2P transfer instructions if config missing)
+    """
+    if not account_id or account_id == "Not connected":
+        return "⚠️ Wallet not connected. Please connect your wallet first to create a payment link."
+    
+    from hot_pay import create_payment_link
+    
+    result = create_payment_link(
+        merchant_wallet=account_id,
+        amount=amount,
+        token=token.upper(),
+        memo=memo,
+        item_id=item_id,
+    )
+    
+    # Handle fallback/warning case
+    if "warning" in result:
+        return (
+            f"⚠️ **I need a HOT Pay Item ID**\n\n"
+            f"To generate a payment link, I strictly need a **HOT Pay Item ID** associated with this request.\n\n"
+            f"**Do you have one?**\n"
+            f"👉 **Yes:** Please reply with the ID (e.g. `ed123...`) and I'll create the link right away.\n"
+            f"👉 **No:** Then I cannot generate a HOT Pay link.\n\n"
+            f"_(You can get an ID at https://pay.hot-labs.org/admin)_"
+        )
+    
+    # Clarify how tokens are received
+    is_native_near = token.upper() in ["NEAR", "USDC", "USDT"]
+    receive_note = (
+        f"You'll receive {result['token']} in your wallet."
+        if is_native_near
+        else f"You'll receive **bridged {result['token']} on NEAR** (via NEAR Intents). "
+             f"This is the same wrapped token used in NEAR ecosystem swaps."
+    )
+    
+    return (
+        f"✅ **Payment Link Created!**\n\n"
+        f"🔗 **Link**: {result['payment_url']}\n\n"
+        f"**Details:**\n"
+        f"• Amount: {result['amount']} {result['token']}\n"
+        f"• Receives to: `{result['merchant_wallet']}`\n"
+        f"• Memo: {result['memo'] or '(none)'}\n\n"
+        f"📌 **How it works:** Share this link with anyone. They can pay from 30+ blockchains "
+        f"using any token they have. {receive_note} "
+        f"No fees, fully on-chain.\n\n"
+        f"Powered by HOT Pay 🔥"
+    )
+
+
+@tool
+async def check_payment_status_tool(memo: str = "", sender_id: str = "", limit: int = 5) -> str:
+    """
+    Check if payments have been received via HOT Pay.
+    Can filter by memo/order ID or sender address.
+    
+    USE when user asks: "has anyone paid", "check my payments", "payment status",
+    "did I receive payment", "check invoice status"
+    
+    NOTE: Requires HOT_PAY_API_TOKEN to be configured in .env file.
+    
+    Args:
+        memo: Optional memo/order ID to filter by
+        sender_id: Optional sender wallet address to filter by
+        limit: Number of recent payments to show (default 5)
+    
+    Returns: Payment history or setup instructions
+    """
+    from hot_pay import get_payment_history
+    
+    result = await get_payment_history(
+        limit=limit,
+        memo=memo if memo else None,
+        sender_id=sender_id if sender_id else None,
+    )
+    
+    if "error" in result:
+        if "not configured" in result["error"]:
+            return (
+                f"⚠️ **HOT Pay API Token Not Set**\n\n"
+                f"To track payments, you need a HOT Pay API token:\n"
+                f"1. Go to https://pay.hot-labs.org/admin/api-keys\n"
+                f"2. Generate an API token (free)\n"
+                f"3. Add `HOT_PAY_API_TOKEN=your_token` to your `.env` file\n"
+                f"4. Restart the server"
+            )
+        return f"❌ {result['error']}"
+    
+    payments = result.get("payments", [])
+    pagination = result.get("pagination", {})
+    
+    if not payments:
+        filter_info = ""
+        if memo:
+            filter_info += f" with memo '{memo}'"
+        if sender_id:
+            filter_info += f" from {sender_id}"
+        return f"📭 No payments found{filter_info}. Share your payment link and check back later!"
+    
+    # Format payment list
+    lines = [f"💰 **{len(payments)} Payment(s) Found:**\n"]
+    for i, p in enumerate(payments, 1):
+        status_emoji = "✅" if p.get("status") == "SUCCESS" else "⏳"
+        lines.append(
+            f"{i}. {status_emoji} **{p.get('amount', '?')} {p.get('token_id', '?').split(':')[-1] if ':' in p.get('token_id', '') else p.get('token_id', '?')}**\n"
+            f"   From: `{p.get('sender_id', 'unknown')}`\n"
+            f"   Memo: {p.get('memo', '—')}\n"
+            f"   TX: `{p.get('near_trx', '—')}`"
+        )
+    
+    total = pagination.get("count", len(payments))
+    if total > limit:
+        lines.append(f"\n📊 Showing {limit} of {total} total payments.")
+    
+    return "\n".join(lines)
+
+
+# Tool metadata for agent configuration
+TOOL_LIST = [
+    get_available_tokens_tool,
+    get_token_chains_tool,
+    validate_token_names_tool,
+    get_swap_quote_tool,
+    confirm_swap_tool,
+    # HOT Pay tools
+    create_payment_link_tool,
+    check_payment_status_tool,
+]

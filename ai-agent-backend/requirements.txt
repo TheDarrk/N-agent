@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-multipart
+langchain
+langchain-core
+langchain-openai
+langchain-community
+pydantic
+python-dotenv
+httpx
+fuzzywuzzy
+python-Levenshtein
+web3
+tenacity
+pytest

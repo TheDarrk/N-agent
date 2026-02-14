@@ -1,0 +1,238 @@
+eth available :
+ETH
+NEAR
+ETH
+
+ETH
+ETH
+ETH
+
+
+ETH
+ARB
+ETH
+
+
+ETH
+BASE
+ETH
+
+
+WETH
+GNOSIS
+WETH
+
+ETH
+OP
+ETH 
+
+agent convo : 
+what are avilable tokens you have to swap..
+
+Here’s the current lineup of tokens you can swap on the NEAR Intents / Defuse 1‑Click platform (your wallet `thedarrrk.near` is ready to use):
+
+| Token Symbol | Token Name |
+|--------------|------------|
+| **NEAR** | NEAR |
+| **ETH** | ETH |
+| **FRAX** | FRAX |
+| **AURORA** | AURORA |
+| **wBTC** | wBTC |
+| **BLACKDRAGON** | BLACKDRAGON |
+| **SHITZU** | SHITZU |
+| **ABG** | ABG |
+| **NOEAR** | NOEAR |
+| **mpDAO** | mpDAO |
+| **ZEC** | ZEC |
+| **JAMBO** | JAMBO |
+| **NearKat** | NearKat |
+| **GNEAR** | GNEAR |
+| **TESTNEBULA** | TESTNEBULA |
+| **RHEA** | RHEA |
+| **PUBLIC** | PUBLIC |
+| **HAPI** | HAPI |
+| **ITLX** | ITLX |
+| **CFI** | CFI |
+| **NPRO** | NPRO |
+| **USDT** | USDT |
+| **USDC** | USDC |
+| **SUI** | SUI |
+| **BTC** | BTC |
+| **cbBTC** | cbBTC |
+| **SOL** | SOL |
+| **ARB** | ARB |
+| **DOGE** | DOGE |
+| **XRP** | XRP |
+| **SWEAT** | SWEAT |
+| **KNC** | KNC |
+| **TURBO** | TURBO |
+| **$WIF** | $WIF |
+| **BOME** | BOME |
+| **TRUMP** | TRUMP |
+| **DAI** | DAI |
+| **GNO** | GNO |
+| **COW** | COW |
+| **SAFE** | SAFE |
+| **AAVE** | AAVE |
+| **STRK** | STRK |
+| **BERA** | BERA |
+| **BNB** | BNB |
+| **ASTER** | ASTER |
+| **MON** | MON |
+| **OKB** | OKB |
+| **XPL** | XPL |
+| **POL** | POL |
+| **KAITO** | KAITO |
+| …and about 35 more tokens not shown here.*
+
+If you’d like to trade any of these, just let me know the **source token**, the **target token**, and the **amount** you’d like to swap. I’ll fetch a real‑time quote for you and walk you through the next steps. 🚀
+
+*(Reminder: you’ll always sign the transaction yourself in your wallet – I never see your private keys.)*
+
+what option for eth?
+
+Sure! ETH is one of the most‑traded assets on our platform, so you can swap it for **any of the other supported tokens**.  
+Here’s a quick rundown of the most common pairs you might want:
+
+| Swap From ETH → To… | Typical Use‑Case |
+|----------------------|------------------|
+| **NEAR** | Move value onto the NEAR ecosystem |
+| **USDT / USDC / DAI** | Stable‑coin conversions for low‑volatility holding |
+| **wBTC / BTC / cbBTC** | Switch between Ethereum‑based and Bitcoin‑based assets |
+| **SOL / SUI / AURORA** | Jump to other popular smart‑contract chains |
+| **BNB / ARB / DOGE / XRP** | Cross‑chain swaps to Binance, Arbitrum, Dogecoin, Ripple, etc. |
+| **GNO / AAVE / COW / KNC** | Trade for DeFi protocol tokens |
+| **SHITZU / BLACKDRAGON / TRUMP / $WIF** | Community‑driven or meme tokens |
+| **…and many more** (e.g., **ZEC, POL, KAITO, BOME, etc.**) | Full list available on request |
+
+If you have a specific token in mind (e.g., “ETH → USDT” or “ETH → NEAR”) just tell me the **target token** and the **amount of ETH** you’d like to swap, and I’ll fetch a real‑time quote for you. 🚀
+
+*(All swaps are executed via the audited NEAR Intents/Defuse 1‑Click protocol, and you’ll sign the transaction yourself in your wallet – I never see your private keys.)*
+
+i am asking on which which chain you have eth available...
+
+**ETH is available on the following chains within the NEAR Intents / Defuse 1‑Click ecosystem**
+
+| Chain | How ETH appears there | Typical use‑case |
+|-------|----------------------|-----------------|
+| **NEAR** | Wrapped ETH (often shown simply as **ETH**) that lives on the NEAR blockchain via the official bridge. | Swap to any NEAR‑native token (e.g., NEAR, USDT, wBTC, etc.) without leaving the NEAR network. |
+| **Aurora** | Aurora is NEAR’s EVM‑compatible side‑chain, so ETH is supported as a native‑compatible asset (you can treat it like regular ETH on an EVM). | Move ETH into Aurora‑based DeFi protocols or bridge it back to NEAR‑wrapped ETH for further swaps. |
+| **Ethereum (Mainnet)** – via the cross‑chain bridge | The same ETH you hold on Ethereum can be bridged into NEAR (becoming the wrapped ETH above). | If you already have ETH on Ethereum, you can bridge it to NEAR and then swap it to any of the other supported tokens. |
+
+In short, **the only “chains” where you can directly work with ETH on our platform are NEAR and Aurora** (both part of the NEAR ecosystem). Any ETH you have on the Ethereum mainnet must first be bridged into NEAR, after which it appears as the wrapped ETH token listed above.
+
+Let me know if you’d like a real‑time quote for swapping ETH (e.g., ETH → NEAR, ETH → USDT, ETH → wBTC, etc.) and how much you’d like to trade. I’ll fetch the latest rate for you! 🚀
+
+*(Remember: you’ll always sign the transaction yourself in your wallet (`thedarrrk.near`). I never see your private keys.)*
+
+
+
+logs :
+   127.0.0.1:56934 - "OPTIONS /chat HTTP/1.1" 200 OK
+[AGENT] Processing: what are avilable tokens you have to swap.. | Step: IDLE | Account: thedarrrk.near
+[AGENT] Populating token cache...
+[KNOWLEDGE] Fetching token list from 1-Click API...
+[KNOWLEDGE] Loaded 85 tokens from API
+[AGENT] Sending 2 messages (including 0 recent history items)
+[AGENT] LLM calling 1 tool(s)
+[AGENT] Calling tool: get_available_tokens_tool with args: {}
+[AGENT] Executing tool: get_available_tokens_tool
+[KNOWLEDGE] Using cached token list (85 tokens)
+[AGENT] Tool result: **Available Tokens:**
+• NEAR - NEAR
+• ETH - ETH
+• FRAX - FRAX
+• AURORA - AURORA
+• wBTC - wBTC
+• BLACKDRAGON - BLACKDRAGON
+• SHITZU - SHITZU
+• ABG - ABG
+• NOEAR - NOEAR
+• mpDAO - mpDAO
+• ZEC - ZEC
+• JA
+[AGENT] Getting final response from LLM with 1 tool results
+[AGENT] Tool response sequence: SystemMessage(You are a helpful and knowledg...) → HumanMessage(what are avilable tokens you h...) → HumanMessage(Tool 'get_available_tokens_too...)
+[AGENT] Sending 3 messages to LLM for final response
+[AGENT] LLM raw response type: <class 'langchain_core.messages.ai.AIMessage'>
+[AGENT] LLM response content: Here’s the current lineup of tokens you can swap on the NEAR Intents / Defuse 1‑Click platform (your wallet `thedarrrk.near` is ready to use):
+
+| Token Symbol | Token Name |
+|--------------|------------|
+| **NEAR** | NEAR |
+| **ETH** | ETH |
+| **FRAX** | FRAX |
+| **AURORA** | AURORA |
+| **wBTC** | wBTC |
+| **BLACKDRAGON** | BLACKDRAGON |
+| **SHITZU** | SHITZU |
+| **ABG** | ABG |
+| **NOEAR** | NOEAR |
+| **mpDAO** | mpDAO |
+| **ZEC** | ZEC |
+| **JAMBO** | JAMBO |
+| **NearKat** | NearKat |
+| **GNEAR** | GNEAR |
+| **TESTNEBULA** | TESTNEBULA |
+| **RHEA** | RHEA |
+| **PUBLIC** | PUBLIC |
+| **HAPI** | HAPI |
+| **ITLX** | ITLX |
+| **CFI** | CFI |
+| **NPRO** | NPRO |
+| **USDT** | USDT |
+| **USDC** | USDC |
+| **SUI** | SUI |
+| **BTC** | BTC |
+| **cbBTC** | cbBTC |
+| **SOL** | SOL |
+| **ARB** | ARB |
+| **DOGE** | DOGE |
+| **XRP** | XRP |
+| **SWEAT** | SWEAT |
+| **KNC** | KNC |
+| **TURBO** | TURBO |
+| **$WIF** | $WIF |
+| **BOME** | BOME |
+| **TRUMP** | TRUMP |
+| **DAI** | DAI |
+| **GNO** | GNO |
+| **COW** | COW |
+| **SAFE** | SAFE |
+| **AAVE** | AAVE |
+| **STRK** | STRK |
+| **BERA** | BERA |
+| **BNB** | BNB |
+| **ASTER** | ASTER |
+| **MON** | MON |
+| **OKB** | OKB |
+| **XPL** | XPL |
+| **POL** | POL |
+| **KAITO** | KAITO |
+| …and about 35 more tokens not shown here.*
+
+If you’d like to trade any of these, just let me know the **source token**, the **target token**, and the **amount** you’d like to swap. I’ll fetch a real‑time quote for you and walk you through the next steps. 🚀
+
+*(Reminder: you’ll always sign the transaction yourself in your wallet – I never see your private keys.)*
+[AGENT] Final response (1597 chars): Here’s the current lineup of tokens you can swap on the NEAR Intents / Defuse 1‑Click platform (your wallet `thedarrrk.near` is ready to use):
+
+| Token Symbol | Token Name |
+|--------------|----------
+INFO:     127.0.0.1:56934 - "POST /chat HTTP/1.1" 200 OK
+[AGENT] Processing: what option for eth? | Step: IDLE | Account: thedarrrk.near
+[AGENT] Sending 4 messages (including 2 recent history items)
+[AGENT] Direct response (no tools): Sure! ETH is one of the most‑traded assets on our platform, so you can swap it for **any of the other supported tokens**.
+Here’s a quick rundown of the most common pairs you might want:
+
+| Swap From
+INFO:     127.0.0.1:53642 - "POST /chat HTTP/1.1" 200 OK
+[AGENT] Processing: i am asking on which which chain you have eth available... | Step: IDLE | Account: thedarrrk.near
+[AGENT] Sending 6 messages (including 4 recent history items)
+[AGENT] Direct response (no tools): **ETH is available on the following chains within the NEAR Intents / Defuse 1‑Click ecosystem**
+
+| Chain | How ETH appears there | Typical use‑case |
+|-------|----------------------|-----------------|
+INFO:     127.0.0.1:57516 - "POST /chat HTTP/1.1" 200 OK
+
+
+there is also caching going on when available token called it option get cached ....
