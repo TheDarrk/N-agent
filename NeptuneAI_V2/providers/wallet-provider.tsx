@@ -127,7 +127,8 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 if (result?.amount) {
                     const yocto = result.amount;
                     // Keep native NEAR key lowercase 'near' for existing ChatSidebar styling
-                    newBalances.near = (Number(BigInt(yocto) / BigInt(10 ** 22)) / 100).toFixed(2);
+                    const balance = Number(BigInt(yocto) / BigInt(10 ** 20)) / 10000; // Divide by 10^24
+                    newBalances.near = balance.toFixed(5).replace(/\.?0+$/, "");
                 }
 
                 // Fetch FTs via helper (FastNEAR/Kitwallet)
@@ -148,6 +149,9 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 kitTokens.forEach((t: any) => {
                     if (t.token && t.balance) {
                         const symbol = t.token.symbol;
+                        // Log raw balance for debugging user issues
+                        console.log(`[Balance Debug] ${symbol}: raw=${t.balance}, decimals=${t.token.decimals}`);
+
                         const formatted = t.token.float ? t.token.float(t.balance) : formatBalanceManual(t.balance, t.token.decimals);
 
                         // Avoid overwriting NEAR if we have a robust native fetch, OR overwrite if kit is trusted.
@@ -171,10 +175,15 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
     function formatBalanceManual(balance: string | bigint | number, decimals: number): string {
         const val = BigInt(balance);
+        if (val === 0n) return "0";
+
         const div = BigInt(10 ** decimals);
         const int = val / div;
         const rem = val % div;
-        return `${int}.${rem.toString().padStart(decimals, '0').slice(0, 4)}`;
+
+        // Use up to 6 decimal places, remove trailing zeros
+        let remStr = rem.toString().padStart(decimals, '0').slice(0, 6);
+        return `${int}.${remStr}`.replace(/\.?0+$/, "");
     }
 
     // ── Auto-refresh balances (Polling) ──────────────────
