@@ -119,13 +119,22 @@ def get_swap_quote(token_in: str, token_out: str, amount: float, chain_id: str =
     t_in = token_in.upper()
     t_out = token_out.upper()
     
-    asset_in = TOKEN_MAP.get(t_in)
-    asset_out = TOKEN_MAP.get(t_out)
+    # Dynamic lookup from knowledge base
+    from knowledge_base import _token_cache, get_token_by_symbol
+    tokens = _token_cache if _token_cache else []
     
-    if not asset_in or not asset_out:
-        return {"error": f"Token pair {t_in}->{t_out} not supported"}
-
-    decimals_in = DECIMALS_MAP.get(t_in, 24)
+    token_in_data = get_token_by_symbol(t_in, tokens)
+    token_out_data = get_token_by_symbol(t_out, tokens)
+    
+    if not token_in_data:
+        return {"error": f"Token {t_in} not found in supported list"}
+    if not token_out_data:
+        return {"error": f"Token {t_out} not found in supported list"}
+        
+    asset_in = token_in_data.get("defuseAssetId")
+    asset_out = token_out_data.get("defuseAssetId")
+    
+    decimals_in = token_in_data.get("decimals", 24)
     amount_atomic = int(amount * (10 ** decimals_in))
     
     print(f"[TOOL] Fetching 1-Click quote for {amount} {t_in} -> {t_out} (Recipient: {recipient_id})")
@@ -209,7 +218,14 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
     contract_id = "intents.near" 
     transactions = []
     
-    decimals_in = DECIMALS_MAP.get(token_in.upper(), 24)
+    # Dynamic lookup
+    from knowledge_base import _token_cache, get_token_by_symbol
+    tokens = _token_cache if _token_cache else []
+    
+    token_in_data = get_token_by_symbol(token_in.upper(), tokens)
+    token_out_data = get_token_by_symbol(token_out.upper(), tokens)
+    
+    decimals_in = token_in_data.get("decimals", 24) if token_in_data else 24
     amount_int = int(amount * (10 ** decimals_in))
 
     if token_in.lower() == "near":
@@ -258,10 +274,16 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
         })
     else:
         # NEP-141 Deposit
-        t_in_contract = TOKEN_MAP.get(token_in.upper(), "").replace("nep141:", "")
+        # Try to get contract from data, or fallback for well-knowns, or infer
+        t_in_contract = token_in_data.get("contractAddress") if token_in_data else ""
+        
         if not t_in_contract:
-             # Fallback logic or error
-             t_in_contract = f"{token_in.lower()}.near"
+             # Fallback: parse from defuse asset ID if possible (nep141:contract.near)
+             defuse_id = token_in_data.get("defuseAssetId", "") if token_in_data else ""
+             if defuse_id.startswith("nep141:"):
+                 t_in_contract = defuse_id.replace("nep141:", "")
+             else:
+                 t_in_contract = f"{token_in.lower()}.near"
 
         transactions.append({
             "receiverId": t_in_contract,
@@ -283,6 +305,14 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
         })
 
     # TX 2: Swap (mt_transfer) to VALID SOLVER
+    # Output token ID for intent
+    token_out_id = token_out_data.get("defuseAssetId") if token_out_data else f"nep141:{token_out.lower()}.near"
+    
+    # If token_in is NEAR, we actually swap wNEAR
+    token_in_id = token_in_data.get("defuseAssetId") if token_in_data else ""
+    if token_in.upper() == "NEAR":
+        token_in_id = "nep141:wrap.near"
+        
     transactions.append({
         "receiverId": contract_id,
         "actions": [
@@ -291,7 +321,7 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
                 "params": {
                     "methodName": "mt_transfer",
                     "args": {
-                        "token_id": TOKEN_MAP.get(token_in.upper(), f"nep141:{token_in.lower()}.near"),
+                        "token_id": token_in_id, # Source token ID
                         "receiver_id": deposit_address, # The real solver from the quote
                         "amount": str(amount_int),
                         "msg": ""
