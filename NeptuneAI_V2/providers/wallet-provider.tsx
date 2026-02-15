@@ -183,7 +183,15 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     const kit = new HotKitClass({
                         connectors: [...(Array.isArray(defaultConnectors) ? defaultConnectors : [])],
                         apiKey: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-dev",
-                        projectId: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-dev",
+                        walletConnect: {
+                            projectId: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-dev", // Ideally needs a Reown (WalletConnect) Project ID
+                            metadata: {
+                                name: "Neptune AI",
+                                description: "Multi-chain AI Agent",
+                                url: typeof window !== "undefined" ? window.location.origin : "",
+                                icons: ["https://avatars.githubusercontent.com/u/100000000?s=200&v=4"], // Generic icon for now
+                            }
+                        }
                     });
                     hotKitRef.current = kit;
 
