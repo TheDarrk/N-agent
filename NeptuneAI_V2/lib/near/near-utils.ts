@@ -55,7 +55,8 @@ export async function rpcQuery(params: Record<string, unknown>): Promise<any> {
         }
         return data.result;
       } catch (e) {
-        console.warn(`RPC call to ${url} failed (attempt ${attempt + 1}):`, e);
+        // Suppress individual RPC failure logs to avoid console flood
+        // console.warn(`RPC call to ${url} failed (attempt ${attempt + 1}):`, e);
         lastError = e;
 
         // Small delay before internal retry (if we were to multi-retry same URL)

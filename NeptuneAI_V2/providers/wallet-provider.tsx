@@ -146,6 +146,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         try {
             if (kit.walletsTokens) {
                 const kitTokens = kit.walletsTokens; // Getter that computes balances
+                console.log("[Balance Debug] FULL HotKit Token List:", kitTokens);
                 kitTokens.forEach((t: any) => {
                     if (t.token && t.balance) {
                         const symbol = t.token.symbol;
