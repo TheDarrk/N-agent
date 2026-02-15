@@ -200,9 +200,16 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                         // Use manual formatting to avoid scientific notation for small balances
                         const formatted = formatBalanceManual(t.balance, t.token.decimals);
 
+
                         // Resolve chain label using our mapper (handles numeric IDs like 8453 -> "base")
                         let chainLabel: string;
-                        if (t.token.chain_id) {
+                        let displaySymbol = symbol.toUpperCase();
+
+                        // Special handling for Wrapped NEAR on Omni/Hot chain (-4)
+                        if (t.token.chain_id === -4 && (t.token.address === 'nep141:wrap.near' || t.token.omniAddress === 'nep141:wrap.near')) {
+                            chainLabel = "NEAR";
+                            displaySymbol = "wNEAR";
+                        } else if (t.token.chain_id) {
                             chainLabel = walletTypeToChain(t.token.chain_id).toUpperCase();
                         } else {
                             // Fallback to existing logic if chain_id is missing, but use our mapper if possible
@@ -213,7 +220,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                         if (chainLabel === "BSC") chainLabel = "BNB";
 
                         // Avoid overwriting NEAR if we have a robust native fetch, OR overwrite if kit is trusted.
-                        const key = `[${chainLabel}] ${symbol.toUpperCase()}`;
+                        const key = `[${chainLabel}] ${displaySymbol}`;
                         newBalances[key] = formatted;
                     }
                 });
