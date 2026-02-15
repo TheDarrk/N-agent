@@ -215,11 +215,13 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
                 // Trigger HOT Kit auth UI
                 const kit = hotKitRef.current;
-                // Official HOT Kit API: openProfile() opens the wallet connection popup
-                if (kit.openProfile) {
-                    kit.openProfile();
-                } else if (kit.connect) {
+
+                // Explicitly call connect() to open the wallet picker/connector
+                if (kit.connect) {
                     await kit.connect();
+                } else if (kit.openProfile) {
+                    // Fallback for older versions if connect() is missing
+                    kit.openProfile();
                 }
 
                 // Sync wallets after connect returns
