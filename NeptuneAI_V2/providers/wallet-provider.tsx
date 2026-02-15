@@ -183,6 +183,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     const kit = new HotKitClass({
                         connectors: [...(Array.isArray(defaultConnectors) ? defaultConnectors : [])],
                         apiKey: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-dev",
+                        projectId: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-dev",
                     });
                     hotKitRef.current = kit;
 
