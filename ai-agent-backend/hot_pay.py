@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 
 HOT_PAY_BASE_URL = "https://api.hot-labs.org"
-HOT_PAY_FRONTEND_URL = "https://pay.hot-labs.org"
+HOT_PAY_FRONTEND_URL = "https://pay.hot-labs.org" # Official Front-end
 
 # API token for partner endpoints (optional, for payment tracking)
 HOT_PAY_API_TOKEN = os.getenv("HOT_PAY_API_TOKEN", "")

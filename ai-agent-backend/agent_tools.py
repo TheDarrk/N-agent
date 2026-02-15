@@ -365,7 +365,7 @@ def create_payment_link_tool(amount: float, token: str, account_id: str, memo: s
             f"**Do you have one?**\n"
             f"👉 **Yes:** Please reply with the ID (e.g. `ed123...`) and I'll create the link right away.\n"
             f"👉 **No:** Then I cannot generate a HOT Pay link.\n\n"
-            f"_(You can get an ID at https://pay.hot-labs.org/admin)_"
+            f"_(You can get an ID at https://pay.hot-labs.org/admin.)_"
         )
     
     # Clarify how tokens are received
