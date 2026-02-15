@@ -106,6 +106,7 @@ export default function ChatInterface() {
   const [txPayload, setTxPayload] = useState<Record<string, unknown> | undefined>();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setSessionId(uid());
@@ -186,6 +187,11 @@ export default function ChatInterface() {
 
   // ── Chat ──────────────────────────────────────────────
   const handleSend = async (text?: string) => {
+    // Abort previous request if running
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
     const msg = text || input.trim();
     if (!msg || isLoading) return;
 
@@ -194,8 +200,13 @@ export default function ChatInterface() {
     if (textareaRef.current) textareaRef.current.style.height = "24px";
     setIsLoading(true);
 
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const res = await fetch("/api/chat", {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -219,7 +230,11 @@ export default function ChatInterface() {
           payload: data.payload,
         },
       ]);
-    } catch {
+    } catch (error: any) {
+      if (error.name === "AbortError") {
+        console.log("Request aborted");
+        return;
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -230,7 +245,10 @@ export default function ChatInterface() {
         },
       ]);
     } finally {
-      setIsLoading(false);
+      if (abortControllerRef.current === controller) {
+        setIsLoading(false);
+        abortControllerRef.current = null;
+      }
     }
   };
 
@@ -242,6 +260,11 @@ export default function ChatInterface() {
   };
 
   const resetChat = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
     setMessages([]);
     setSessionId(uid());
   };
