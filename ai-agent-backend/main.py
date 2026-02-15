@@ -66,7 +66,7 @@ class ChatRequest(BaseModel):
     account_id: Optional[str] = None
     wallet_addresses: Optional[Dict[str, str]] = None  # {"near": "x.near", "eth": "0x...", "solana": "..."}
     connected_chains: Optional[List[str]] = None       # ["near", "eth", "solana"]
-    balances: Optional[Dict[str, str]] = None          # {"near": "10.5", "eth": "1.2"}
+    balances: Optional[Dict[str, Union[str, float, int]]] = None # {"near": "10.5", "PURGE": 69}
 
 class ChatResponse(BaseModel):
     response: str
