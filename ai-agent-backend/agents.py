@@ -253,8 +253,66 @@ async def process_message(
             print(f"[AGENT] Tool response sequence: {' → '.join(msg_types)}")
             
             print(f"[AGENT] Sending {len(tool_response_messages)} messages to LLM for final response")
-            final_response = await llm.ainvoke(tool_response_messages)
+            print(f"[AGENT] Sending {len(tool_response_messages)} messages to LLM for final response")
             
+            # Enable tools for this response too, to allow multi-step flows (Check Chains -> Get Quote)
+            final_response = await llm_with_tools.ainvoke(tool_response_messages)
+            
+            # Handle potential second-pass tool calls (e.g. Get Quote after verifying chains)
+            if final_response.tool_calls:
+                print(f"[AGENT] Second-pass tool calling: {len(final_response.tool_calls)} tool(s)")
+                
+                # Append the AI's intent to call tools
+                tool_response_messages.append(final_response)
+                
+                for tool_call in final_response.tool_calls:
+                    tool_name = tool_call["name"]
+                    tool_args = tool_call["args"]
+                    print(f"[AGENT] Calling tool (Pass 2): {tool_name}")
+                    
+                    tool_result = None
+                    
+                    # Special handling for transaction preparation
+                    if tool_name == "prepare_swap_transaction_tool":
+                        transaction_prepared = True
+                        from tools import create_near_intent_transaction
+                        try:
+                            tx_payload = create_near_intent_transaction(
+                                tool_args["token_in"],
+                                tool_args["token_out"],
+                                tool_args["amount"],
+                                tool_args["min_amount_out"],
+                                tool_args["deposit_address"]
+                            )
+                            tool_result = "✅ Transaction prepared successfully and ready for user signature."
+                        except Exception as e:
+                            tool_result = f"❌ Error preparing transaction: {str(e)}"
+                            
+                    else:
+                        # Standard tools
+                        found = False
+                        for tool in TOOL_LIST:
+                            if tool.name == tool_name:
+                                try:
+                                    tool_result = await tool.ainvoke(tool_args)
+                                    found = True
+                                except Exception as e:
+                                    tool_result = f"Error: {str(e)}"
+                                break
+                        if not found:
+                             tool_result = f"Tool {tool_name} not found"
+                         
+                    # Append result to prompt
+                    tool_msg = HumanMessage(content=f"Tool '{tool_name}' returned:\n{tool_result}")
+                    tool_response_messages.append(tool_msg)
+                    
+                    # CRITICAL: Append to tool_messages so downstream logic (state transitions) sees it
+                    tool_messages.append(tool_msg)
+
+                # Final-Final response (no tools allowed to prevent loops)
+                print(f"[AGENT] Getting truly final response after Pass 2")
+                final_response = await llm.ainvoke(tool_response_messages)
+
             print(f"[AGENT] LLM raw response type: {type(final_response)}")
             print(f"[AGENT] LLM response content: {final_response.content if hasattr(final_response, 'content') else final_response}")
             
