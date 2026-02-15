@@ -197,8 +197,8 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                         // Log raw balance for debugging user issues
                         // console.log(`[Balance Debug] ${symbol}: raw=${t.balance}, decimals=${t.token.decimals}`);
 
-                        const formatted = t.token.float ? t.token.float(t.balance) : formatBalanceManual(t.balance, t.token.decimals);
-
+                        // Use manual formatting to avoid scientific notation for small balances
+                        const formatted = formatBalanceManual(t.balance, t.token.decimals);
 
                         // Resolve chain label using our mapper (handles numeric IDs like 8453 -> "base")
                         let chainLabel: string;
@@ -238,8 +238,8 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         const int = val / div;
         const rem = val % div;
 
-        // Use up to 6 decimal places, remove trailing zeros
-        let remStr = rem.toString().padStart(decimals, '0').slice(0, 6);
+        // Use up to 8 decimal places for accuracy with small balances
+        let remStr = rem.toString().padStart(decimals, '0').slice(0, 8);
         return `${int}.${remStr}`.replace(/\.?0+$/, "");
     }
 
