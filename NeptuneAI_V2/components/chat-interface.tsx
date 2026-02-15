@@ -220,6 +220,10 @@ export default function ChatInterface() {
       });
       if (!res.ok) throw new Error("Backend unavailable");
       const data = await res.json();
+
+      // Prevent race condition: If chat was reset/aborted, ignore result
+      if (abortControllerRef.current !== controller) return;
+
       setMessages((prev) => [
         ...prev,
         {
@@ -235,6 +239,10 @@ export default function ChatInterface() {
         console.log("Request aborted");
         return;
       }
+
+      // Prevent race condition: If chat was reset/aborted, ignore error
+      if (abortControllerRef.current !== controller) return;
+
       setMessages((prev) => [
         ...prev,
         {
