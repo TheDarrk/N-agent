@@ -276,8 +276,11 @@ export default function WalletProvider({ children }: { children: React.ReactNode
     }, []);
 
     // ── Sign Transaction (via HOT Kit NearWallet) ────────
+    // ── Sign Transaction (via HOT Kit NearWallet) ────────
     const signAndSendTransaction = useCallback(
-        async (payload: Record<string, unknown>): Promise<{ hash: string }> => {
+        async (payload: Record<string, unknown> | Record<string, unknown>[]): Promise<{ hash: string }> => {
+            console.log("[Wallet] signAndSendTransaction payload:", payload);
+
             if (!state.accountId) throw new Error("No wallet connected");
 
             const kit = hotKitRef.current;
@@ -293,54 +296,82 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 throw new Error("Active wallet instance not found. Please reconnect.");
             }
 
-            // Transform actions to ensure args are serialized (Base64)
-            // HOT Kit / NEAR Wallets often expect args as Base64 string if not using actionCreators
-            const rawActions = Array.isArray(payload.actions) ? payload.actions : [];
-            const actions = rawActions.map((action: any) => {
-                if (action.type === 'FunctionCall' && action.params) {
-                    const { args, ...rest } = action.params;
-                    let encodedArgs = args;
+            // Helper to process a single transaction object
+            const processTransaction = (tx: any) => {
+                const rawActions = Array.isArray(tx.actions) ? tx.actions : [];
+                const actions = rawActions.map((action: any) => {
+                    if (action.type === 'FunctionCall' && action.params) {
+                        const { args, ...rest } = action.params;
+                        let encodedArgs = args;
 
-                    // If args is an object, serialize to Base64 JSON
-                    if (typeof args === 'object' && args !== null) {
-                        try {
-                            const jsonString = JSON.stringify(args);
-                            if (typeof window !== 'undefined' && window.btoa) {
-                                encodedArgs = window.btoa(jsonString);
-                            } else {
-                                encodedArgs = Buffer.from(jsonString).toString('base64');
+                        // If args is an object, serialize to Base64 JSON
+                        if (typeof args === 'object' && args !== null) {
+                            try {
+                                const jsonString = JSON.stringify(args);
+                                if (typeof window !== 'undefined' && window.btoa) {
+                                    encodedArgs = window.btoa(jsonString);
+                                } else {
+                                    encodedArgs = Buffer.from(jsonString).toString('base64');
+                                }
+                            } catch (e) {
+                                console.warn("Failed to serialize args:", e);
                             }
-                        } catch (e) {
-                            console.warn("Failed to serialize args:", e);
                         }
+
+                        return {
+                            type: 'FunctionCall',
+                            params: {
+                                ...rest,
+                                args: encodedArgs,
+                            }
+                        };
                     }
+                    return action;
+                });
 
-                    return {
-                        type: 'FunctionCall',
-                        params: {
-                            ...rest,
-                            args: encodedArgs,
-                        }
-                    };
-                }
-                return action;
-            });
-
-            const txParams = {
-                receiverId: (payload.receiverId || payload.receiver_id) as string || "v1.comet.near",
-                actions: actions,
+                return {
+                    receiverId: (tx.receiverId || tx.receiver_id) as string || "v1.comet.near", // Fallback only if missing
+                    actions: actions,
+                };
             };
 
-            let hash: string;
+            let hash: string = "unknown";
 
-            // NearWallet has sendTransaction(params) -> string
-            if (nearWallet.sendTransaction) {
-                hash = await nearWallet.sendTransaction(txParams);
-            } else if (nearWallet.sendTransactions) {
-                const hashes = await nearWallet.sendTransactions({ transactions: [txParams] });
-                hash = hashes[0] || "unknown";
-            } else {
-                throw new Error("NEAR wallet signing method not available");
+            try {
+                if (Array.isArray(payload)) {
+                    // Handle Batch Transactions
+                    const txs = payload.map(processTransaction);
+                    console.log("[Wallet] Sending batch transactions:", txs);
+
+                    if (nearWallet.sendTransactions) {
+                        const hashes = await nearWallet.sendTransactions({ transactions: txs });
+                        hash = Array.isArray(hashes) ? hashes[hashes.length - 1] : "batch-success";
+                    } else if (nearWallet.sendTransaction) {
+                        // Fallback: Send one by one (less ideal, user signs multiple times)
+                        console.warn("Wallet doesn't support batch transactions, sending sequentially");
+                        for (const tx of txs) {
+                            hash = await nearWallet.sendTransaction(tx);
+                        }
+                    } else {
+                        throw new Error("Wallet signing method not available");
+                    }
+                } else {
+                    // Handle Single Transaction
+                    const txParams = processTransaction(payload);
+                    console.log("[Wallet] Sending single transaction:", txParams);
+
+                    if (nearWallet.sendTransaction) {
+                        hash = await nearWallet.sendTransaction(txParams);
+                    } else if (nearWallet.sendTransactions) {
+                        const hashes = await nearWallet.sendTransactions({ transactions: [txParams] });
+                        hash = hashes[0] || "unknown";
+                    } else {
+                        throw new Error("Wallet signing method not available");
+                    }
+                }
+            } catch (e) {
+                console.error("[Wallet] Transaction failed:", e);
+                throw e; // Re-throw to show error in UI
             }
 
             return { hash: hash || "unknown" };
