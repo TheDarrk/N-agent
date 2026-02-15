@@ -38,7 +38,25 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_headers=["*"],
 )
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"❌ Validation Error: {exc.errors()}")
+    try:
+        body = await request.json()
+        print(f"❌ Received Body: {body}")
+    except:
+        print("❌ Could not read body")
+        
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": str(exc)},
+    )
 
 # In-memory session store
 sessions: Dict[str, Dict[str, Any]] = {}
