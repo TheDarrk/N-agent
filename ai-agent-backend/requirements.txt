@@ -13,3 +13,5 @@ python-Levenshtein
 web3
 tenacity
 pytest
+pytest
+slowapi

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
 
@@ -8,17 +8,33 @@ import os
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 load_dotenv()
 
 # Import our Agent logic
 from agents import process_message
 from knowledge_base import get_available_tokens_from_api, format_token_list_for_display
 
+# Initialize Limiter
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="Neptune AI Agent")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Strict CORS Policy (Production Only)
+ORIGINS = [
+    "https://neptuneai-agent.vercel.app",
+    "https://neptune-ai-agent.vercel.app", # Including potential alias just in case, but user specified the confirmed one
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,7 +56,8 @@ class ChatResponse(BaseModel):
     payload: Optional[Union[Dict[str, Any], List[Any]]] = None
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+@limiter.limit("20/minute")
+async def chat_endpoint(request: ChatRequest, fastapi_req: Request):
     session_id = request.session_id
     user_msg = request.message
     
