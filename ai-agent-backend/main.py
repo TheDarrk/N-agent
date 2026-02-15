@@ -57,9 +57,9 @@ class ChatResponse(BaseModel):
 
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
-async def chat_endpoint(request: ChatRequest, fastapi_req: Request):
-    session_id = request.session_id
-    user_msg = request.message
+async def chat_endpoint(body: ChatRequest, request: Request):
+    session_id = body.session_id
+    user_msg = body.message
     
     # 1. Initialize or Retrieve Session
     if session_id not in sessions:
@@ -73,14 +73,14 @@ async def chat_endpoint(request: ChatRequest, fastapi_req: Request):
     history = session_data["history"]
     
     # 2. Process Message via Agent Orchestrator with conversation history
-    wallet_addresses = request.wallet_addresses or {}
+    wallet_addresses = body.wallet_addresses or {}
     connected_chains = list(wallet_addresses.keys()) if wallet_addresses else []
     
     user_context = {
-        "account_id": request.account_id,
+        "account_id": body.account_id,
         "connected_chains": connected_chains,
         "wallet_addresses": wallet_addresses,
-        "balances": request.balances or {},
+        "balances": body.balances or {},
         "history": history  # Pass conversation history to agent
     }
     result = await process_message(user_msg, current_state, user_context)
