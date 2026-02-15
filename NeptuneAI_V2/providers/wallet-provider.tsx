@@ -188,8 +188,14 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 }
 
                 if (!hotKitRef.current) {
+                    // Filter out any undefined connectors and log them
+                    const safeConnectors = (Array.isArray(defaultConnectors) ? defaultConnectors : [])
+                        .filter((c: any) => !!c);
+
+                    console.log("[Wallet] Initializing HOT Kit with connectors:", safeConnectors);
+
                     const kit = new HotKitClass({
-                        connectors: [...(Array.isArray(defaultConnectors) ? defaultConnectors : [])],
+                        connectors: safeConnectors,
                         apiKey: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-dev",
                         walletConnect: {
                             projectId: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-dev", // Ideally needs a Reown (WalletConnect) Project ID
