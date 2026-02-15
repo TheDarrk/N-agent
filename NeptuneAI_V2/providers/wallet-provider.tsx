@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
-import { fetchAllTokens } from "@/lib/near/near-utils";
+import { fetchAllTokens, rpcQuery } from "@/lib/near/near-utils";
 
 // ─── Types ───────────────────────────────────────────────
 type WalletState = {
@@ -118,23 +118,14 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         // Try NEAR balance via RPC (most reliable)
         if (addresses.near) {
             try {
-                const resp = await fetch("https://rpc.mainnet.near.org", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        jsonrpc: "2.0",
-                        id: "dontcare",
-                        method: "query",
-                        params: {
-                            request_type: "view_account",
-                            finality: "final",
-                            account_id: addresses.near,
-                        },
-                    }),
-                });
-                const data = await resp.json();
-                if (data.result?.amount) {
-                    const yocto = data.result.amount;
+                const result = await rpcQuery({
+                    request_type: "view_account",
+                    finality: "final",
+                    account_id: addresses.near,
+                }) as { amount: string };
+
+                if (result?.amount) {
+                    const yocto = result.amount;
                     // Keep native NEAR key lowercase 'near' for existing ChatSidebar styling
                     newBalances.near = (Number(BigInt(yocto) / BigInt(10 ** 22)) / 100).toFixed(2);
                 }
@@ -157,6 +148,23 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             }));
         }
     }, []);
+
+    // ── Auto-refresh balances (Polling) ──────────────────
+    useEffect(() => {
+        if (!state.accountId || Object.keys(state.walletAddresses).length === 0) return;
+
+        const kit = hotKitRef.current;
+        if (!kit) return;
+
+        // Initial fetch
+        // fetchBalancesFromKit(kit, state.walletAddresses);
+
+        const interval = setInterval(() => {
+            fetchBalancesFromKit(kit, state.walletAddresses);
+        }, 3000);
+
+        return () => clearInterval(interval);
+    }, [state.accountId, state.walletAddresses, fetchBalancesFromKit]);
 
     // ── Connect via HOT Kit ──────────────────────────────
     const connectWallet = useCallback(() => {

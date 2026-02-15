@@ -4,7 +4,11 @@
 
 import { POPULAR_TOKENS } from "./constants";
 
-const RPC_URL = "https://rpc.mainnet.near.org";
+const RPC_ENDPOINTS = [
+  "https://free.rpc.fastnear.com",
+  "https://rpc.mainnet.near.org",
+  "https://mainnet.neartree.com",
+];
 
 export { POPULAR_TOKENS };
 
@@ -15,22 +19,39 @@ export type TokenConfig = {
   icon?: string;
 };
 
-async function rpcQuery(params: Record<string, unknown>): Promise<unknown> {
-  const response = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "v0",
-      method: "query",
-      params,
-    }),
-  });
-  const data = await response.json();
-  if (data.error) {
-    throw new Error(data.error.message || JSON.stringify(data.error));
+export async function rpcQuery(params: Record<string, unknown>): Promise<any> {
+  let lastError;
+
+  for (const url of RPC_ENDPOINTS) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "v0",
+          method: "query",
+          params,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+      }
+      return data.result;
+    } catch (e) {
+      console.warn(`RPC call to ${url} failed:`, e);
+      lastError = e;
+      // Continue to next endpoint
+    }
   }
-  return data.result;
+
+  throw lastError || new Error("All RPC endpoints failed");
 }
 
 export async function getAccountBalance(accountId: string): Promise<string> {
