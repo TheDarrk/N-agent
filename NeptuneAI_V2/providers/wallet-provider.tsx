@@ -128,14 +128,17 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     const yocto = result.amount;
                     // Keep native NEAR key lowercase 'near' for existing ChatSidebar styling
                     const balance = Number(BigInt(yocto) / BigInt(10 ** 20)) / 10000; // Divide by 10^24
-                    newBalances.near = balance.toFixed(5).replace(/\.?0+$/, "");
+                    const fmt = balance.toFixed(5).replace(/\.?0+$/, "");
+                    // newBalances.near = fmt; // Removed to avoid duplicate display
+                    newBalances["[NEAR] NEAR"] = fmt;
                 }
 
                 // Fetch FTs via helper (FastNEAR/Kitwallet)
                 const tokens = await fetchAllTokens(addresses.near);
                 tokens.forEach((t) => {
                     // Use symbol as key (e.g. USDC, REF)
-                    newBalances[t.symbol] = t.formatted;
+                    const key = `[NEAR] ${t.symbol.toUpperCase()}`;
+                    newBalances[key] = t.formatted;
                 });
             } catch (e) {
                 console.warn("NEAR balance fetch failed:", e);
@@ -151,14 +154,17 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     if (t.token && t.balance) {
                         const symbol = t.token.symbol;
                         // Log raw balance for debugging user issues
-                        console.log(`[Balance Debug] ${symbol}: raw=${t.balance}, decimals=${t.token.decimals}`);
+                        // console.log(`[Balance Debug] ${symbol}: raw=${t.balance}, decimals=${t.token.decimals}`);
 
                         const formatted = t.token.float ? t.token.float(t.balance) : formatBalanceManual(t.balance, t.token.decimals);
 
+                        // Create unique key: [CHAIN] SYMBOL
+                        let chainLabel = (t.token.chain || "unknown").toUpperCase();
+                        if (chainLabel === "BSC") chainLabel = "BNB";
+
                         // Avoid overwriting NEAR if we have a robust native fetch, OR overwrite if kit is trusted.
-                        // We'll trust Kit for everything except maybe 'NEAR' if it's 0 but we have a value?
-                        // Actually, let's just add/overwrite. Kit handles multiple chains well.
-                        newBalances[symbol] = formatted;
+                        const key = `[${chainLabel}] ${symbol.toUpperCase()}`;
+                        newBalances[key] = formatted;
                     }
                 });
             }

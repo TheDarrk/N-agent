@@ -164,26 +164,35 @@ export default function ChatSidebar({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Balances</span>
                   </div>
                   <div className="space-y-1.5">
-                    {Object.entries(balances).map(([token, amount]) => (
-                      <div key={token} className="flex items-center justify-between p-1.5 rounded-lg bg-card/30 hover:bg-card/50 transition-colors">
-                        <div className="flex items-center gap-2">
-                          {TOKEN_LOGOS[token.toUpperCase()] ? (
-                            <img
-                              src={TOKEN_LOGOS[token.toUpperCase()]}
-                              alt={token}
-                              width={14}
-                              height={14}
-                              className="rounded-full flex-shrink-0"
-                              crossOrigin="anonymous"
-                            />
-                          ) : (
-                            <span className="w-3.5 h-3.5 rounded-full bg-primary/20 flex-shrink-0" />
-                          )}
-                          <span className="text-[11px] font-medium uppercase text-muted-foreground">{token}</span>
+                    {Object.entries(balances).map(([tokenKey, amount]) => {
+                      // Extract symbol for logo lookup (handle both "USDC" and "[ETH] USDC")
+                      // Regex: matches optional [CHAIN] prefix, then captures symbol
+                      const match = tokenKey.match(/^(?:\[.*?\]\s*)?(.+)$/);
+                      const symbol = match ? match[1] : tokenKey;
+
+                      const logoUrl = TOKEN_LOGOS[symbol.toUpperCase()];
+
+                      return (
+                        <div key={tokenKey} className="flex items-center justify-between p-1.5 rounded-lg bg-card/30 hover:bg-card/50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            {logoUrl ? (
+                              <img
+                                src={logoUrl}
+                                alt={symbol}
+                                width={14}
+                                height={14}
+                                className="rounded-full flex-shrink-0"
+                                crossOrigin="anonymous"
+                              />
+                            ) : (
+                              <span className="w-3.5 h-3.5 rounded-full bg-primary/20 flex-shrink-0" />
+                            )}
+                            <span className="text-[11px] font-medium uppercase text-muted-foreground">{tokenKey}</span>
+                          </div>
+                          <span className="text-[11px] font-mono font-semibold text-foreground">{amount}</span>
                         </div>
-                        <span className="text-[11px] font-mono font-semibold text-foreground">{amount}</span>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               ) : (
