@@ -313,7 +313,28 @@ def confirm_swap_tool() -> str:
         return f"❌ Error preparing transaction: {str(e)}"
 
 
-# HOT Pay tools removed (feature cancelled)
+
+@tool
+def hot_pay_coming_soon_tool(query: str) -> str:
+    """
+    Handle requests related to HOT Pay features (creating links, checking payments, merchant tools).
+    Use this when user asks: "create payment link", "check my payments", "track invoice", "i want to sell something".
+    
+    Args:
+        query: The user's request (e.g. "create link for 5 usdc")
+    
+    Returns: A standard "Feature In Progress" message.
+    """
+    return (
+        "🚧 **Feature In Progress**\n\n"
+        "HOT Pay integration (Payment Links & Merchant Tracking) is currently being developed.\n"
+        "I know about these features, but I can't execute them just yet!\n\n"
+        "Current capabilities:\n"
+        "✅ Token Swaps\n"
+        "✅ Balance Checks\n"
+        "✅ Cross-Chain Bridge\n"
+        "❌ Merchant Payments (Coming Soon)"
+    )
 
 # Tool metadata for agent configuration
 TOOL_LIST = [
@@ -322,5 +343,7 @@ TOOL_LIST = [
     validate_token_names_tool,
     get_swap_quote_tool,
     confirm_swap_tool,
+    # HOT Pay placeholder
+    hot_pay_coming_soon_tool,
 ]
 
