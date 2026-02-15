@@ -141,6 +141,26 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             }
         }
 
+        // 2. Fetch Multi-Chain balances from HotKit (tokens.walletsTokens)
+        try {
+            if (kit.walletsTokens) {
+                const kitTokens = kit.walletsTokens; // Getter that computes balances
+                kitTokens.forEach((t: any) => {
+                    if (t.token && t.balance) {
+                        const symbol = t.token.symbol;
+                        const formatted = t.token.float ? t.token.float(t.balance) : formatBalanceManual(t.balance, t.token.decimals);
+
+                        // Avoid overwriting NEAR if we have a robust native fetch, OR overwrite if kit is trusted.
+                        // We'll trust Kit for everything except maybe 'NEAR' if it's 0 but we have a value?
+                        // Actually, let's just add/overwrite. Kit handles multiple chains well.
+                        newBalances[symbol] = formatted;
+                    }
+                });
+            }
+        } catch (e) {
+            console.warn("HotKit balance sync failed:", e);
+        }
+
         if (Object.keys(newBalances).length > 0) {
             setState((s) => ({
                 ...s,
@@ -148,6 +168,14 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             }));
         }
     }, []);
+
+    function formatBalanceManual(balance: string | bigint | number, decimals: number): string {
+        const val = BigInt(balance);
+        const div = BigInt(10 ** decimals);
+        const int = val / div;
+        const rem = val % div;
+        return `${int}.${rem.toString().padStart(decimals, '0').slice(0, 4)}`;
+    }
 
     // ── Auto-refresh balances (Polling) ──────────────────
     useEffect(() => {

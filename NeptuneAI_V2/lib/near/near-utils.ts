@@ -5,9 +5,11 @@
 import { POPULAR_TOKENS } from "./constants";
 
 const RPC_ENDPOINTS = [
-  "https://free.rpc.fastnear.com",
-  "https://rpc.mainnet.near.org",
-  "https://mainnet.neartree.com",
+  "https://rpc.mainnet.near.org",            // Official
+  "https://mainnet.hello.pizza/api/v1/rpc",  // Reliable community
+  "https://free.rpc.fastnear.com",           // Fast but often rate-limited
+  "https://near-mainnet.rpc.fastnear.com",   // Alternative
+  "https://rpc.neartree.com",                // Backup
 ];
 
 export { POPULAR_TOKENS };
@@ -19,38 +21,51 @@ export type TokenConfig = {
   icon?: string;
 };
 
+// Simple sleep helper
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function rpcQuery(params: Record<string, unknown>): Promise<any> {
   let lastError;
+  const ATTEMPTS_PER_URL = 1;
 
   for (const url of RPC_ENDPOINTS) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "v0",
-          method: "query",
-          params,
-        }),
-      });
+    for (let attempt = 0; attempt < ATTEMPTS_PER_URL; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "v0",
+            method: "query",
+            params,
+          }),
+        });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+        if (!response.ok) {
+          // If 429, break to next URL immediately
+          if (response.status === 429) throw new Error("429 Too Many Requests");
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error.message || JSON.stringify(data.error));
+        const data = await response.json();
+        if (data.error) {
+          // If server error, could be node specific, try next endpoint
+          throw new Error(data.error.message || JSON.stringify(data.error));
+        }
+        return data.result;
+      } catch (e) {
+        console.warn(`RPC call to ${url} failed (attempt ${attempt + 1}):`, e);
+        lastError = e;
+
+        // Small delay before internal retry (if we were to multi-retry same URL)
+        // But for rotation, we just fail and move to next URL
+        break;
       }
-      return data.result;
-    } catch (e) {
-      console.warn(`RPC call to ${url} failed:`, e);
-      lastError = e;
-      // Continue to next endpoint
     }
   }
 
+  console.error("All RPC endpoints failed");
   throw lastError || new Error("All RPC endpoints failed");
 }
 
