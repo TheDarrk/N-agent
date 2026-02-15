@@ -27,30 +27,71 @@ export function useWallet() {
 }
 
 // ─── Chain type mappings ─────────────────────────────────
-// HOT Kit uses WalletType enum; map to our simple chain keys
 function walletTypeToChain(type: string | number): string {
     const t = Number(type);
 
-    // Exact ID matching from HOT Kit WalletType enum
+    // Non-EVM Chains
     if (t === 1010) return "near";
-    if (t === 1) return "eth";         // EVM
     if (t === 1001) return "solana";
     if (t === 1111) return "ton";
     if (t === 333) return "tron";
     if (t === 1100) return "stellar";
     if (t === 4444118) return "cosmos";
+    if (t === 4444119) return "gonka";
     if (t === -6) return "btc";
     if (t === -8) return "doge";
     if (t === -7) return "xrp";
     if (t === -5) return "zcash";
-    if (t === -9) return "ada";        // Cardano
-    if (t === -12) return "cardano";   // Double check in case duplicate
+    if (t === -9) return "ada";
+    if (t === -12) return "cardano";
     if (t === -10) return "aptos";
     if (t === -11) return "sui";
     if (t === -4) return "omni";
     if (t === -1030) return "hotcraft";
+    if (t === -14) return "ltc";
 
-    // Fallback for string matching
+    // EVM Chain IDs
+    if (t === 1) return "eth";         // Ethereum Mainnet
+    if (t === 56) return "bnb";        // BNB Chain
+    if (t === 97) return "bnb";        // BNB Testnet
+    if (t === 137) return "pol";       // Polygon
+    if (t === 42161) return "arb";     // Arbitrum
+    if (t === 1313161554) return "aurora"; // Aurora
+    if (t === 43114) return "avax";    // Avalanche
+    if (t === 59144) return "linea";   // Linea
+    if (t === 196) return "xlayer";    // Xlayer
+    if (t === 8453) return "base";     // Base
+    if (t === 204) return "opbnb";     // opBNB
+    if (t === 10) return "op";         // Optimism
+    if (t === 534352) return "scroll"; // Scroll
+    if (t === 98881) return "ebi";     // EbiChain
+    if (t === 1329) return "sei";      // Sei
+    if (t === 81457) return "blast";   // Blast
+    if (t === 167000) return "taiko";  // Taiko
+    if (t === 5000) return "mantle";   // Mantle
+    if (t === 169) return "manta";     // Manta
+    if (t === 2222) return "kava";     // Kava
+    if (t === 324) return "zksync";    // ZkSync
+    if (t === 143) return "monad";     // Monad
+    if (t === 1088) return "metis";    // Metis
+    if (t === 100) return "gnosis";    // Gnosis
+    if (t === 250) return "fantom";    // Fantom
+    if (t === 25) return "cronos";     // Cronos
+    if (t === 88888) return "chiliz";  // Chiliz
+    if (t === 1284) return "moonbeam"; // Moonbeam
+    if (t === 2020) return "ronin";    // Ronin
+    if (t === 1135) return "lisk";     // Lisk
+    if (t === 146) return "sonic";     // Sonic
+    if (t === 7777777) return "zora";  // Zora
+    if (t === 34443) return "mode";    // Mode
+    if (t === 80094) return "bera";    // Berachain
+    if (t === 130) return "unichain";  // Unichain
+    if (t === 1868) return "soneium";  // Soneium
+    if (t === 57073) return "ink";     // Ink
+    if (t === 2741) return "ape";      // Apechain
+    if (t === 36900) return "adi";     // ADI
+
+    // Fallbacks
     const typeStr = String(type).toLowerCase();
     if (typeStr.includes("near")) return "near";
     if (typeStr.includes("evm") || typeStr.includes("eth")) return "eth";
@@ -158,8 +199,17 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
                         const formatted = t.token.float ? t.token.float(t.balance) : formatBalanceManual(t.balance, t.token.decimals);
 
-                        // Create unique key: [CHAIN] SYMBOL
-                        let chainLabel = (t.token.chain || "unknown").toUpperCase();
+
+                        // Resolve chain label using our mapper (handles numeric IDs like 8453 -> "base")
+                        let chainLabel: string;
+                        if (t.token.chain_id) {
+                            chainLabel = walletTypeToChain(t.token.chain_id).toUpperCase();
+                        } else {
+                            // Fallback to existing logic if chain_id is missing, but use our mapper if possible
+                            chainLabel = walletTypeToChain(t.token.chain || "unknown").toUpperCase();
+                        }
+
+                        // Edge case fix for BSC/BNB consistency
                         if (chainLabel === "BSC") chainLabel = "BNB";
 
                         // Avoid overwriting NEAR if we have a robust native fetch, OR overwrite if kit is trusted.
