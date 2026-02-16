@@ -150,6 +150,12 @@ def get_swap_quote_tool(
     if not account_id or account_id == "Not connected":
         return "⚠️ **Wallet Not Connected**\n\nPlease connect your wallet using the Connect button first. You can connect wallets from any chain — NEAR, Ethereum, Solana, Tron, and more."
     
+    # DEBUG: Log parameters
+    print(f"[TOOL] get_swap_quote_tool called:")
+    print(f"[TOOL]   token_in={token_in}, token_out={token_out}, amount={amount}")
+    print(f"[TOOL]   source_chain={source_chain}, destination_chain={destination_chain}")
+    print(f"[TOOL]   destination_address={destination_address}")
+    
     # Parse connected chains
     user_chains = [c.strip().lower() for c in connected_chains.split(",") if c.strip()] if connected_chains else ["near"]
     
