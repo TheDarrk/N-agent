@@ -188,6 +188,8 @@ def _fetch_quote_with_retry(url: str, payload: Dict, attempt_num: int = 1) -> ht
     """
     print(f"[TOOL] Fetching quote attempt {attempt_num}/8...")
     response = httpx.post(url, json=payload, timeout=10.0)
+    if response.status_code >= 400:
+        print(f"[TOOL] API Error ({response.status_code}): {response.text}")
     response.raise_for_status()
     return response
 

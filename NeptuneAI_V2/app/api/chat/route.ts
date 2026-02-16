@@ -11,30 +11,58 @@ export async function POST(req: Request) {
 
     const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
-    const response = await fetch(`${backendUrl}/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message,
-        session_id: sessionId,
-        account_id: accountId,
-        wallet_addresses: walletAddresses,
-        balances,
-      }),
-    });
+    console.log(`[API] Proxying chat request to ${backendUrl}/chat`);
+    console.log(`[API] Message: ${message?.substring(0, 100)}...`);
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return Response.json(
-        { response: errorData.detail || "Error from AI backend" },
-        { status: response.status }
-      );
+    // Add timeout to prevent infinite hangs
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+    try {
+      const response = await fetch(`${backendUrl}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          session_id: sessionId,
+          account_id: accountId,
+          wallet_addresses: walletAddresses,
+          balances,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.error(`[API] Backend error: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        return Response.json(
+          { response: errorData.detail || "Error from AI backend" },
+          { status: response.status }
+        );
+      }
+
+      const data = await response.json();
+      console.log(`[API] Response received successfully`);
+      return Response.json(data);
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        console.error('[API] Request timeout after 60 seconds');
+        return Response.json(
+          {
+            response: "Request timed out. The AI is taking too long to respond. Please try again.",
+            action: null,
+            payload: null,
+          },
+          { status: 504 }
+        );
+      }
+      throw fetchError;
     }
-
-    const data = await response.json();
-    return Response.json(data);
   } catch (e) {
     console.error("Chat proxy error:", e);
     return Response.json(
