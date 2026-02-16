@@ -36,6 +36,7 @@
 }
 
 @layer base {
+
   html,
   body,
   #__next {
@@ -55,34 +56,40 @@
   }
 }
 
-* {
-  scrollbar-width: none;
+.overflow-y-auto,
+.overflow-y-scroll,
+[style*="overflow"] {
+  scrollbar-width: thin !important;
+  scrollbar-color: hsl(225 18% 22%) hsl(225 22% 9%) !important;
+  overflow-y: scroll !important;
 }
 
-*::-webkit-scrollbar {
-  width: 0;
+.overflow-y-auto::-webkit-scrollbar,
+.overflow-y-scroll::-webkit-scrollbar,
+[style*="overflow"]::-webkit-scrollbar {
+  width: 6px;
+  display: block !important;
 }
 
-.overflow-y-auto:hover {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(225 18% 20%) transparent;
-}
-
-.overflow-y-auto:hover::-webkit-scrollbar {
-  width: 4px;
-}
-
-.overflow-y-auto:hover::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.overflow-y-auto:hover::-webkit-scrollbar-thumb {
-  background: hsl(225 18% 20%);
+.overflow-y-auto::-webkit-scrollbar-track,
+.overflow-y-scroll::-webkit-scrollbar-track,
+[style*="overflow"]::-webkit-scrollbar-track {
+  background: hsl(225 22% 9%);
   border-radius: 99px;
 }
 
-.overflow-y-auto:hover::-webkit-scrollbar-thumb:hover {
-  background: hsl(225 18% 28%);
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.overflow-y-scroll::-webkit-scrollbar-thumb,
+[style*="overflow"]::-webkit-scrollbar-thumb {
+  background: hsl(225 18% 22%);
+  border-radius: 99px;
+  border: 1px solid hsl(225 22% 9%);
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover,
+.overflow-y-scroll::-webkit-scrollbar-thumb:hover,
+[style*="overflow"]::-webkit-scrollbar-thumb:hover {
+  background: hsl(225 18% 30%);
 }
 
 @keyframes fade-in {
@@ -90,6 +97,7 @@
     opacity: 0;
     transform: translateY(6px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -97,15 +105,25 @@
 }
 
 @keyframes glow-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 @keyframes thinking-dot-pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 0.15;
     transform: scale(0.8);
   }
+
   50% {
     opacity: 1;
     transform: scale(1);
@@ -116,18 +134,16 @@
   animation: thinking-dot-pulse 1.2s ease-in-out infinite;
 }
 
-@keyframes tx-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 @keyframes tx-success {
-  0%, 100% { box-shadow: 0 0 0 0 hsla(160, 60%, 50%, 0.3); }
-  50% { box-shadow: 0 0 0 10px hsla(160, 60%, 50%, 0); }
-}
 
-.tx-spinner {
-  animation: tx-spin 2.5s linear infinite;
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsla(160, 60%, 50%, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 0 0 10px hsla(160, 60%, 50%, 0);
+  }
 }
 
 .tx-success-pulse {
@@ -144,10 +160,13 @@
 
 /* Glowing bullet points */
 @keyframes bullet-glow {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 3px 0 hsl(210 100% 56% / 0.4);
     opacity: 0.8;
   }
+
   50% {
     box-shadow: 0 0 8px 2px hsl(210 100% 56% / 0.6);
     opacity: 1;
@@ -155,9 +174,20 @@
 }
 
 @keyframes bullet-pulse-ring {
-  0% { transform: scale(1); opacity: 0.5; }
-  50% { transform: scale(2); opacity: 0; }
-  100% { transform: scale(1); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+
+  50% {
+    transform: scale(2);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
 }
 
 .bullet-glow {
@@ -170,11 +200,27 @@
 
 /* Heartbeat for tx success */
 @keyframes heartbeat {
-  0%, 100% { transform: scale(1); }
-  14% { transform: scale(1.15); }
-  28% { transform: scale(1); }
-  42% { transform: scale(1.1); }
-  56% { transform: scale(1); }
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  14% {
+    transform: scale(1.15);
+  }
+
+  28% {
+    transform: scale(1);
+  }
+
+  42% {
+    transform: scale(1.1);
+  }
+
+  56% {
+    transform: scale(1);
+  }
 }
 
 .tx-heartbeat {
