@@ -1,8 +1,9 @@
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List, Optional
 import httpx
 import json
 import datetime
 import asyncio
+from decimal import Decimal
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from validators import validate_near_address, validate_evm_address, get_chain_from_address
 from knowledge_base import get_available_tokens_from_api, get_token_by_symbol, get_token_symbols_list
@@ -230,7 +231,7 @@ def get_swap_quote(
     asset_out = token_out_data.get("defuseAssetId")
     
     decimals_in = token_in_data.get("decimals", 24)
-    amount_atomic = int(amount * (10 ** decimals_in))
+    amount_atomic = int(Decimal(str(amount)) * Decimal(10 ** decimals_in))
     
     print(f"[TOOL] Fetching 1-Click quote for {amount} {t_in} -> {t_out}")
     print(f"[TOOL]   Asset In:  {asset_in}")
@@ -378,7 +379,7 @@ def create_near_intent_transaction(
     token_out_data = get_token_by_symbol(token_out.upper(), tokens)
     
     decimals_in = token_in_data.get("decimals", 24) if token_in_data else 24
-    amount_int = int(amount * (10 ** decimals_in))
+    amount_int = int(Decimal(str(amount)) * Decimal(10 ** decimals_in))
 
     # ── TX 1: Deposit source token into intents.near ──
     if token_in.upper() == "NEAR":
@@ -517,7 +518,7 @@ def create_evm_deposit_transaction(
     token_data = get_token_by_symbol(token_in.upper(), tokens)
     decimals = token_data.get("decimals", 18) if token_data else 18
     
-    amount_wei = int(amount * (10 ** decimals))
+    amount_wei = int(Decimal(str(amount)) * Decimal(10 ** decimals))
     
     # For native tokens (ETH on Ethereum, ETH on Base/Arb, BNB on BSC, etc.)
     # Just send value to the deposit address
