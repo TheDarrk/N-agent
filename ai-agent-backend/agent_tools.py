@@ -130,7 +130,9 @@ def get_swap_quote_tool(
     Get a real-time swap quote for exchanging tokens via NEAR Intents.
     
     IMPORTANT SAFETY CHECKS (enforced by this tool):
+    IMPORTANT SAFETY CHECKS (enforced by this tool):
     - Source token's chain must match a chain where the user has a connected wallet
+    - Destination wallet connection is OPTIONAL if `destination_address` is provided
     - Cross-chain swaps auto-fill destination address from connected wallets when possible
     - Address format is validated for the destination chain
     
@@ -223,6 +225,7 @@ def get_swap_quote_tool(
     # ── SAFETY CHECK 3: Resolve destination ──
     dest_token = get_token_by_symbol(token_out.upper(), tokens, chain=destination_chain)
     if not dest_token:
+        # Fallback if specific chain token not found
         dest_token = get_token_by_symbol(token_out.upper(), tokens)
     
     if not dest_token:
@@ -230,6 +233,24 @@ def get_swap_quote_tool(
     
     dest_chain = dest_token.get("blockchain", "near").lower()
     
+    # ── SAFETY CHECK 4: Validate recipient format matching destination chain ──
+    # If using an explicit destination address, ensure it matches the token's chain
+    if destination_address:
+        is_evm_addr = destination_address.startswith("0x") and len(destination_address) == 42
+        is_evm_token = is_evm_chain(dest_chain)
+        
+        if is_evm_addr and not is_evm_token:
+            # Mismatch: User gave 0x address but we found a NEAR token (likely default behavior)
+            # We must fail and ask for the chain
+            return (
+                f"⚠️ **Chain Not Specified**\n\n"
+                f"You provided an Ethereum-style address (`{destination_address}`) but the system selected **{token_out.upper()} on {dest_chain.upper()}**.\n"
+                f"This mismatch usually happens if you didn't specify the destination chain.\n\n"
+                f"Please try again specifying the chain, e.g.:\n"
+                f"- \"swap {token_in} to {token_out} **on Base**\"\n"
+                f"- \"swap {token_in} to {token_out} **on Arbitrum**\""
+            )
+            
     # Determine if cross-chain
     is_cross_chain = dest_chain != effective_source_chain
     

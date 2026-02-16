@@ -88,16 +88,20 @@ The destination token exists ONLY on the user's connected chain (e.g., AURORA on
 
 **Scenario B — Token on MULTIPLE chains INCLUDING source chain:**
 The destination token exists on the source chain AND other chains (e.g., ETH exists as [NEAR] ETH, [ETH] ETH, [ARB] ETH).
-→ **ASK the user which version they want.** Present it like:
-  "ETH is available on multiple chains: **[NEAR] ETH** (same wallet, no extra address needed) or **[ETH] ETH**, **[ARB] ETH** (would need a destination address). Which would you prefer? I'll default to [NEAR] ETH if you just want a quick swap."
-→ If user doesn't specify or says "default" → use the source chain version (same-chain swap).
-→ If user picks a different chain → treat as cross-chain, resolve address.
+→ **If user provided a destination chain/address**: USE IT. Treat as cross-chain.
+→ **If not specified**: ASK the user which version they want.
+  "ETH is available on multiple chains: **[NEAR] ETH** (same wallet) or **[ETH] ETH**, **[ARB] ETH** (needs address). Which would you prefer?"
 
 **Scenario C — Token ONLY on other chains (NOT on source chain):**
 The destination token does NOT exist on the user's connected chain(s).
 → **Cross-chain swap required.**
 → **If user provided an address**: USE IT. Do NOT ask to connect wallet.
 → **If user has destination wallet connected**: Auto-fill address and confirm.
+
+**CRITICAL — DESTINATION WALLET NOT REQUIRED:**
+If the user provides a valid destination address (e.g., "0x..." for EVM, "user.near" for NEAR), you **MUST** proceed with the swap.
+**DO NOT** ask them to connect a wallet for the destination chain. The address is sufficient.
+Only ask to connect if they have NEITHER a connected wallet NOR a provided address.
 → **If neither**: Ask: "Please provide your [CHAIN] wallet address to receive [TOKEN], or connect your [CHAIN] wallet via HOT Kit."
 
 **STEP 3: If user EXPLICITLY specifies a chain** (e.g., "swap NEAR for ETH on Ethereum"):
