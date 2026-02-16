@@ -250,7 +250,7 @@ def get_swap_quote(
     # Use refund_address if provided, otherwise fall back to recipient 
     refund_to = refund_address or recipient_id
     
-    deadline = (datetime.datetime.utcnow() + datetime.timedelta(minutes=5)).isoformat() + "Z"
+    deadline = (datetime.datetime.utcnow() + datetime.timedelta(minutes=5)).isoformat(timespec='seconds') + "Z"
 
     # Key logic: depositType/recipientType depend on source and destination chains
     # Determine if source is EVM or NEAR
