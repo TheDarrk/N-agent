@@ -123,7 +123,8 @@ def get_swap_quote_tool(
     connected_chains: str = "",
     wallet_addresses: str = "",
     destination_address: Optional[str] = None, 
-    destination_chain: Optional[str] = None
+    destination_chain: Optional[str] = None,
+    source_chain: Optional[str] = None
 ) -> str:
     """
     Get a real-time swap quote for exchanging tokens via NEAR Intents.
@@ -140,8 +141,9 @@ def get_swap_quote_tool(
         account_id: User's primary wallet address (required)
         connected_chains: Comma-separated list of chains user has wallets on (e.g., "near,eth,solana")
         wallet_addresses: Comma-separated chain:address pairs (e.g., "near:alice.near,eth:0x123")
-        destination_address: Explicit destination address for cross-chain swaps
-        destination_chain: Specify which chain for destination token
+        destination_address: Explicit destination address — use when user specifies a recipient different from their own wallet
+        destination_chain: Specify which chain for the DESTINATION token (e.g., "near", "base", "arb")
+        source_chain: Specify which chain the SOURCE token is on (e.g., "base" for USDC on Base, "near" for NEAR)
     
     Returns: Quote information or safety error with guidance
     """
@@ -163,47 +165,54 @@ def get_swap_quote_tool(
     from knowledge_base import _token_cache, get_token_by_symbol
     tokens = _token_cache if _token_cache else []
     
-    # ── SAFETY CHECK 1: Validate source token exists ──
-    source_token = get_token_by_symbol(token_in.upper(), tokens, chain=None)
-    if not source_token:
-        return f"❌ Token '{token_in}' not found. Use get_available_tokens_tool to see available tokens."
-    
-    source_chain = source_token.get("blockchain", "near").lower()
-    
     # Expand EVM chains: if user has `eth` connected, they have ALL EVM chains
     from tools import is_evm_chain, EVM_CHAIN_IDS
     has_evm = any(c in ["eth", "ethereum"] or is_evm_chain(c) for c in user_chains)
     if has_evm:
-        # Add all EVM chain names to user_chains so token matching works
         evm_chain_names = set(EVM_CHAIN_IDS.keys())
-        user_chains = list(set(user_chains) | evm_chain_names)
+        user_chains_expanded = list(set(user_chains) | evm_chain_names)
+    else:
+        user_chains_expanded = user_chains
     
-    # Try to find source token on a connected chain specifically
-    source_on_connected = None
-    for chain in user_chains:
-        t = get_token_by_symbol(token_in.upper(), tokens, chain=chain)
-        if t:
-            source_on_connected = t
-            source_chain = chain
-            break
+    # ── SAFETY CHECK 1: Validate source token exists ──
+    # If source_chain is specified by the LLM, use it to find the correct token variant
+    if source_chain:
+        source_chain = source_chain.strip().lower()
+        source_token = get_token_by_symbol(token_in.upper(), tokens, chain=source_chain)
+        if not source_token:
+            # Try without chain filter as fallback
+            source_token = get_token_by_symbol(token_in.upper(), tokens, chain=None)
+    else:
+        source_token = get_token_by_symbol(token_in.upper(), tokens, chain=None)
     
-    # ── SAFETY CHECK 2: Source chain must be connected ──
+    if not source_token:
+        return f"❌ Token '{token_in}' not found. Use get_available_tokens_tool to see available tokens."
+    
+    # Determine source chain: prefer explicit source_chain, then token metadata
+    if source_chain:
+        effective_source_chain = source_chain
+    else:
+        effective_source_chain = source_token.get("blockchain", "near").lower()
+    
+    # Verify user has a wallet on the source chain
+    source_on_connected = effective_source_chain in user_chains_expanded
+    
     if not source_on_connected:
-        # Check which chains this token exists on
-        all_chains_for_token = [
+        all_chains_for_token = list(set(
             t.get("blockchain", "near").upper() 
             for t in tokens 
             if t["symbol"].upper() == token_in.upper()
-        ]
-        unique_chains = list(set(all_chains_for_token))
-        
+        ))
         return (
             f"❌ **Cannot Swap — Wallet Not Connected**\n\n"
-            f"**{token_in.upper()}** exists on: {', '.join(unique_chains)}\n"
+            f"**{token_in.upper()}** exists on: {', '.join(all_chains_for_token)}\n"
             f"**Your connected wallets**: {', '.join(c.upper() for c in user_chains)}\n\n"
             f"You need a connected wallet on one of those chains to swap {token_in.upper()}.\n"
             f"Please connect the appropriate wallet via HOT Kit."
         )
+    
+    # Re-lookup token with the effective source chain for correct defuseAssetId
+    source_token = get_token_by_symbol(token_in.upper(), tokens, chain=effective_source_chain) or source_token
     
     # ── SAFETY CHECK 3: Resolve destination ──
     dest_token = get_token_by_symbol(token_out.upper(), tokens, chain=destination_chain)
@@ -215,27 +224,32 @@ def get_swap_quote_tool(
     
     dest_chain = dest_token.get("blockchain", "near").lower()
     
-    # Determine recipient address
-    is_cross_chain = dest_chain != source_chain
+    # Determine if cross-chain
+    is_cross_chain = dest_chain != effective_source_chain
     
-    if is_cross_chain:
-        if destination_address:
-            # User provided explicit address — validate it
-            if not validate_address_for_chain(destination_address, dest_chain):
-                expected_format = get_chain_address_format(dest_chain)
-                return (
-                    f"❌ **Invalid Address Format**\n\n"
-                    f"The address `{destination_address}` doesn't match the expected format for **{dest_chain.upper()}**.\n"
-                    f"Expected: {expected_format}\n\n"
-                    f"Please provide a valid {dest_chain.upper()} address."
-                )
-            recipient = destination_address
+    # ── Resolve recipient address ──
+    # IMPORTANT: If user provides an explicit destination_address, ALWAYS use it
+    # This handles "send USDC to frigid_degen5.user.intear.near" even on same chain
+    if destination_address:
+        # User provided explicit address — validate format
+        if is_cross_chain and not validate_address_for_chain(destination_address, dest_chain):
+            expected_format = get_chain_address_format(dest_chain)
+            return (
+                f"❌ **Invalid Address Format**\n\n"
+                f"The address `{destination_address}` doesn't match the expected format for **{dest_chain.upper()}**.\n"
+                f"Expected: {expected_format}\n\n"
+                f"Please provide a valid {dest_chain.upper()} address."
+            )
+        recipient = destination_address
+    elif is_cross_chain:
+        # Cross-chain, no explicit address — try to auto-fill from connected wallets
+        # For EVM dest chains, use the 'eth' address
+        dest_addr_key = "eth" if is_evm_chain(dest_chain) else dest_chain
+        if dest_addr_key in addr_map:
+            recipient = addr_map[dest_addr_key]
         elif dest_chain in addr_map:
-            # Auto-fill from connected wallets
             recipient = addr_map[dest_chain]
-            # Note: The LLM prompt tells the agent to confirm this with the user
         else:
-            # No address available — ask user
             expected_format = get_chain_address_format(dest_chain)
             return (
                 f"⚠️ **Cross-Chain Swap — Address Needed**\n\n"
@@ -244,18 +258,32 @@ def get_swap_quote_tool(
                 f"Please provide your **{dest_chain.upper()} wallet address** ({expected_format})."
             )
     else:
-        # Same chain — use the connected wallet address for that chain
-        recipient = addr_map.get(source_chain, account_id)
+        # Same chain, no explicit address — use the connected wallet for that chain
+        # For NEAR source, use 'near' key; for EVM source, use 'eth' key
+        if effective_source_chain == "near":
+            recipient = addr_map.get("near", account_id)
+        elif is_evm_chain(effective_source_chain):
+            recipient = addr_map.get("eth", account_id)
+        else:
+            recipient = addr_map.get(effective_source_chain, account_id)
     
     # ── Get the actual quote ──
+    # Determine refund address: for EVM source, use eth address; for NEAR, use NEAR address
+    if is_evm_chain(effective_source_chain):
+        refund_addr = addr_map.get("eth", account_id)
+    elif effective_source_chain == "near":
+        refund_addr = addr_map.get("near", account_id)
+    else:
+        refund_addr = addr_map.get(effective_source_chain, account_id)
+    
     quote = _get_swap_quote(
         token_in.upper(), 
         token_out.upper(), 
         amount, 
-        chain_id=source_chain,  # Determines depositType (ORIGIN_CHAIN for EVM, INTENTS for NEAR)
+        chain_id=effective_source_chain,  # Determines depositType (ORIGIN_CHAIN for EVM, INTENTS for NEAR)
         recipient_id=recipient,
         is_cross_chain=is_cross_chain,
-        refund_address=addr_map.get("eth", addr_map.get(source_chain, account_id))  # EVM refund to EVM addr
+        refund_address=refund_addr
     )
     
     if "error" in quote:
@@ -273,18 +301,18 @@ def get_swap_quote_tool(
         "recipient": recipient,
         "is_cross_chain": is_cross_chain,
         "dest_chain": dest_chain,
-        "source_chain": source_chain,
+        "source_chain": effective_source_chain,
         "account_id": account_id  # Needed for tx builder ft_transfer_call msg
     }
     
     # Format response
     dest_info = f" on **{dest_chain.upper()}**" if is_cross_chain else ""
-    auto_filled = dest_chain in addr_map and not destination_address and is_cross_chain
+    auto_filled = not destination_address and is_cross_chain and (dest_chain in addr_map or ("eth" if is_evm_chain(dest_chain) else "") in addr_map)
     addr_note = f"\n💡 _Using your connected {dest_chain.upper()} address. Reply 'use [address]' to change._" if auto_filled else ""
     
     return (
         f"✅ **Swap Quote**\n"
-        f"**Swap**: {amount} [{source_chain.upper()}] {token_in.upper()} → ~{quote['amount_out']:.6f} [{dest_chain.upper()}] {token_out.upper()}\n"
+        f"**Swap**: {amount} [{effective_source_chain.upper()}] {token_in.upper()} → ~{quote['amount_out']:.6f} [{dest_chain.upper()}] {token_out.upper()}\n"
         f"**Rate**: 1 {token_in.upper()} = {quote['rate']:.6f} {token_out.upper()}\n"
         f"**Recipient**: `{recipient}`{dest_info}\n"
         f"{addr_note}\n\n"

@@ -176,11 +176,18 @@ You have access to the following tools. **Choosing the RIGHT tool is critical.**
    - ✅ USE when: user FIRST requests a swap (e.g., "swap 5 NEAR for ETH", "I want to trade")
    - ✅ USE when: you need a fresh quote for a new swap request
    - ❌ DO NOT USE when: user is confirming an existing quote (use `confirm_swap_tool` instead!)
-   - Takes: `token_in`, `token_out`, `amount`, `account_id`, optional `destination_address`, `destination_chain`
+   - Takes: `token_in`, `token_out`, `amount`, `account_id`, optional `destination_address`, `destination_chain`, `source_chain`
+   - **CRITICAL: `source_chain` parameter** — You MUST pass `source_chain` when the user specifies which chain the INPUT token is on.
+     - "swap USDC on Base" → `source_chain="base"`
+     - "swap ETH on Arbitrum" → `source_chain="arb"`
+     - "swap NEAR" → `source_chain="near"` (or omit, defaults to NEAR)
+   - **CRITICAL: `destination_address` parameter** — Pass this whenever the user specifies a recipient OTHER than their own wallet.
+     - "send USDC to frigid_degen5.user.intear.near" → `destination_address="frigid_degen5.user.intear.near"`
+     - Works for same-chain AND cross-chain sends
    - **BEFORE calling this tool, you MUST:**
      1. Call `get_token_chains_tool` to check if the destination token exists on the source chain
-     2. If it does → same-chain swap, no destination address needed
-     3. If it doesn't → cross-chain swap, resolve destination address first (source chain address is same as connected wallet address)
+     2. If it does → same-chain swap, no destination address needed (unless user specifies one)
+     3. If it doesn't → cross-chain swap, resolve destination address first
    - Returns: real-time quote with rate, amount out, and recipient info
 
 **5. `confirm_swap_tool`** — Confirm and prepare the transaction
