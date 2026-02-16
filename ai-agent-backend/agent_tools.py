@@ -170,6 +170,14 @@ def get_swap_quote_tool(
     
     source_chain = source_token.get("blockchain", "near").lower()
     
+    # Expand EVM chains: if user has `eth` connected, they have ALL EVM chains
+    from tools import is_evm_chain, EVM_CHAIN_IDS
+    has_evm = any(c in ["eth", "ethereum"] or is_evm_chain(c) for c in user_chains)
+    if has_evm:
+        # Add all EVM chain names to user_chains so token matching works
+        evm_chain_names = set(EVM_CHAIN_IDS.keys())
+        user_chains = list(set(user_chains) | evm_chain_names)
+    
     # Try to find source token on a connected chain specifically
     source_on_connected = None
     for chain in user_chains:
@@ -240,7 +248,15 @@ def get_swap_quote_tool(
         recipient = addr_map.get(source_chain, account_id)
     
     # ── Get the actual quote ──
-    quote = _get_swap_quote(token_in.upper(), token_out.upper(), amount, recipient_id=recipient)
+    quote = _get_swap_quote(
+        token_in.upper(), 
+        token_out.upper(), 
+        amount, 
+        chain_id=source_chain,  # Determines depositType (ORIGIN_CHAIN for EVM, INTENTS for NEAR)
+        recipient_id=recipient,
+        is_cross_chain=is_cross_chain,
+        refund_address=addr_map.get("eth", addr_map.get(source_chain, account_id))  # EVM refund to EVM addr
+    )
     
     if "error" in quote:
         return f"❌ Error getting quote: {quote['error']}"
@@ -257,7 +273,8 @@ def get_swap_quote_tool(
         "recipient": recipient,
         "is_cross_chain": is_cross_chain,
         "dest_chain": dest_chain,
-        "source_chain": source_chain
+        "source_chain": source_chain,
+        "account_id": account_id  # Needed for tx builder ft_transfer_call msg
     }
     
     # Format response
@@ -303,7 +320,8 @@ def confirm_swap_tool() -> str:
             _last_quote["token_out"],
             _last_quote["amount"],
             _last_quote["min_amount_out"],
-            _last_quote["deposit_address"]
+            _last_quote["deposit_address"],
+            account_id=_last_quote.get("account_id", "")
         )
         
         # Return special marker that agents.py will detect

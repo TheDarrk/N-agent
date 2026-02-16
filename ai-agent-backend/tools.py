@@ -7,25 +7,104 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from validators import validate_near_address, validate_evm_address, get_chain_from_address
 from knowledge_base import get_available_tokens_from_api, get_token_by_symbol, get_token_symbols_list
 
-# Defuse Asset IDs map
-TOKEN_MAP = {
-    "NEAR": "nep141:wrap.near",
-    "ETH": "nep141:eth.bridge.near", # Using eth.bridge.near as primary ETH
-    "USDC": "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-    "USDT": "nep141:usdt.tether-token.near",
-    "WBTC": "nep141:minter.bridge.near", # Assuming standard bridge
-    "AURORA": "nep141:aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near",
+# EVM Chain IDs (from HOT Kit Network enum — ALL supported EVM chains)
+EVM_CHAIN_IDS = {
+    # Major L1s
+    "eth": 1,
+    "ethereum": 1,
+    "bnb": 56,
+    "bsc": 56,
+    "polygon": 137,
+    "pol": 137,
+    "avalanche": 43114,
+    "avax": 43114,
+    "fantom": 250,
+    "gnosis": 100,
+    "cronos": 25,
+    "kava": 2222,
+    # L2s / Rollups
+    "arbitrum": 42161,
+    "arb": 42161,
+    "base": 8453,
+    "optimism": 10,
+    "op": 10,
+    "linea": 59144,
+    "scroll": 534352,
+    "zksync": 324,
+    "mantle": 5000,
+    "manta": 169,
+    "blast": 81457,
+    "taiko": 167000,
+    "metis": 1088,
+    "mode": 34443,
+    "lisk": 1135,
+    "sonic": 146,
+    "zora": 7777777,
+    "ink": 57073,
+    "soneium": 1868,
+    "unichain": 130,
+    "apechain": 2741,
+    "ape": 2741,
+    # Others
+    "aurora": 1313161554,
+    "xlayer": 196,
+    "opbnb": 204,
+    "berachain": 80094,
+    "bera": 80094,
+    "sei": 1329,
+    "chiliz": 88888,
+    "moonbeam": 1284,
+    "ronin": 2020,
+    "monad": 143,
+    "ebichain": 98881,
+    "adi": 36900,
 }
 
-# Decimals map for simple conversion
-DECIMALS_MAP = {
-    "NEAR": 24,
-    "ETH": 18,
-    "USDC": 6,
-    "USDT": 6,
-    "WBTC": 8,
-    "AURORA": 18
+# Non-EVM chains supported by HOT Kit + NEAR Intents
+# These have their own wallet types and signing flows
+NON_EVM_CHAINS = {
+    "near": "near",
+    "solana": "solana",
+    "sol": "solana",
+    "ton": "ton",
+    "tron": "tron",
+    "trx": "tron",
+    "stellar": "stellar",
+    "xlm": "stellar",
+    "cosmos": "cosmos",
+    "btc": "btc",
+    "bitcoin": "btc",
+    "doge": "doge",
+    "xrp": "xrp",
+    "ada": "ada",
+    "cardano": "cardano",
+    "aptos": "aptos",
+    "apt": "aptos",
+    "sui": "sui",
+    "litecoin": "litecoin",
+    "ltc": "litecoin",
+    "zcash": "zcash",
+    "zec": "zcash",
 }
+
+# All chains — lookup helper
+ALL_SUPPORTED_CHAINS = set(list(EVM_CHAIN_IDS.keys()) + list(NON_EVM_CHAINS.keys()))
+
+# Chains that are EVM-based (same wallet type)
+EVM_CHAINS = set(EVM_CHAIN_IDS.keys())
+
+def is_evm_chain(chain: str) -> bool:
+    """Check if a chain name is EVM-based."""
+    return chain.lower() in EVM_CHAINS
+
+def get_evm_chain_id(chain: str) -> Optional[int]:
+    """Get the EVM chain ID for a chain name."""
+    return EVM_CHAIN_IDS.get(chain.lower())
+
+def is_supported_chain(chain: str) -> bool:
+    """Check if a chain is supported at all (EVM, NEAR, or other)."""
+    return chain.lower() in ALL_SUPPORTED_CHAINS
+
 
 def get_available_tokens() -> List[str]:
     """
@@ -62,7 +141,6 @@ def is_cross_chain_swap(token_in: str, token_out: str) -> bool:
         tokens = _token_cache if _token_cache else []
         
         if not tokens:
-            # No token data available, assume same-chain for safety
             print(f"[TOOLS] Warning: No cached token data for cross-chain detection")
             return False
         
@@ -112,9 +190,26 @@ def _fetch_quote_with_retry(url: str, payload: Dict, attempt_num: int = 1) -> ht
     response.raise_for_status()
     return response
 
-def get_swap_quote(token_in: str, token_out: str, amount: float, chain_id: str = "near", recipient_id: str = None) -> Dict[str, Any]:
+def get_swap_quote(
+    token_in: str, 
+    token_out: str, 
+    amount: float, 
+    chain_id: str = "near", 
+    recipient_id: str = None,
+    is_cross_chain: bool = False,
+    refund_address: str = None
+) -> Dict[str, Any]:
     """
     Fetches a real swap quote from Defuse 1-Click API.
+    
+    Args:
+        token_in: Source token symbol
+        token_out: Destination token symbol
+        amount: Amount to swap
+        chain_id: Chain identifier
+        recipient_id: Recipient address (NEAR account for same-chain, destination chain address for cross-chain)
+        is_cross_chain: Whether this is a cross-chain swap
+        refund_address: Address for refunds (should be source chain address, e.g. NEAR account)
     """
     t_in = token_in.upper()
     t_out = token_out.upper()
@@ -137,34 +232,60 @@ def get_swap_quote(token_in: str, token_out: str, amount: float, chain_id: str =
     decimals_in = token_in_data.get("decimals", 24)
     amount_atomic = int(amount * (10 ** decimals_in))
     
-    print(f"[TOOL] Fetching 1-Click quote for {amount} {t_in} -> {t_out} (Recipient: {recipient_id})")
+    print(f"[TOOL] Fetching 1-Click quote for {amount} {t_in} -> {t_out}")
+    print(f"[TOOL]   Asset In:  {asset_in}")
+    print(f"[TOOL]   Asset Out: {asset_out}")
+    print(f"[TOOL]   Recipient: {recipient_id}")
+    print(f"[TOOL]   Cross-chain: {is_cross_chain}")
+    print(f"[TOOL]   Refund To: {refund_address}")
 
     url = "https://1click.chaindefuser.com/v0/quote"
     
-    # Use real recipient if available, otherwise fail or fallback (but fallback loses money)
     if not recipient_id:
         return {"error": "Wallet must be connected to fetch a quote (missing Account ID)"}
     
-    recipient = recipient_id
+    # Use refund_address if provided, otherwise fall back to recipient 
+    refund_to = refund_address or recipient_id
+    
     deadline = (datetime.datetime.utcnow() + datetime.timedelta(minutes=5)).isoformat() + "Z"
+
+    # Key logic: depositType/recipientType depend on source and destination chains
+    # Determine if source is EVM or NEAR
+    source_is_evm = is_evm_chain(chain_id)
+    
+    if source_is_evm:
+        # EVM-sourced: deposit via ORIGIN_CHAIN (user sends native tx on EVM)
+        deposit_type = "ORIGIN_CHAIN"
+        refund_type = "ORIGIN_CHAIN"
+    else:
+        # NEAR-sourced: deposit via INTENTS (mt_transfer inside NEAR)
+        deposit_type = "INTENTS"
+        refund_type = "INTENTS"
+    
+    if is_cross_chain:
+        recipient_type = "DESTINATION_CHAIN"
+        recipient = recipient_id  # destination chain address (e.g. 0x... for EVM)
+    else:
+        recipient_type = "INTENTS"
+        recipient = refund_to  # NEAR account for same-chain
 
     payload = {
         "swapType": "EXACT_INPUT",
         "originAsset": asset_in,
         "destinationAsset": asset_out,
         "amount": str(amount_atomic),
-        "depositType": "INTENTS",
-        "refundType": "INTENTS",
+        "depositType": deposit_type,
+        "refundType": refund_type,
         "recipient": recipient,
-        "recipientType": "DESTINATION_CHAIN",  # Required field
-        "refundTo": recipient,
+        "recipientType": recipient_type,
+        "refundTo": refund_to,
         "slippageTolerance": 10,
         "dry": False,
         "deadline": deadline,
         "quoteWaitingTimeMs": 0
     }
     
-    print(f"[TOOL] Request Payload: {json.dumps(payload)}")
+    print(f"[TOOL] Quote Request Payload: {json.dumps(payload, indent=2)}")
     
     try:
         # Use retry logic - attempt up to 8 times
@@ -180,6 +301,8 @@ def get_swap_quote(token_in: str, token_out: str, amount: float, chain_id: str =
                 continue
         data = response.json()
         
+        print(f"[TOOL] Quote Response: {json.dumps(data, indent=2)}")
+        
         # Check for error in body
         if "message" in data:
              return {"error": data["message"]}
@@ -188,10 +311,13 @@ def get_swap_quote(token_in: str, token_out: str, amount: float, chain_id: str =
         if not quote.get("depositAddress"):
              return {"error": "No deposit address found in quote"}
              
-        # Format output amount
+        # Format output amount using dynamic decimals
         amount_out_atomic = int(quote["amountOut"])
-        decimals_out = DECIMALS_MAP.get(t_out, 18)
+        decimals_out = token_out_data.get("decimals", 18)
         amount_out_fmt = amount_out_atomic / (10 ** decimals_out)
+        
+        print(f"[TOOL] Quote received: {amount} {t_in} -> {amount_out_fmt} {t_out}")
+        print(f"[TOOL] Deposit address: {quote['depositAddress']}")
         
         return {
             "token_in": t_in,
@@ -200,20 +326,46 @@ def get_swap_quote(token_in: str, token_out: str, amount: float, chain_id: str =
             "amount_out": amount_out_fmt,
             "rate": amount_out_fmt / amount if amount > 0 else 0,
             "chain": chain_id,
-            "deposit_address": quote["depositAddress"], # CRITICAL: The Solver ID
+            "deposit_address": quote["depositAddress"],
             "defuse_asset_in": asset_in,
             "defuse_asset_out": asset_out
         }
         
     except Exception as e:
         print(f"[TOOL] API Error: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
 
-def create_near_intent_transaction(token_in: str, token_out: str, amount: float, min_amount_out: float, deposit_address: str = "solver-relay.near") -> List[Dict[str, Any]]:
+def create_near_intent_transaction(
+    token_in: str, 
+    token_out: str, 
+    amount: float, 
+    min_amount_out: float, 
+    deposit_address: str,
+    account_id: str = ""
+) -> List[Dict[str, Any]]:
     """
-    Constructs the transaction payload for the NEAR Intents contract using the specific solver address.
+    Constructs the transaction payload for NEAR-sourced swaps via 1-Click API.
+    
+    Flow (per 1-Click API docs):
+      TX1: Deposit source token into intents.near
+        - For NEAR: wrap.near -> near_deposit + ft_transfer_call to intents.near
+        - For NEP-141: token contract -> ft_transfer_call to intents.near
+      TX2: Transfer within intents.near to the quote's deposit address
+        - intents.near -> mt_transfer(token_id, deposit_address, amount)
+    
+    Args:
+        token_in: Source token symbol
+        token_out: Destination token symbol  
+        amount: Amount of source token
+        min_amount_out: Minimum acceptable output (unused by 1-Click, kept for compatibility)
+        deposit_address: The deposit address from the 1-Click quote response
+        account_id: User's NEAR account ID (used in ft_transfer_call msg)
     """
-    print(f"[TOOL] Creating transaction: {amount} {token_in} -> {token_out} via {deposit_address}")
+    print(f"[TOOL] Creating transaction: {amount} {token_in} -> {token_out}")
+    print(f"[TOOL]   Deposit address: {deposit_address}")
+    print(f"[TOOL]   Account ID: {account_id}")
     
     contract_id = "intents.near" 
     transactions = []
@@ -228,35 +380,24 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
     decimals_in = token_in_data.get("decimals", 24) if token_in_data else 24
     amount_int = int(amount * (10 ** decimals_in))
 
-    if token_in.lower() == "near":
-        # TX 1: Deposit to Wrap NEAR -> Intents
+    # ── TX 1: Deposit source token into intents.near ──
+    if token_in.upper() == "NEAR":
+        # Wrap NEAR and transfer to intents.near
+        # Per example: near_deposit() + ft_transfer_call() with msg = account_id
         transactions.append({
             "receiverId": "wrap.near",
             "actions": [
-                 # 1. Storage Deposit (Optional but safe)
-                {
-                    "type": "FunctionCall",
-                    "params": {
-                        "methodName": "storage_deposit",
-                        "args": {
-                            "account_id": contract_id,
-                            "registration_only": True
-                        },
-                        "gas": "30000000000000",
-                        "deposit": "1250000000000000000000" # 0.00125 NEAR
-                    }
-                },
-                # 2. Wrap NEAR
+                # 1. Wrap NEAR -> wNEAR 
                 {
                     "type": "FunctionCall",
                     "params": {
                         "methodName": "near_deposit",
                         "args": {},
-                        "gas": "10000000000000",
+                        "gas": "10000000000000",  # 10 TGas
                         "deposit": str(amount_int)
                     }
                 },
-                # 3. Transfer to Intents (Deposit)
+                # 2. Transfer wNEAR to intents.near (deposit)
                 {
                     "type": "FunctionCall",
                     "params": {
@@ -264,30 +405,31 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
                         "args": {
                             "receiver_id": contract_id,
                             "amount": str(amount_int),
-                            "msg": "" 
+                            "msg": account_id  # Per example: msg = account_id
                         },
-                        "gas": "50000000000000",
+                        "gas": "50000000000000",  # 50 TGas
                         "deposit": "1"
                     }
                 }
             ]
         })
     else:
-        # NEP-141 Deposit
-        # Try to get contract from data, or fallback for well-knowns, or infer
-        t_in_contract = token_in_data.get("contractAddress") if token_in_data else ""
+        # NEP-141 token: ft_transfer_call to intents.near
+        t_in_contract = ""
+        if token_in_data:
+            t_in_contract = token_in_data.get("contractAddress", "")
         
         if not t_in_contract:
-             # Fallback: parse from defuse asset ID if possible (nep141:contract.near)
-             defuse_id = token_in_data.get("defuseAssetId", "") if token_in_data else ""
-             if defuse_id.startswith("nep141:"):
-                 t_in_contract = defuse_id.replace("nep141:", "")
-             else:
-                 t_in_contract = f"{token_in.lower()}.near"
+            # Fallback: parse from defuse asset ID (nep141:contract.near)
+            defuse_id = token_in_data.get("defuseAssetId", "") if token_in_data else ""
+            if defuse_id.startswith("nep141:"):
+                t_in_contract = defuse_id.replace("nep141:", "")
+            else:
+                t_in_contract = f"{token_in.lower()}.near"
 
         transactions.append({
             "receiverId": t_in_contract,
-             "actions": [
+            "actions": [
                 {
                     "type": "FunctionCall",
                     "params": {
@@ -295,20 +437,17 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
                         "args": {
                             "receiver_id": contract_id,
                             "amount": str(amount_int), 
-                            "msg": ""
+                            "msg": account_id  # Per example: msg = account_id
                         },
                         "gas": "50000000000000",
                         "deposit": "1"
                     }
                 }
-             ]
+            ]
         })
 
-    # TX 2: Swap (mt_transfer) to VALID SOLVER
-    # Output token ID for intent
-    token_out_id = token_out_data.get("defuseAssetId") if token_out_data else f"nep141:{token_out.lower()}.near"
-    
-    # If token_in is NEAR, we actually swap wNEAR
+    # ── TX 2: mt_transfer to the quote's deposit address ──
+    # This tells 1-Click to start the swap
     token_in_id = token_in_data.get("defuseAssetId") if token_in_data else ""
     if token_in.upper() == "NEAR":
         token_in_id = "nep141:wrap.near"
@@ -321,16 +460,80 @@ def create_near_intent_transaction(token_in: str, token_out: str, amount: float,
                 "params": {
                     "methodName": "mt_transfer",
                     "args": {
-                        "token_id": token_in_id, # Source token ID
-                        "receiver_id": deposit_address, # The real solver from the quote
+                        "token_id": token_in_id,
+                        "receiver_id": deposit_address,
                         "amount": str(amount_int),
-                        "msg": ""
                     },
-                    "gas": "30000000000000",
+                    "gas": "30000000000000",  # 30 TGas
                     "deposit": "1", 
                 }
             }
         ]
     })
     
+    print(f"[TOOL] Transaction payload ({len(transactions)} txs):")
+    for i, tx in enumerate(transactions):
+        print(f"[TOOL]   TX{i+1}: receiverId={tx['receiverId']}, actions={len(tx['actions'])}")
+        for j, action in enumerate(tx['actions']):
+            if action.get('params'):
+                print(f"[TOOL]     Action{j+1}: {action['params'].get('methodName', 'unknown')}")
+    
     return transactions
+
+
+def create_evm_deposit_transaction(
+    token_in: str,
+    amount: float,
+    deposit_address: str,
+    source_chain: str,
+    from_address: str
+) -> Dict[str, Any]:
+    """
+    Constructs the EVM transaction payload for depositing tokens to the 1-Click deposit address.
+    
+    For EVM-sourced swaps, the user sends a native ETH transfer (or ERC-20 transfer)
+    to the deposit address provided by the 1-Click API quote.
+    
+    The frontend will use HOT Kit's EvmWallet.sendTransaction() which handles
+    chain switching automatically.
+    
+    Args:
+        token_in: Source token symbol
+        amount: Amount of source token
+        deposit_address: The deposit address from the 1-Click quote
+        source_chain: Source chain name (e.g., "eth", "base", "arb")
+        from_address: User's EVM wallet address
+        
+    Returns:
+        Dict with EVM transaction params: { chainId, from, to, value }
+    """
+    chain_id = get_evm_chain_id(source_chain)
+    if not chain_id:
+        raise ValueError(f"Unknown EVM chain: {source_chain}")
+    
+    # Get token decimals
+    from knowledge_base import _token_cache, get_token_by_symbol
+    tokens = _token_cache if _token_cache else []
+    token_data = get_token_by_symbol(token_in.upper(), tokens)
+    decimals = token_data.get("decimals", 18) if token_data else 18
+    
+    amount_wei = int(amount * (10 ** decimals))
+    
+    # For native tokens (ETH on Ethereum, ETH on Base/Arb, BNB on BSC, etc.)
+    # Just send value to the deposit address
+    # For ERC-20 tokens, we'd need a contract call, but 1-Click handles native deposits
+    
+    tx_payload = {
+        "chainId": chain_id,
+        "from": from_address,
+        "to": deposit_address,
+        "value": str(amount_wei),  # String for BigInt safety
+    }
+    
+    print(f"[TOOL] EVM Transaction payload:")
+    print(f"[TOOL]   Chain: {source_chain} (ID: {chain_id})")
+    print(f"[TOOL]   From: {from_address}")
+    print(f"[TOOL]   To: {deposit_address}")
+    print(f"[TOOL]   Value: {amount_wei} ({amount} {token_in})")
+    
+    return tx_payload

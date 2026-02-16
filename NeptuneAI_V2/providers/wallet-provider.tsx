@@ -16,6 +16,7 @@ type WalletContextValue = WalletState & {
     connectWallet: () => void;
     disconnect: () => Promise<void>;
     signAndSendTransaction: (payload: Record<string, unknown>) => Promise<{ hash: string }>;
+    signAndSendEvmTransaction: (payload: Record<string, unknown>) => Promise<{ hash: string }>;
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -486,6 +487,49 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         [state.accountId]
     );
 
+    // ── Sign EVM Transaction (via HOT Kit EVM Wallet) ────────
+    const signAndSendEvmTransaction = useCallback(
+        async (payload: Record<string, unknown>): Promise<{ hash: string }> => {
+            console.log("[Wallet] signAndSendEvmTransaction payload:", payload);
+
+            const kit = hotKitRef.current;
+            if (!kit) throw new Error("HOT Kit not initialized");
+
+            // Find the EVM wallet from kit.wallets (WalletType.EVM = 1)
+            const evmWallet = Array.isArray(kit.wallets)
+                ? kit.wallets.find((w: any) => w.type === 1 || w.type === 'evm')
+                : null;
+
+            if (!evmWallet) {
+                throw new Error("No EVM wallet connected. Please connect an Ethereum wallet.");
+            }
+
+            console.log("[Wallet] Found EVM wallet:", evmWallet.address);
+
+            try {
+                // Construct the transaction request for HOT Kit EVM wallet
+                const txRequest: Record<string, unknown> = {
+                    chainId: payload.chainId,
+                    from: payload.from || evmWallet.address,
+                    to: payload.to,
+                    value: payload.value ? BigInt(payload.value as string) : BigInt(0),
+                };
+
+                console.log("[Wallet] Sending EVM transaction:", txRequest);
+
+                // EvmWallet.sendTransaction handles chain switching automatically
+                const hash = await evmWallet.sendTransaction(txRequest);
+
+                console.log("[Wallet] EVM transaction sent, hash:", hash);
+                return { hash: hash || "unknown" };
+            } catch (e) {
+                console.error("[Wallet] EVM Transaction failed:", e);
+                throw e;
+            }
+        },
+        []
+    );
+
     // ── Cleanup on unmount ───────────────────────────────
     useEffect(() => {
         return () => {
@@ -502,6 +546,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 connectWallet,
                 disconnect,
                 signAndSendTransaction,
+                signAndSendEvmTransaction,
             }}
         >
             {children}

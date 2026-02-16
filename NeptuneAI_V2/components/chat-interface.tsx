@@ -91,6 +91,7 @@ export default function ChatInterface() {
     connectWallet,
     disconnect,
     signAndSendTransaction,
+    signAndSendEvmTransaction,
   } = useWallet();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -141,8 +142,18 @@ export default function ChatInterface() {
       // Step 1: Preparing
       setTxStep("signing");
 
-      // Step 2: Real wallet signing
-      const result = await signAndSendTransaction(payload);
+      // Step 2: Route to correct signer based on payload type
+      // EVM payloads have a `chainId` field (numeric), NEAR payloads are arrays of tx objects
+      const isEvmTx = payload.chainId !== undefined;
+
+      let result: { hash: string };
+      if (isEvmTx) {
+        console.log("[Chat] Routing to EVM signer (chainId:", payload.chainId, ")");
+        result = await signAndSendEvmTransaction(payload);
+      } else {
+        console.log("[Chat] Routing to NEAR signer");
+        result = await signAndSendTransaction(payload);
+      }
 
       setTxStep("broadcasting");
       // Brief pause for UX — the tx is already sent

@@ -335,24 +335,64 @@ async def process_message(
                 # Get the actual transaction payload
                 from agent_tools import _last_quote
                 if _last_quote:
-                    from tools import create_near_intent_transaction
                     try:
-                        tx_payload = create_near_intent_transaction(
-                            _last_quote["token_in"],
-                            _last_quote["token_out"],
-                            _last_quote["amount"],
-                            _last_quote["min_amount_out"],
-                            _last_quote["deposit_address"]
-                        )
-                        print(f"[AGENT] Transaction prepared, returning to frontend for signing")
+                        source_chain = _last_quote.get("source_chain", "near").lower()
+                        
+                        # Determine if source is EVM or NEAR
+                        from tools import is_evm_chain, create_evm_deposit_transaction, create_near_intent_transaction
+                        
+                        if is_evm_chain(source_chain):
+                            # EVM-sourced: send native ETH transfer to deposit address
+                            evm_address = ""
+                            # Try to get the EVM address from wallet_addresses in user_context
+                            wallet_addresses = user_context.get("wallet_addresses", {})
+                            if isinstance(wallet_addresses, dict):
+                                evm_address = wallet_addresses.get("eth", wallet_addresses.get(source_chain, ""))
+                            elif isinstance(wallet_addresses, str):
+                                for pair in wallet_addresses.split(","):
+                                    if ":" in pair:
+                                        chain_key, addr = pair.split(":", 1)
+                                        if chain_key.strip().lower() in ["eth", source_chain]:
+                                            evm_address = addr.strip()
+                                            break
+                            
+                            if not evm_address:
+                                evm_address = _last_quote.get("account_id", account_id)
+                            
+                            tx_payload = create_evm_deposit_transaction(
+                                token_in=_last_quote["token_in"],
+                                amount=_last_quote["amount"],
+                                deposit_address=_last_quote["deposit_address"],
+                                source_chain=source_chain,
+                                from_address=evm_address
+                            )
+                            action_type = "SIGN_EVM_TRANSACTION"
+                            print(f"[AGENT] EVM transaction prepared for {source_chain}")
+                        else:
+                            # NEAR-sourced: build NEAR intents transactions
+                            tx_payload = create_near_intent_transaction(
+                                _last_quote["token_in"],
+                                _last_quote["token_out"],
+                                _last_quote["amount"],
+                                _last_quote["min_amount_out"],
+                                _last_quote["deposit_address"],
+                                account_id=_last_quote.get("account_id", account_id)
+                            )
+                            action_type = "SIGN_TRANSACTION"
+                            print(f"[AGENT] NEAR transaction prepared")
+                        
+                        print(f"[AGENT] Action: {action_type}")
+                        print(f"[AGENT] Transaction payload: {json.dumps(tx_payload, indent=2)}")
                         return {
                             "response": "✅ Transaction prepared! Please review and sign it in your wallet.",
-                            "action": "SIGN_TRANSACTION",
+                            "action": action_type,
                             "payload": tx_payload,
                             "new_state": {"step": "IDLE"}
                         }
                     except Exception as e:
                         print(f"[AGENT] Error creating transaction payload: {e}")
+                        import traceback
+                        traceback.print_exc()
         else:
             # No tools needed, use direct response
             response_text = response.content

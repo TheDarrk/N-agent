@@ -619,13 +619,15 @@ export default function ChatMessage({ message, onSignAction, index }: Props) {
             )}
 
             {/* Sign Transaction Button */}
-            {message.action === "SIGN_TRANSACTION" && message.payload && (
+            {(message.action === "SIGN_TRANSACTION" || message.action === "SIGN_EVM_TRANSACTION") && message.payload && (
               <button
                 onClick={() => onSignAction(message.payload!)}
                 className="group flex items-center gap-2.5 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-all active:scale-[0.97] shadow-lg shadow-primary/20"
               >
                 <CheckCircle2 size={15} />
-                Sign & Execute Transaction
+                {message.action === "SIGN_EVM_TRANSACTION"
+                  ? "Sign EVM Transaction"
+                  : "Sign & Execute Transaction"}
                 <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
               </button>
             )}
