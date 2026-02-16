@@ -452,14 +452,28 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     console.log("[Wallet] Sending batch transactions:", txs);
 
                     if (nearWallet.sendTransactions) {
+                        console.log(`[Wallet] Requesting batch signature for ${txs.length} transactions...`);
                         const hashes = await nearWallet.sendTransactions({ transactions: txs });
+
+                        console.log("[Wallet] Batch execution result hashes:", hashes);
+
+                        // Check if we got back as many hashes as transactions
+                        if (Array.isArray(hashes) && hashes.length !== txs.length) {
+                            console.warn(`[Wallet] WARNING: Requested ${txs.length} txs but got ${hashes.length} hashes. Partial execution.`);
+                            throw new Error(`Batch transaction incomplete: ${hashes.length}/${txs.length} executed. Please check your wallet history.`);
+                        }
+
                         hash = Array.isArray(hashes) ? hashes[hashes.length - 1] : "batch-success";
                     } else if (nearWallet.sendTransaction) {
                         // Fallback: Send one by one (less ideal, user signs multiple times)
                         console.warn("Wallet doesn't support batch transactions, sending sequentially");
+                        const executedHashes = [];
                         for (const tx of txs) {
-                            hash = await nearWallet.sendTransaction(tx);
+                            console.log(`[Wallet] Sending sequential tx to ${tx.receiverId}...`);
+                            const result = await nearWallet.sendTransaction(tx);
+                            executedHashes.push(result);
                         }
+                        hash = executedHashes[executedHashes.length - 1];
                     } else {
                         throw new Error("Wallet signing method not available");
                     }

@@ -464,7 +464,7 @@ def create_near_intent_transaction(
                         "receiver_id": deposit_address,
                         "amount": str(amount_int),
                     },
-                    "gas": "30000000000000",  # 30 TGas
+                    "gas": "100000000000000",  # 100 TGas (increased for safety)
                     "deposit": "1", 
                 }
             }
