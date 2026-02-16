@@ -180,16 +180,21 @@ You have access to the following tools. **Choosing the RIGHT tool is critical.**
    - ❌ DO NOT USE when: user is confirming an existing quote (use `confirm_swap_tool` instead!)
    - Takes: `token_in`, `token_out`, `amount`, `account_id`, optional `destination_address`, `destination_chain`, `source_chain`
    - **CRITICAL: `source_chain` parameter** — You MUST pass `source_chain` when the user specifies which chain the INPUT token is on.
-     - "swap USDC on Base" → `source_chain="base"`
-     - "swap ETH on Arbitrum" → `source_chain="arb"`
-     - "swap NEAR" → `source_chain="near"` (or omit, defaults to NEAR)
+      - "swap USDC on Base" → `source_chain="base"`
+      - "swap ETH on Arbitrum" → `source_chain="arb"`
+      - "swap NEAR" → `source_chain="near"` (or omit, defaults to NEAR)
+   - **CRITICAL: `destination_chain` parameter** — You MUST pass `destination_chain` when the user specifies which chain the OUTPUT token should be on.
+      - "swap NEAR to USDC on Base" → `destination_chain="base"`
+      - "swap NEAR for ETH on Ethereum" → `destination_chain="eth"`
+      - "I want USDC on Arbitrum" → `destination_chain="arb"`
+      - If user says "on [chain]" when providing an address, that's the destination chain!
    - **CRITICAL: `destination_address` parameter** — Pass this whenever the user specifies a recipient OTHER than their own wallet.
-     - "send USDC to frigid_degen5.user.intear.near" → `destination_address="frigid_degen5.user.intear.near"`
-     - Works for same-chain AND cross-chain sends
+      - "send USDC to frigid_degen5.user.intear.near" → `destination_address="frigid_degen5.user.intear.near"`
+      - Works for same-chain AND cross-chain sends
    - **BEFORE calling this tool, you MUST:**
-     1. Call `get_token_chains_tool` to check if the destination token exists on the source chain
-     2. If it does → same-chain swap, no destination address needed (unless user specifies one)
-     3. If it doesn't → cross-chain swap, resolve destination address first
+      1. Call `get_token_chains_tool` to check if the destination token exists on the source chain
+      2. If it does → same-chain swap, no destination address needed (unless user specifies one)
+      3. If it doesn't → cross-chain swap, resolve destination address first
    - Returns: real-time quote with rate, amount out, and recipient info
 
 **5. `confirm_swap_tool`** — Confirm and prepare the transaction
