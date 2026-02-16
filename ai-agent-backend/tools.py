@@ -200,7 +200,9 @@ def get_swap_quote(
     chain_id: str = "near", 
     recipient_id: str = None,
     is_cross_chain: bool = False,
-    refund_address: str = None
+    refund_address: str = None,
+    source_chain: str = None,
+    dest_chain: str = None
 ) -> Dict[str, Any]:
     """
     Fetches a real swap quote from Defuse 1-Click API.
@@ -221,8 +223,8 @@ def get_swap_quote(
     from knowledge_base import _token_cache, get_token_by_symbol
     tokens = _token_cache if _token_cache else []
     
-    token_in_data = get_token_by_symbol(t_in, tokens)
-    token_out_data = get_token_by_symbol(t_out, tokens)
+    token_in_data = get_token_by_symbol(t_in, tokens, chain=source_chain or chain_id)
+    token_out_data = get_token_by_symbol(t_out, tokens, chain=dest_chain)
     
     if not token_in_data:
         return {"error": f"Token {t_in} not found in supported list"}
@@ -270,7 +272,9 @@ def get_swap_quote(
         recipient = recipient_id  # destination chain address (e.g. 0x... for EVM)
     else:
         recipient_type = "INTENTS"
-        recipient = refund_to  # NEAR account for same-chain
+        # Use recipient_id if explicitly provided (e.g. "send USDC to flame1.near")
+        # Only fall back to refund_to when no specific recipient was given
+        recipient = recipient_id or refund_to
 
     payload = {
         "swapType": "EXACT_INPUT",

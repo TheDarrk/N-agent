@@ -90,7 +90,8 @@ async def process_message(
                 pending["token_out"],
                 pending["amount"],
                 pending["min_amount_out"],
-                pending["deposit_address"]
+                pending["deposit_address"],
+                account_id=pending.get("account_id", account_id)
             )
             
             return {

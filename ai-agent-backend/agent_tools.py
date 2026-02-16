@@ -222,15 +222,28 @@ def get_swap_quote_tool(
     # Re-lookup token with the effective source chain for correct defuseAssetId
     source_token = get_token_by_symbol(token_in.upper(), tokens, chain=effective_source_chain) or source_token
     
+    # Determine/Validate Destination Chain
+    dest_chain = "near"
+    if destination_chain:
+        dest_chain = destination_chain.strip().lower()
+
     # ── SAFETY CHECK 3: Resolve destination ──
-    dest_token = get_token_by_symbol(token_out.upper(), tokens, chain=destination_chain)
-    if not dest_token:
-        # Fallback if specific chain token not found
-        dest_token = get_token_by_symbol(token_out.upper(), tokens)
+    # STRICT LOOKUP: If user specified a chain, we MUST find the token on that chain.
+    # Do NOT fallback to default (which finds NEAR token) if explicit chain is requested.
+    lookup_chain = dest_chain if destination_chain else None
+    dest_token = get_token_by_symbol(token_out.upper(), tokens, chain=lookup_chain)
     
+    if not dest_token:
+        if destination_chain:
+            return f"❌ Token '{token_out.upper()}' not found on chain '{dest_chain}'. Use get_available_tokens_tool to check availability."
+        else:
+            # Fallback for generic request (should verify if this ever happens given safety check 1)
+            # Try to find ANY token match
+            dest_token = get_token_by_symbol(token_out.upper(), tokens)
+            
     if not dest_token:
         return f"❌ Token '{token_out}' not found. Use get_available_tokens_tool to see available tokens."
-    
+
     dest_chain = dest_token.get("blockchain", "near").lower()
     
     # ── SAFETY CHECK 4: Validate recipient format matching destination chain ──
@@ -310,7 +323,9 @@ def get_swap_quote_tool(
         chain_id=effective_source_chain,  # Determines depositType (ORIGIN_CHAIN for EVM, INTENTS for NEAR)
         recipient_id=recipient,
         is_cross_chain=is_cross_chain,
-        refund_address=refund_addr
+        refund_address=refund_addr,
+        source_chain=effective_source_chain,
+        dest_chain=dest_chain
     )
     
     if "error" in quote:

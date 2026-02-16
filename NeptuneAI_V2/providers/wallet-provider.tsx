@@ -164,14 +164,18 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     request_type: "view_account",
                     finality: "final",
                     account_id: addresses.near,
-                }) as { amount: string };
+                }) as { amount: string; storage_usage?: number };
 
                 if (result?.amount) {
-                    const yocto = result.amount;
-                    // Keep native NEAR key lowercase 'near' for existing ChatSidebar styling
-                    const balance = Number(BigInt(yocto) / BigInt(10 ** 20)) / 10000; // Divide by 10^24
+                    const totalYocto = BigInt(result.amount);
+                    // NEAR locks balance for storage: 10^19 yoctoNEAR per byte
+                    // Subtract storage cost to show AVAILABLE (spendable) balance
+                    const storageBytes = BigInt(result.storage_usage || 0);
+                    const storageCost = storageBytes * BigInt(10 ** 19);
+                    const availableYocto = totalYocto > storageCost ? totalYocto - storageCost : BigInt(0);
+
+                    const balance = Number(availableYocto / BigInt(10 ** 20)) / 10000; // Divide by 10^24
                     const fmt = balance.toFixed(5).replace(/\.?0+$/, "");
-                    // newBalances.near = fmt; // Removed to avoid duplicate display
                     newBalances["[NEAR] NEAR"] = fmt;
                 }
 
@@ -207,9 +211,14 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                         let displaySymbol = symbol.toUpperCase();
 
                         // Special handling for Wrapped NEAR on Omni/Hot chain (-4)
-                        if (t.token.chain_id === -4 && (t.token.address === 'nep141:wrap.near' || t.token.omniAddress === 'nep141:wrap.near')) {
+                        // Use == instead of === because chain_id may be string "-4" or number -4
+                        if (t.token.chain_id == -4 && (t.token.address === 'nep141:wrap.near' || t.token.omniAddress === 'nep141:wrap.near')) {
                             chainLabel = "NEAR";
                             displaySymbol = "wNEAR";
+                        } else if (t.token.chain_id == -4) {
+                            // Skip all other omni chain tokens — they are internal HOT Kit
+                            // representations and cause misleading phantom balances
+                            return;
                         } else if (t.token.chain_id) {
                             chainLabel = walletTypeToChain(t.token.chain_id).toUpperCase();
                         } else {
@@ -219,6 +228,9 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
                         // Edge case fix for BSC/BNB consistency
                         if (chainLabel === "BSC") chainLabel = "BNB";
+
+                        // Final safety net: skip anything that resolved to OMNI
+                        if (chainLabel === "OMNI") return;
 
                         // Avoid overwriting NEAR if we have a robust native fetch, OR overwrite if kit is trusted.
                         const key = `[${chainLabel}] ${displaySymbol}`;
