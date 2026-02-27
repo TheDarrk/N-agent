@@ -488,6 +488,84 @@ def create_near_intent_transaction(
     return transactions
 
 
+def encode_erc20_transfer(to_address: str, amount_wei: int) -> str:
+    """
+    Encode ERC-20 transfer(address,uint256) call using web3.py.
+    """
+    from web3 import Web3
+    w3 = Web3()
+    # Minimal ABI for ERC20 transfer
+    abi = [{
+        "constant": False, 
+        "inputs": [
+            {"name": "_to", "type": "address"}, 
+            {"name": "_value", "type": "uint256"}
+        ], 
+        "name": "transfer", 
+        "outputs": [{"name": "", "type": "bool"}], 
+        "payable": False, 
+        "stateMutability": "nonpayable", 
+        "type": "function"
+    }]
+    # Create empty contract for encoding
+    contract = w3.eth.contract(abi=abi)
+    # Encode the transfer ABI specifying the exact recipient and amount
+    # We use to_checksum_address carefully just in case the backend requires it, 
+    # but Web3 handles the internal formatting correctly. 
+    try:
+        checksum_address = w3.to_checksum_address(to_address)
+    except ValueError:
+        # Fallback if invalid checksum, usually addresses should be strictly formatted
+        checksum_address = to_address
+        
+    return contract.encode_abi("transfer", args=[checksum_address, amount_wei])
+
+def create_deposit_transaction(
+    token_in: str,
+    token_out: str,
+    amount: float,
+    min_amount_out: float,
+    deposit_address: str,
+    source_chain: str,
+    account_id: str
+) -> Any:
+    """
+    Modular builder for generating transaction payloads across multiple chains (EVM, NEAR, Solana, Cosmos).
+    Delegates to the correct builder based on the source chain.
+    """
+    if source_chain == "near":
+        return create_near_intent_transaction(
+            token_in=token_in,
+            token_out=token_out,
+            amount=amount,
+            min_amount_out=min_amount_out,
+            deposit_address=deposit_address,
+            account_id=account_id
+        )
+    elif is_evm_chain(source_chain):
+        return create_evm_deposit_transaction(
+            token_in=token_in,
+            amount=amount,
+            deposit_address=deposit_address,
+            source_chain=source_chain,
+            from_address=account_id
+        )
+    else:
+        # Fallback for non-EVM and non-NEAR (Solana, Cosmos, Tron etc.)
+        # Ideally, we would use native libraries (like solana-py or base58 checks)
+        # to construct valid transactions. For now we construct a standardized intent 
+        # that the frontend wallet adapter handles.
+        print(f"[TOOL] Creating Generic/Native transfer for {token_in} on {source_chain}")
+        return {
+            "chain": source_chain,
+            "type": "native_transfer",
+            "to": deposit_address,
+            "from": account_id,
+            "amount": float(amount),
+            "token": token_in.upper()
+        }
+
+
 def create_evm_deposit_transaction(
     token_in: str,
     amount: float,
@@ -496,46 +574,57 @@ def create_evm_deposit_transaction(
     from_address: str
 ) -> Dict[str, Any]:
     """
-    Constructs the EVM transaction payload for depositing tokens to the 1-Click deposit address.
-    
-    For EVM-sourced swaps, the user sends a native ETH transfer (or ERC-20 transfer)
-    to the deposit address provided by the 1-Click API quote.
-    
-    The frontend will use HOT Kit's EvmWallet.sendTransaction() which handles
-    chain switching automatically.
-    
-    Args:
-        token_in: Source token symbol
-        amount: Amount of source token
-        deposit_address: The deposit address from the 1-Click quote
-        source_chain: Source chain name (e.g., "eth", "base", "arb")
-        from_address: User's EVM wallet address
-        
-    Returns:
-        Dict with EVM transaction params: { chainId, from, to, value }
+    Constructs the EVM transaction payload for depositing tokens.
+    Supports both Native (ETH, BNB, etc.) and ERC-20 tokens.
     """
     chain_id = get_evm_chain_id(source_chain)
     if not chain_id:
         raise ValueError(f"Unknown EVM chain: {source_chain}")
     
-    # Get token decimals
+    # Get token data to check if Native or ERC-20
     from knowledge_base import _token_cache, get_token_by_symbol
     tokens = _token_cache if _token_cache else []
-    token_data = get_token_by_symbol(token_in.upper(), tokens)
+    token_data = get_token_by_symbol(token_in.upper(), tokens, chain=source_chain)
+    
+    # Default to 18 decimals if not found
     decimals = token_data.get("decimals", 18) if token_data else 18
+    contract_address = token_data.get("contractAddress") if token_data else None
     
     amount_wei = int(Decimal(str(amount)) * Decimal(10 ** decimals))
     
-    # For native tokens (ETH on Ethereum, ETH on Base/Arb, BNB on BSC, etc.)
-    # Just send value to the deposit address
-    # For ERC-20 tokens, we'd need a contract call, but 1-Click handles native deposits
+    # Determine transaction type
+    # If explicit contract address exists, it's likely ERC-20.
+    # Native tokens usually have empty contractAddress in the API.
+    # Exception: Wrapped tokens (WETH) have contract address but user might intend to send Native ETH.
+    # BUT 1-Click usually expects the exact asset you quoted. 
+    # If quote was for "ETH" (native), contractAddress should be empty.
+    # If quote was "WETH", contractAddress is present.
     
-    tx_payload = {
-        "chainId": chain_id,
-        "from": from_address,
-        "to": deposit_address,
-        "value": str(amount_wei),  # String for BigInt safety
-    }
+    is_erc20 = bool(contract_address and contract_address.strip())
+    
+    if is_erc20:
+        # ERC-20 Transfer
+        print(f"[TOOL] Creating ERC-20 transfer for {token_in} on {source_chain}")
+        print(f"[TOOL] Contract: {contract_address}, To: {deposit_address}, Amount: {amount_wei}")
+        
+        data_payload = encode_erc20_transfer(deposit_address, amount_wei)
+        
+        tx_payload = {
+            "chainId": chain_id,
+            "from": from_address,
+            "to": contract_address, # Send to Token Contract
+            "value": "0",           # No native ETH sent
+            "data": data_payload    # Encoded transfer() call
+        }
+    else:
+        # Native Asset Transfer (ETH, BNB, etc.)
+        print(f"[TOOL] Creating Native transfer for {token_in} on {source_chain}")
+        tx_payload = {
+            "chainId": chain_id,
+            "from": from_address,
+            "to": deposit_address,  # Send directly to deposit address
+            "value": str(amount_wei),
+        }
     
     print(f"[TOOL] EVM Transaction payload:")
     print(f"[TOOL]   Chain: {source_chain} (ID: {chain_id})")
@@ -544,3 +633,62 @@ def create_evm_deposit_transaction(
     print(f"[TOOL]   Value: {amount_wei} ({amount} {token_in})")
     
     return tx_payload
+
+
+def get_sign_action_type(source_chain: str) -> str:
+    """
+    Returns the frontend action type string based on the source chain.
+    The frontend wallet adapter uses this to route to the correct signing flow.
+    """
+    source = source_chain.lower()
+    if source == "near":
+        return "SIGN_TRANSACTION"
+    elif is_evm_chain(source):
+        return "SIGN_EVM_TRANSACTION"
+    elif source in ("solana", "sol"):
+        return "SIGN_SOLANA_TRANSACTION"
+    elif source in ("ton",):
+        return "SIGN_TON_TRANSACTION"
+    elif source in ("tron", "trx"):
+        return "SIGN_TRON_TRANSACTION"
+    elif source in ("cosmos", "atom"):
+        return "SIGN_COSMOS_TRANSACTION"
+    elif source in ("btc", "bitcoin"):
+        return "SIGN_BTC_TRANSACTION"
+    else:
+        # Generic fallback — frontend should handle based on chain field in payload
+        return "SIGN_GENERIC_TRANSACTION"
+
+
+async def submit_deposit_tx(
+    deposit_address: str,
+    tx_hash: str,
+    near_sender_account: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Optionally notify the 1-Click service that a deposit has been sent.
+    Speeds up swap processing by allowing the system to preemptively verify the deposit.
+    
+    POST /v0/deposit/submit
+    Body: { txHash, depositAddress, nearSenderAccount? }
+    """
+    url = "https://1click.chaindefuser.com/v0/deposit/submit"
+    payload = {
+        "txHash": tx_hash,
+        "depositAddress": deposit_address,
+    }
+    if near_sender_account:
+        payload["nearSenderAccount"] = near_sender_account
+    
+    print(f"[TOOL] Submitting deposit tx to 1-Click: hash={tx_hash}, addr={deposit_address}")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=10.0)
+            data = response.json()
+            print(f"[TOOL] Deposit submit response: {json.dumps(data, indent=2)}")
+            return data
+    except Exception as e:
+        print(f"[TOOL] Deposit submit error (non-critical): {e}")
+        # This is optional — don't fail the swap if this call fails
+        return {"error": str(e)}

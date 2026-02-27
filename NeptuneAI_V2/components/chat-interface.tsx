@@ -92,6 +92,7 @@ export default function ChatInterface() {
     disconnect,
     signAndSendTransaction,
     signAndSendEvmTransaction,
+    signAndSendGenericTransaction,
   } = useWallet();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -144,12 +145,17 @@ export default function ChatInterface() {
 
       // Step 2: Route to correct signer based on payload type
       // EVM payloads have a `chainId` field (numeric), NEAR payloads are arrays of tx objects
+      // Generic chain payloads have a `chain` field (string) + `type: "native_transfer"`
       const isEvmTx = payload.chainId !== undefined;
+      const isGenericTx = payload.chain !== undefined && payload.type === "native_transfer";
 
       let result: { hash: string };
       if (isEvmTx) {
         console.log("[Chat] Routing to EVM signer (chainId:", payload.chainId, ")");
         result = await signAndSendEvmTransaction(payload);
+      } else if (isGenericTx) {
+        console.log("[Chat] Routing to Generic chain signer (chain:", payload.chain, ")");
+        result = await signAndSendGenericTransaction(payload);
       } else {
         console.log("[Chat] Routing to NEAR signer");
         result = await signAndSendTransaction(payload);

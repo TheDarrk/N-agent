@@ -311,6 +311,17 @@ def get_swap_quote_tool(
     # Determine refund address: for EVM source, use eth address; for NEAR, use NEAR address
     if is_evm_chain(effective_source_chain):
         refund_addr = addr_map.get("eth", account_id)
+        
+        # Validate EVM refund address
+        # If fallback to account_id occurred (and account_id is "user.near"), it will fail validation
+        if not refund_addr or not refund_addr.startswith("0x") or len(refund_addr) != 42:
+             return (
+                f"⚠️ **Missing EVM Address for Refund**\n\n"
+                f"You are swapping from **{effective_source_chain.upper()}**, so we need your EVM wallet address for refunds.\n"
+                f"We couldn't find a valid EVM address in your connected wallets.\n\n"
+                f"**Please connect your Ethereum/EVM wallet** to proceed."
+            )
+            
     elif effective_source_chain == "near":
         refund_addr = addr_map.get("near", account_id)
     else:
@@ -383,19 +394,24 @@ def confirm_swap_tool() -> str:
         return "❌ No recent quote found. Please get a quote first by asking for a swap."
     
     try:
-        from tools import create_near_intent_transaction
+        from tools import create_deposit_transaction, get_sign_action_type
         
-        tx_payload = create_near_intent_transaction(
-            _last_quote["token_in"],
-            _last_quote["token_out"],
-            _last_quote["amount"],
-            _last_quote["min_amount_out"],
-            _last_quote["deposit_address"],
+        source_chain = _last_quote.get("source_chain", "near").lower()
+        
+        tx_payload = create_deposit_transaction(
+            token_in=_last_quote["token_in"],
+            token_out=_last_quote["token_out"],
+            amount=_last_quote["amount"],
+            min_amount_out=_last_quote.get("min_amount_out", 0),
+            deposit_address=_last_quote["deposit_address"],
+            source_chain=source_chain,
             account_id=_last_quote.get("account_id", "")
         )
         
+        action_type = get_sign_action_type(source_chain)
+        
         # Return special marker that agents.py will detect
-        return f"[TRANSACTION_READY] Transaction prepared successfully. User needs to sign in their wallet."
+        return f"[TRANSACTION_READY] Transaction prepared for {source_chain.upper()}. Action: {action_type}. User needs to sign in their wallet."
         
     except Exception as e:
         return f"❌ Error preparing transaction: {str(e)}"

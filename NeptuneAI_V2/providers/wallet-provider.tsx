@@ -17,6 +17,7 @@ type WalletContextValue = WalletState & {
     disconnect: () => Promise<void>;
     signAndSendTransaction: (payload: Record<string, unknown>) => Promise<{ hash: string }>;
     signAndSendEvmTransaction: (payload: Record<string, unknown>) => Promise<{ hash: string }>;
+    signAndSendGenericTransaction: (payload: Record<string, unknown>) => Promise<{ hash: string }>;
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -539,6 +540,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     from: payload.from || evmWallet.address,
                     to: payload.to,
                     value: payload.value ? BigInt(payload.value as string) : BigInt(0),
+                    data: payload.data as string,
                 };
 
                 console.log("[Wallet] Sending EVM transaction:", txRequest);
@@ -550,6 +552,68 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 return { hash: hash || "unknown" };
             } catch (e) {
                 console.error("[Wallet] EVM Transaction failed:", e);
+                throw e;
+            }
+        },
+        []
+    );
+
+    // ── Sign Generic Chain Transaction (Solana, TON, Tron, etc. via HOT Kit) ────────
+    // HOT Kit wallet type IDs for non-EVM/non-NEAR chains
+    const CHAIN_TO_WALLET_TYPE: Record<string, number[]> = {
+        solana: [1001], sol: [1001],
+        ton: [1111],
+        tron: [333], trx: [333],
+        stellar: [1100], xlm: [1100],
+        cosmos: [4444118], atom: [4444118],
+        btc: [-6], bitcoin: [-6],
+        doge: [-8],
+        xrp: [-7],
+        ada: [-9], cardano: [-12],
+        aptos: [-10], apt: [-10],
+        sui: [-11],
+        ltc: [-14], litecoin: [-14],
+        zcash: [-5], zec: [-5],
+    };
+
+    const signAndSendGenericTransaction = useCallback(
+        async (payload: Record<string, unknown>): Promise<{ hash: string }> => {
+            const chain = (payload.chain as string || "").toLowerCase();
+            console.log("[Wallet] signAndSendGenericTransaction for chain:", chain, "payload:", payload);
+
+            const kit = hotKitRef.current;
+            if (!kit) throw new Error("HOT Kit not initialized");
+
+            // Find the wallet type IDs for this chain
+            const walletTypes = CHAIN_TO_WALLET_TYPE[chain];
+            if (!walletTypes) {
+                throw new Error(`Unsupported chain: ${chain}. Please connect the appropriate wallet.`);
+            }
+
+            // Find a connected wallet matching one of these types
+            const wallet = Array.isArray(kit.wallets)
+                ? kit.wallets.find((w: any) => walletTypes.includes(Number(w.type)))
+                : null;
+
+            if (!wallet) {
+                throw new Error(`No ${chain.toUpperCase()} wallet connected. Please connect a ${chain.toUpperCase()} wallet via HOT Kit.`);
+            }
+
+            console.log("[Wallet] Found wallet for", chain, ":", wallet.address);
+
+            try {
+                // HOT Kit wallets all support sendTransaction with a standardized interface
+                const txRequest = {
+                    to: payload.to as string,
+                    value: payload.amount ? String(payload.amount) : "0",
+                    from: wallet.address,
+                };
+
+                const hash = await wallet.sendTransaction(txRequest);
+                console.log(`[Wallet] ${chain} transaction sent, hash:`, hash);
+                return { hash: hash || "unknown" };
+            } catch (e) {
+                console.error(`[Wallet] ${chain} transaction failed:`, e);
                 throw e;
             }
         },
@@ -573,6 +637,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 disconnect,
                 signAndSendTransaction,
                 signAndSendEvmTransaction,
+                signAndSendGenericTransaction,
             }}
         >
             {children}
