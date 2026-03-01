@@ -581,6 +581,13 @@ def create_evm_deposit_transaction(
     if not chain_id:
         raise ValueError(f"Unknown EVM chain: {source_chain}")
     
+    # Validate from_address is a proper EVM address (0x...)
+    # If it's a NEAR account ID or other non-EVM format, omit it — 
+    # the frontend wallet-provider will fill it from the connected wallet
+    if from_address and not from_address.startswith("0x"):
+        print(f"[TOOL] WARNING: from_address '{from_address}' is not a valid EVM address, omitting")
+        from_address = ""
+    
     # Get token data to check if Native or ERC-20
     from knowledge_base import _token_cache, get_token_by_symbol
     tokens = _token_cache if _token_cache else []
@@ -611,20 +618,22 @@ def create_evm_deposit_transaction(
         
         tx_payload = {
             "chainId": chain_id,
-            "from": from_address,
             "to": contract_address, # Send to Token Contract
             "value": "0",           # No native ETH sent
             "data": data_payload    # Encoded transfer() call
         }
+        if from_address:
+            tx_payload["from"] = from_address
     else:
         # Native Asset Transfer (ETH, BNB, etc.)
         print(f"[TOOL] Creating Native transfer for {token_in} on {source_chain}")
         tx_payload = {
             "chainId": chain_id,
-            "from": from_address,
             "to": deposit_address,  # Send directly to deposit address
             "value": str(amount_wei),
         }
+        if from_address:
+            tx_payload["from"] = from_address
     
     print(f"[TOOL] EVM Transaction payload:")
     print(f"[TOOL]   Chain: {source_chain} (ID: {chain_id})")

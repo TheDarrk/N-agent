@@ -535,9 +535,15 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
             try {
                 // Construct the transaction request for HOT Kit EVM wallet
+                // IMPORTANT: Always use evmWallet.address unless backend sends a valid 0x address.
+                // Backend may send a NEAR account ID as 'from' if wallet_addresses was not available.
+                const backendFrom = typeof payload.from === "string" && (payload.from as string).startsWith("0x")
+                    ? payload.from as string
+                    : undefined;
+
                 const txRequest: Record<string, unknown> = {
                     chainId: payload.chainId,
-                    from: payload.from || evmWallet.address,
+                    from: backendFrom || evmWallet.address,
                     to: payload.to,
                     value: payload.value ? BigInt(payload.value as string) : BigInt(0),
                     data: payload.data as string,
