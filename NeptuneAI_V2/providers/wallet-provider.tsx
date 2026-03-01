@@ -400,7 +400,10 @@ export default function WalletProvider({ children }: { children: React.ReactNode
     // ── Sign Transaction (via HOT Kit NearWallet) ────────
     const signAndSendTransaction = useCallback(
         async (payload: Record<string, unknown> | Record<string, unknown>[]): Promise<{ hash: string }> => {
-            console.log("[Wallet] signAndSendTransaction payload:", payload);
+            console.log("[Wallet] signAndSendTransaction called with payload:", payload);
+
+            // Pre-sign safety check
+            validateNearPayload(payload);
 
             if (!state.accountId) throw new Error("No wallet connected");
 
@@ -514,10 +517,69 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         [state.accountId]
     );
 
+    // ── Pre-Sign Safety Validation (defense-in-depth) ────────────
+    // Catches malformed payloads BEFORE they reach the wallet
+    const validateEvmPayload = (payload: Record<string, unknown>): void => {
+        const errors: string[] = [];
+
+        // chainId must exist
+        if (!payload.chainId || typeof payload.chainId !== "number" || (payload.chainId as number) <= 0) {
+            errors.push(`Invalid chainId: ${payload.chainId}`);
+        }
+
+        // 'to' must be a valid 0x address (40 hex chars)
+        const to = payload.to as string || "";
+        if (!to || !/^0x[0-9a-fA-F]{40}$/.test(to)) {
+            errors.push(`Invalid 'to' address: '${to}'`);
+        }
+
+        // value must not be negative
+        if (payload.value) {
+            try {
+                const val = BigInt(payload.value as string);
+                if (val < BigInt(0)) errors.push("Negative transaction value");
+            } catch {
+                errors.push(`Invalid value: '${payload.value}'`);
+            }
+        }
+
+        if (errors.length > 0) {
+            console.error("[Wallet] ❌ EVM PRE-SIGN VALIDATION FAILED:", errors);
+            throw new Error(`Transaction validation failed: ${errors.join("; ")}`);
+        }
+        console.log("[Wallet] ✅ EVM payload pre-sign validation passed");
+    };
+
+    const validateNearPayload = (payload: Record<string, unknown>): void => {
+        const errors: string[] = [];
+
+        // Must be array (batch) or have receiverId
+        if (Array.isArray(payload)) {
+            if (payload.length === 0) errors.push("Empty transaction list");
+            for (const tx of payload) {
+                if (!tx.receiverId) errors.push("Transaction missing receiverId");
+                if (!tx.actions || (Array.isArray(tx.actions) && tx.actions.length === 0)) {
+                    errors.push(`Transaction to ${tx.receiverId || "?"}: no actions`);
+                }
+            }
+        } else if (typeof payload === "object") {
+            if (!payload.receiverId) errors.push("Transaction missing receiverId");
+        }
+
+        if (errors.length > 0) {
+            console.error("[Wallet] ❌ NEAR PRE-SIGN VALIDATION FAILED:", errors);
+            throw new Error(`Transaction validation failed: ${errors.join("; ")}`);
+        }
+        console.log("[Wallet] ✅ NEAR payload pre-sign validation passed");
+    };
+
     // ── Sign EVM Transaction (via HOT Kit EVM Wallet) ────────
     const signAndSendEvmTransaction = useCallback(
         async (payload: Record<string, unknown>): Promise<{ hash: string }> => {
             console.log("[Wallet] signAndSendEvmTransaction payload:", payload);
+
+            // Pre-sign safety check
+            validateEvmPayload(payload);
 
             const kit = hotKitRef.current;
             if (!kit) throw new Error("HOT Kit not initialized");

@@ -488,6 +488,225 @@ def create_near_intent_transaction(
     return transactions
 
 
+# ══════════════════════════════════════════════════════════════════
+# TRANSACTION SAFETY VALIDATION
+# Pre-sign checks to prevent users from signing malformed transactions.
+# These run BEFORE the payload is returned to the frontend.
+# ══════════════════════════════════════════════════════════════════
+
+import re
+
+def is_valid_evm_address(address: str) -> bool:
+    """Check if a string is a valid EVM hex address (0x + 40 hex chars)."""
+    if not address or not isinstance(address, str):
+        return False
+    return bool(re.match(r'^0x[0-9a-fA-F]{40}$', address))
+
+
+def validate_evm_transaction(tx_payload: Dict[str, Any], deposit_address: str, amount: float, token_in: str) -> Dict[str, Any]:
+    """
+    Validate an EVM transaction payload before presenting to user.
+    Returns { valid: bool, errors: list[str], warnings: list[str] }
+    """
+    errors = []
+    warnings = []
+    
+    # 1. chainId must exist and be a positive integer
+    chain_id = tx_payload.get("chainId")
+    if not chain_id or not isinstance(chain_id, int) or chain_id <= 0:
+        errors.append(f"Invalid chainId: {chain_id}")
+    
+    # 2. 'to' address must be a valid EVM address
+    to_addr = tx_payload.get("to", "")
+    if not is_valid_evm_address(to_addr):
+        errors.append(f"Invalid 'to' address: '{to_addr}' — must be a valid 0x address")
+    
+    # 3. 'from' address — if present, must be valid EVM address
+    from_addr = tx_payload.get("from", "")
+    if from_addr and not is_valid_evm_address(from_addr):
+        errors.append(f"Invalid 'from' address: '{from_addr}' — not a valid EVM address (NEAR account ID?)")
+    
+    # 4. Value sanity check
+    value = tx_payload.get("value", "0")
+    try:
+        value_int = int(value)
+        if value_int < 0:
+            errors.append(f"Negative value: {value_int}")
+    except (ValueError, TypeError):
+        errors.append(f"Invalid value field: '{value}'")
+    
+    # 5. ERC-20 data field cross-check
+    data = tx_payload.get("data")
+    if data and isinstance(data, str) and data.startswith("0xa9059cbb"):
+        # This is an ERC-20 transfer() call — verify the encoded recipient matches deposit_address
+        try:
+            # Data format: 0xa9059cbb + 32 bytes address + 32 bytes amount
+            # Extract the address from bytes 4..36 (hex chars 10..74)
+            if len(data) >= 74:  # 0x + 8 selector + 64 address
+                encoded_addr = "0x" + data[34:74]  # Strip leading zeros from 32-byte padded address
+                encoded_addr_clean = "0x" + encoded_addr[-40:]  # Last 40 hex chars are the actual address
+                
+                if deposit_address and encoded_addr_clean.lower() != deposit_address.lower():
+                    errors.append(
+                        f"ERC-20 MISMATCH: encoded recipient {encoded_addr_clean} "
+                        f"≠ expected deposit address {deposit_address}"
+                    )
+                
+                # Also verify 'to' field is the token CONTRACT (not the deposit address)
+                # For ERC-20, 'to' = contract, data contains the actual recipient
+                if to_addr.lower() == deposit_address.lower():
+                    warnings.append(
+                        "ERC-20 'to' field equals deposit_address. "
+                        "For ERC-20 transfers, 'to' should be the token contract address."
+                    )
+        except Exception as e:
+            warnings.append(f"Could not verify ERC-20 data encoding: {e}")
+    
+    # 6. Native transfer: 'to' should match deposit_address 
+    if not data or data == "0x":
+        if to_addr and deposit_address and to_addr.lower() != deposit_address.lower():
+            errors.append(
+                f"Native transfer 'to' address {to_addr} ≠ expected deposit address {deposit_address}"
+            )
+        # Native transfer must have non-zero value
+        try:
+            if int(tx_payload.get("value", "0")) == 0:
+                errors.append("Native transfer with zero value — no tokens would be sent")
+        except (ValueError, TypeError):
+            pass
+    
+    # 7. Amount cross-check: warn if computed wei seems unreasonable
+    if amount <= 0:
+        errors.append(f"Amount must be positive, got: {amount}")
+    
+    result = {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings
+    }
+    
+    if errors:
+        print(f"[SAFETY] ❌ EVM TX VALIDATION FAILED for {amount} {token_in}:")
+        for e in errors:
+            print(f"[SAFETY]   ERROR: {e}")
+    if warnings:
+        for w in warnings:
+            print(f"[SAFETY]   ⚠ WARNING: {w}")
+    if not errors:
+        print(f"[SAFETY] ✅ EVM TX validated: {amount} {token_in} → {to_addr[:10]}...")
+    
+    return result
+
+
+def validate_near_transaction(tx_payload: Any, deposit_address: str, amount: float, token_in: str) -> Dict[str, Any]:
+    """
+    Validate a NEAR transaction payload (list of tx objects) before presenting to user.
+    """
+    errors = []
+    warnings = []
+    
+    if not isinstance(tx_payload, list):
+        errors.append(f"NEAR payload should be a list of transactions, got: {type(tx_payload)}")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+    
+    if len(tx_payload) == 0:
+        errors.append("Empty transaction list — no transactions to sign")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+    
+    for i, tx in enumerate(tx_payload):
+        prefix = f"TX[{i}]"
+        
+        # 1. receiverId must exist and look like a NEAR account
+        receiver = tx.get("receiverId", "")
+        if not receiver:
+            errors.append(f"{prefix}: Missing receiverId")
+        elif not re.match(r'^[a-z0-9._-]+$', receiver):
+            errors.append(f"{prefix}: Invalid NEAR receiverId: '{receiver}'")
+        
+        # 2. Actions must exist
+        actions = tx.get("actions", [])
+        if not actions:
+            errors.append(f"{prefix}: No actions in transaction")
+        
+        # 3. Validate each action
+        for j, action in enumerate(actions):
+            action_prefix = f"{prefix}.action[{j}]"
+            action_type = action.get("type", "")
+            
+            if action_type == "FunctionCall":
+                params = action.get("params", {})
+                method = params.get("methodName", "")
+                
+                if not method:
+                    errors.append(f"{action_prefix}: FunctionCall with no methodName")
+                
+                # Check deposit amount for ft_transfer_call and near_deposit
+                deposit = params.get("deposit", "0")
+                gas = params.get("gas", "0")
+                
+                if not gas or gas == "0":
+                    warnings.append(f"{action_prefix}: Zero gas attached to {method}")
+                
+                # For ft_transfer_call, verify args contain the deposit_address
+                if method == "ft_transfer_call" and deposit_address:
+                    args = params.get("args", {})
+                    if isinstance(args, dict):
+                        receiver_id = args.get("receiver_id", "")
+                        if receiver_id and receiver_id != deposit_address:
+                            # Check inside msg JSON for the actual intents receiver
+                            msg_str = args.get("msg", "")
+                            if deposit_address not in str(msg_str) and deposit_address not in str(receiver_id):
+                                warnings.append(
+                                    f"{action_prefix}: ft_transfer_call receiver '{receiver_id}' — "
+                                    f"verify this is the correct intents contract"
+                                )
+            elif action_type not in ["FunctionCall", "Transfer"]:
+                warnings.append(f"{action_prefix}: Unusual action type: '{action_type}'")
+    
+    # 4. Amount sanity
+    if amount <= 0:
+        errors.append(f"Amount must be positive, got: {amount}")
+    
+    result = {
+        "valid": len(errors) == 0,
+        "errors": errors, 
+        "warnings": warnings
+    }
+    
+    if errors:
+        print(f"[SAFETY] ❌ NEAR TX VALIDATION FAILED for {amount} {token_in}:")
+        for e in errors:
+            print(f"[SAFETY]   ERROR: {e}")
+    if warnings:
+        for w in warnings:
+            print(f"[SAFETY]   ⚠ WARNING: {w}")
+    if not errors:
+        print(f"[SAFETY] ✅ NEAR TX validated: {amount} {token_in}, {len(tx_payload)} txs")
+    
+    return result
+
+
+def validate_generic_transaction(tx_payload: Dict[str, Any], amount: float, token_in: str) -> Dict[str, Any]:
+    """Validate a generic chain (Solana/Cosmos/Tron/etc.) transaction payload."""
+    errors = []
+    warnings = []
+    
+    if not tx_payload.get("to"):
+        errors.append("Missing 'to' (deposit) address")
+    if not tx_payload.get("chain"):
+        errors.append("Missing 'chain' identifier")
+    if amount <= 0:
+        errors.append(f"Amount must be positive, got: {amount}")
+    
+    result = {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}
+    if errors:
+        print(f"[SAFETY] ❌ Generic TX VALIDATION FAILED: {errors}")
+    else:
+        print(f"[SAFETY] ✅ Generic TX validated: {amount} {token_in} on {tx_payload.get('chain')}")
+    return result
+
+
+
 def encode_erc20_transfer(to_address: str, amount_wei: int) -> str:
     """
     Encode ERC-20 transfer(address,uint256) call using web3.py.
@@ -532,9 +751,10 @@ def create_deposit_transaction(
     """
     Modular builder for generating transaction payloads across multiple chains (EVM, NEAR, Solana, Cosmos).
     Delegates to the correct builder based on the source chain.
+    All payloads are VALIDATED before being returned — malformed transactions are rejected.
     """
     if source_chain == "near":
-        return create_near_intent_transaction(
+        tx_payload = create_near_intent_transaction(
             token_in=token_in,
             token_out=token_out,
             amount=amount,
@@ -542,21 +762,30 @@ def create_deposit_transaction(
             deposit_address=deposit_address,
             account_id=account_id
         )
+        # Safety validation
+        validation = validate_near_transaction(tx_payload, deposit_address, amount, token_in)
+        if not validation["valid"]:
+            raise ValueError(f"Transaction safety check failed: {'; '.join(validation['errors'])}")
+        return tx_payload
+        
     elif is_evm_chain(source_chain):
-        return create_evm_deposit_transaction(
+        tx_payload = create_evm_deposit_transaction(
             token_in=token_in,
             amount=amount,
             deposit_address=deposit_address,
             source_chain=source_chain,
             from_address=account_id
         )
+        # Safety validation
+        validation = validate_evm_transaction(tx_payload, deposit_address, amount, token_in)
+        if not validation["valid"]:
+            raise ValueError(f"Transaction safety check failed: {'; '.join(validation['errors'])}")
+        return tx_payload
+        
     else:
         # Fallback for non-EVM and non-NEAR (Solana, Cosmos, Tron etc.)
-        # Ideally, we would use native libraries (like solana-py or base58 checks)
-        # to construct valid transactions. For now we construct a standardized intent 
-        # that the frontend wallet adapter handles.
         print(f"[TOOL] Creating Generic/Native transfer for {token_in} on {source_chain}")
-        return {
+        tx_payload = {
             "chain": source_chain,
             "type": "native_transfer",
             "to": deposit_address,
@@ -564,6 +793,11 @@ def create_deposit_transaction(
             "amount": float(amount),
             "token": token_in.upper()
         }
+        # Safety validation
+        validation = validate_generic_transaction(tx_payload, amount, token_in)
+        if not validation["valid"]:
+            raise ValueError(f"Transaction safety check failed: {'; '.join(validation['errors'])}")
+        return tx_payload
 
 
 def create_evm_deposit_transaction(

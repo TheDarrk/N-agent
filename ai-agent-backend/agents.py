@@ -191,15 +191,22 @@ async def process_message(
                     tool_result = None
                     for tool in TOOL_LIST:
                         if tool.name == tool_name:
-                            try:
-                                print(f"[AGENT] Executing tool: {tool_name}")
-                                tool_result = await tool.ainvoke(tool_args)
-                                print(f"[AGENT] Tool result: {tool_result[:200] if isinstance(tool_result, str) else tool_result}")
-                            except Exception as e:
-                                print(f"[AGENT] ERROR in tool execution: {e}")
-                                import traceback
-                                traceback.print_exc()
-                                tool_result = f"Error calling tool: {str(e)}"
+                            # Try up to 2 attempts (auto-retry on failure)
+                            for attempt in range(2):
+                                try:
+                                    print(f"[AGENT] Executing tool: {tool_name}" + (f" (retry)" if attempt > 0 else ""))
+                                    tool_result = await tool.ainvoke(tool_args)
+                                    print(f"[AGENT] Tool result: {tool_result[:200] if isinstance(tool_result, str) else tool_result}")
+                                    break  # Success, stop retrying
+                                except Exception as e:
+                                    print(f"[AGENT] ERROR in tool execution (attempt {attempt+1}): {e}")
+                                    if attempt == 0:
+                                        import asyncio
+                                        await asyncio.sleep(0.5)
+                                        continue  # Retry once
+                                    import traceback
+                                    traceback.print_exc()
+                                    tool_result = f"Error calling tool: {str(e)}"
                             break
                     
                     if tool_result is None:
@@ -250,7 +257,11 @@ async def process_message(
             tool_response_messages.append(HumanMessage(
                 content=(
                     f"Here are the results:\n\n{tool_results_text}\n\n"
-                    f"Now respond to the user based on this data. Be helpful and concise."
+                    f"Based on this data, take the NEXT action:\n"
+                    f"- If you now have enough info to swap (token, amount, chains confirmed), call `get_swap_quote_tool` NOW.\n"
+                    f"- If the user needs to choose or you need more info, respond with a question.\n"
+                    f"- NEVER respond with text saying 'Fetching quote...' or 'Let me get a quote' without ACTUALLY calling the tool.\n"
+                    f"- If a tool errored, try once more or explain the issue to the user."
                 )
             ))
             
@@ -264,17 +275,21 @@ async def process_message(
             # Enable tools for this response too, to allow multi-step flows (Check Chains -> Get Quote)
             final_response = await llm_with_tools.ainvoke(tool_response_messages)
             
-            # Handle potential second-pass tool calls (e.g. Get Quote after verifying chains)
-            if final_response.tool_calls:
-                print(f"[AGENT] Second-pass tool calling: {len(final_response.tool_calls)} tool(s)")
+            # Handle multi-step tool chains (e.g. Get Chains → Get Quote → Confirm)
+            # Loop up to 3 more passes so tools can chain together in one user message
+            pass_count = 1
+            MAX_TOOL_PASSES = 3
+            while final_response.tool_calls and pass_count <= MAX_TOOL_PASSES:
+                pass_count += 1
+                print(f"[AGENT] Pass {pass_count} tool calling: {len(final_response.tool_calls)} tool(s)")
                 
-                # Append the AI's intent to call tools
-                tool_response_messages.append(final_response)
+                # Do NOT re-append the AIMessage with tool_calls (NEAR AI workaround)
+                # Just process the tools and append results
                 
                 for tool_call in final_response.tool_calls:
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
-                    print(f"[AGENT] Calling tool (Pass 2): {tool_name}")
+                    print(f"[AGENT] Calling tool (Pass {pass_count}): {tool_name}")
                     
                     tool_result = None
                     
@@ -297,17 +312,26 @@ async def process_message(
                             tool_result = f"❌ Error preparing transaction: {str(e)}"
                             
                     else:
-                        # Standard tools
-                        found = False
-                        for tool in TOOL_LIST:
-                            if tool.name == tool_name:
-                                try:
-                                    tool_result = await tool.ainvoke(tool_args)
-                                    found = True
-                                except Exception as e:
-                                    tool_result = f"Error: {str(e)}"
+                        # Standard tools — with 1 retry on failure
+                        for attempt in range(2):
+                            found = False
+                            for tool in TOOL_LIST:
+                                if tool.name == tool_name:
+                                    try:
+                                        tool_result = await tool.ainvoke(tool_args)
+                                        found = True
+                                    except Exception as e:
+                                        print(f"[AGENT] Tool {tool_name} failed (attempt {attempt+1}): {e}")
+                                        tool_result = f"Error: {str(e)}"
+                                        if attempt == 0:
+                                            print(f"[AGENT] Retrying {tool_name}...")
+                                            import asyncio
+                                            await asyncio.sleep(0.5)
+                                            continue
+                                    break
+                            if found or attempt == 1:
                                 break
-                        if not found:
+                        if tool_result is None:
                              tool_result = f"Tool {tool_name} not found"
                          
                     # Append result to prompt
@@ -317,9 +341,13 @@ async def process_message(
                     # CRITICAL: Append to tool_messages so downstream logic (state transitions) sees it
                     tool_messages.append(tool_msg)
 
-                # Final-Final response (no tools allowed to prevent loops)
-                print(f"[AGENT] Getting truly final response after Pass 2")
-                final_response = await llm.ainvoke(tool_response_messages)
+                # Get next response — allow tools on intermediate passes, no tools on final pass
+                if pass_count < MAX_TOOL_PASSES:
+                    print(f"[AGENT] Getting response after Pass {pass_count} (tools enabled)")
+                    final_response = await llm_with_tools.ainvoke(tool_response_messages)
+                else:
+                    print(f"[AGENT] Getting final response after Pass {pass_count} (no tools, prevent loops)")
+                    final_response = await llm.ainvoke(tool_response_messages)
 
             print(f"[AGENT] LLM raw response type: {type(final_response)}")
             print(f"[AGENT] LLM response content: {final_response.content if hasattr(final_response, 'content') else final_response}")
