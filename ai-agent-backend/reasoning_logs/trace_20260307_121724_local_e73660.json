@@ -1,0 +1,71 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T12:17:24.200092Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "price_alert",
+    "rule": "NEAR price dropped 1.9% (threshold: 1.0%)",
+    "strategy_id": 3
+  },
+  "decision": {
+    "strategy_agent": "ALERT: NEAR dropped 1.9%",
+    "should_act": true,
+    "details": {
+      "token": "near",
+      "current_change": -1.91,
+      "threshold": 1.0,
+      "current_price": 1.23
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.06, daily: $0.05)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.06,
+        "daily_limit": 0.05,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.06, daily: $0.05)"
+    }
+  },
+  "execution": {
+    "success": true,
+    "tx_hash": null,
+    "message": "Autonomous action logged: ALERT: NEAR dropped 1.9%. Reason: NEAR price dropped 1.9% (threshold: 1.0%)"
+  },
+  "market_snapshot": {
+    "arb": 0.099011,
+    "bnb": 627.15,
+    "btc": 67997,
+    "doge": 0.09048,
+    "eth": 1987.65,
+    "flow": 0.04163917,
+    "near": 1.23,
+    "xrp": 1.37,
+    "sol": 84.62,
+    "usdt": 0.999946,
+    "usdc": 0.999905,
+    "_changes": {
+      "arb": -3.053836394957063,
+      "bnb": -1.3537261666801297,
+      "btc": -2.7760073357810646,
+      "doge": -2.6221821238338245,
+      "eth": -2.7625917106821403,
+      "flow": -5.43327628903346,
+      "near": -1.9140650352418953,
+      "xrp": -1.7648133790326463,
+      "sol": -2.24939189694995,
+      "usdt": -0.004773183733094685,
+      "usdc": 0.0002059490718855063
+    }
+  }
+}

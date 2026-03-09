@@ -8,7 +8,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from validators import validate_near_address, validate_evm_address, get_chain_from_address
 from knowledge_base import get_available_tokens_from_api, get_token_by_symbol, get_token_symbols_list
 
-# EVM Chain IDs (from HOT Kit Network enum — ALL supported EVM chains)
+# EVM Chain IDs (from HOT Kit Network enum   ALL supported EVM chains)
 EVM_CHAIN_IDS = {
     # Major L1s
     "eth": 1,
@@ -88,7 +88,7 @@ NON_EVM_CHAINS = {
     "zec": "zcash",
 }
 
-# All chains — lookup helper
+# All chains   lookup helper
 ALL_SUPPORTED_CHAINS = set(list(EVM_CHAIN_IDS.keys()) + list(NON_EVM_CHAINS.keys()))
 
 # Chains that are EVM-based (same wallet type)
@@ -271,7 +271,10 @@ def get_swap_quote(
         recipient_type = "DESTINATION_CHAIN"
         recipient = recipient_id  # destination chain address (e.g. 0x... for EVM)
     else:
-        recipient_type = "INTENTS"
+        # We MUST use DESTINATION_CHAIN even for same-chain NEAR swaps if we want the funds
+        # to actually appear in the user's wallet. If we use INTENTS, Defuse keeps it
+        # as an internal balance on the intents.near contract.
+        recipient_type = "DESTINATION_CHAIN"
         # Use recipient_id if explicitly provided (e.g. "send USDC to flame1.near")
         # Only fall back to refund_to when no specific recipient was given
         recipient = recipient_id or refund_to
@@ -387,14 +390,27 @@ def create_near_intent_transaction(
     decimals_in = token_in_data.get("decimals", 24) if token_in_data else 24
     amount_int = int(Decimal(str(amount)) * Decimal(10 ** decimals_in))
 
-    # ── TX 1: Deposit source token into intents.near ──
+    # -- TX 1: Deposit source token into intents.near --
     if token_in.upper() == "NEAR":
         # Wrap NEAR and transfer to intents.near
         # Per example: near_deposit() + ft_transfer_call() with msg = account_id
+        # IMPORTANT: We MUST explicitly register via storage_deposit first! Otherwise 
+        # near_deposit will deduct 0.00125 NEAR from the deposit amount for storage,
+        # causing the ft_transfer_call to fail with "not enough balance".
         transactions.append({
             "receiverId": "wrap.near",
             "actions": [
-                # 1. Wrap NEAR -> wNEAR 
+                # 1. Ensure storage is paid (0.00125 NEAR)
+                {
+                    "type": "FunctionCall",
+                    "params": {
+                        "methodName": "storage_deposit",
+                        "args": {"account_id": account_id, "registration_only": True},
+                        "gas": "10000000000000",
+                        "deposit": "1250000000000000000000"  # 0.00125 NEAR
+                    }
+                },
+                # 2. Wrap NEAR -> wNEAR 
                 {
                     "type": "FunctionCall",
                     "params": {
@@ -404,7 +420,7 @@ def create_near_intent_transaction(
                         "deposit": str(amount_int)
                     }
                 },
-                # 2. Transfer wNEAR to intents.near (deposit)
+                # 3. Transfer wNEAR to intents.near (deposit)
                 {
                     "type": "FunctionCall",
                     "params": {
@@ -453,7 +469,7 @@ def create_near_intent_transaction(
             ]
         })
 
-    # ── TX 2: mt_transfer to the quote's deposit address ──
+    # -- TX 2: mt_transfer to the quote's deposit address --
     # This tells 1-Click to start the swap
     token_in_id = token_in_data.get("defuseAssetId") if token_in_data else ""
     if token_in.upper() == "NEAR":
@@ -488,11 +504,11 @@ def create_near_intent_transaction(
     return transactions
 
 
-# ══════════════════════════════════════════════════════════════════
+# ==================================================================
 # TRANSACTION SAFETY VALIDATION
 # Pre-sign checks to prevent users from signing malformed transactions.
 # These run BEFORE the payload is returned to the frontend.
-# ══════════════════════════════════════════════════════════════════
+# ==================================================================
 
 import re
 
@@ -519,12 +535,12 @@ def validate_evm_transaction(tx_payload: Dict[str, Any], deposit_address: str, a
     # 2. 'to' address must be a valid EVM address
     to_addr = tx_payload.get("to", "")
     if not is_valid_evm_address(to_addr):
-        errors.append(f"Invalid 'to' address: '{to_addr}' — must be a valid 0x address")
+        errors.append(f"Invalid 'to' address: '{to_addr}'   must be a valid 0x address")
     
-    # 3. 'from' address — if present, must be valid EVM address
+    # 3. 'from' address   if present, must be valid EVM address
     from_addr = tx_payload.get("from", "")
     if from_addr and not is_valid_evm_address(from_addr):
-        errors.append(f"Invalid 'from' address: '{from_addr}' — not a valid EVM address (NEAR account ID?)")
+        errors.append(f"Invalid 'from' address: '{from_addr}'   not a valid EVM address (NEAR account ID?)")
     
     # 4. Value sanity check
     value = tx_payload.get("value", "0")
@@ -538,7 +554,7 @@ def validate_evm_transaction(tx_payload: Dict[str, Any], deposit_address: str, a
     # 5. ERC-20 data field cross-check
     data = tx_payload.get("data")
     if data and isinstance(data, str) and data.startswith("0xa9059cbb"):
-        # This is an ERC-20 transfer() call — verify the encoded recipient matches deposit_address
+        # This is an ERC-20 transfer() call   verify the encoded recipient matches deposit_address
         try:
             # Data format: 0xa9059cbb + 32 bytes address + 32 bytes amount
             # Extract the address from bytes 4..36 (hex chars 10..74)
@@ -549,7 +565,7 @@ def validate_evm_transaction(tx_payload: Dict[str, Any], deposit_address: str, a
                 if deposit_address and encoded_addr_clean.lower() != deposit_address.lower():
                     errors.append(
                         f"ERC-20 MISMATCH: encoded recipient {encoded_addr_clean} "
-                        f"≠ expected deposit address {deposit_address}"
+                        f"  expected deposit address {deposit_address}"
                     )
                 
                 # Also verify 'to' field is the token CONTRACT (not the deposit address)
@@ -566,12 +582,12 @@ def validate_evm_transaction(tx_payload: Dict[str, Any], deposit_address: str, a
     if not data or data == "0x":
         if to_addr and deposit_address and to_addr.lower() != deposit_address.lower():
             errors.append(
-                f"Native transfer 'to' address {to_addr} ≠ expected deposit address {deposit_address}"
+                f"Native transfer 'to' address {to_addr}   expected deposit address {deposit_address}"
             )
         # Native transfer must have non-zero value
         try:
             if int(tx_payload.get("value", "0")) == 0:
-                errors.append("Native transfer with zero value — no tokens would be sent")
+                errors.append("Native transfer with zero value   no tokens would be sent")
         except (ValueError, TypeError):
             pass
     
@@ -586,14 +602,14 @@ def validate_evm_transaction(tx_payload: Dict[str, Any], deposit_address: str, a
     }
     
     if errors:
-        print(f"[SAFETY] ❌ EVM TX VALIDATION FAILED for {amount} {token_in}:")
+        print(f"[SAFETY]   EVM TX VALIDATION FAILED for {amount} {token_in}:")
         for e in errors:
             print(f"[SAFETY]   ERROR: {e}")
     if warnings:
         for w in warnings:
-            print(f"[SAFETY]   ⚠ WARNING: {w}")
+            print(f"[SAFETY]     WARNING: {w}")
     if not errors:
-        print(f"[SAFETY] ✅ EVM TX validated: {amount} {token_in} → {to_addr[:10]}...")
+        print(f"[SAFETY]   EVM TX validated: {amount} {token_in} -> {to_addr[:10]}...")
     
     return result
 
@@ -610,7 +626,7 @@ def validate_near_transaction(tx_payload: Any, deposit_address: str, amount: flo
         return {"valid": False, "errors": errors, "warnings": warnings}
     
     if len(tx_payload) == 0:
-        errors.append("Empty transaction list — no transactions to sign")
+        errors.append("Empty transaction list   no transactions to sign")
         return {"valid": False, "errors": errors, "warnings": warnings}
     
     for i, tx in enumerate(tx_payload):
@@ -657,7 +673,7 @@ def validate_near_transaction(tx_payload: Any, deposit_address: str, amount: flo
                             msg_str = args.get("msg", "")
                             if deposit_address not in str(msg_str) and deposit_address not in str(receiver_id):
                                 warnings.append(
-                                    f"{action_prefix}: ft_transfer_call receiver '{receiver_id}' — "
+                                    f"{action_prefix}: ft_transfer_call receiver '{receiver_id}'   "
                                     f"verify this is the correct intents contract"
                                 )
             elif action_type not in ["FunctionCall", "Transfer"]:
@@ -674,14 +690,14 @@ def validate_near_transaction(tx_payload: Any, deposit_address: str, amount: flo
     }
     
     if errors:
-        print(f"[SAFETY] ❌ NEAR TX VALIDATION FAILED for {amount} {token_in}:")
+        print(f"[SAFETY]   NEAR TX VALIDATION FAILED for {amount} {token_in}:")
         for e in errors:
             print(f"[SAFETY]   ERROR: {e}")
     if warnings:
         for w in warnings:
-            print(f"[SAFETY]   ⚠ WARNING: {w}")
+            print(f"[SAFETY]     WARNING: {w}")
     if not errors:
-        print(f"[SAFETY] ✅ NEAR TX validated: {amount} {token_in}, {len(tx_payload)} txs")
+        print(f"[SAFETY]   NEAR TX validated: {amount} {token_in}, {len(tx_payload)} txs")
     
     return result
 
@@ -700,9 +716,9 @@ def validate_generic_transaction(tx_payload: Dict[str, Any], amount: float, toke
     
     result = {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}
     if errors:
-        print(f"[SAFETY] ❌ Generic TX VALIDATION FAILED: {errors}")
+        print(f"[SAFETY]   Generic TX VALIDATION FAILED: {errors}")
     else:
-        print(f"[SAFETY] ✅ Generic TX validated: {amount} {token_in} on {tx_payload.get('chain')}")
+        print(f"[SAFETY]   Generic TX validated: {amount} {token_in} on {tx_payload.get('chain')}")
     return result
 
 
@@ -751,7 +767,7 @@ def create_deposit_transaction(
     """
     Modular builder for generating transaction payloads across multiple chains (EVM, NEAR, Solana, Cosmos).
     Delegates to the correct builder based on the source chain.
-    All payloads are VALIDATED before being returned — malformed transactions are rejected.
+    All payloads are VALIDATED before being returned   malformed transactions are rejected.
     """
     if source_chain == "near":
         tx_payload = create_near_intent_transaction(
@@ -816,7 +832,7 @@ def create_evm_deposit_transaction(
         raise ValueError(f"Unknown EVM chain: {source_chain}")
     
     # Validate from_address is a proper EVM address (0x...)
-    # If it's a NEAR account ID or other non-EVM format, omit it — 
+    # If it's a NEAR account ID or other non-EVM format, omit it   
     # the frontend wallet-provider will fill it from the connected wallet
     if from_address and not from_address.startswith("0x"):
         print(f"[TOOL] WARNING: from_address '{from_address}' is not a valid EVM address, omitting")
@@ -899,7 +915,7 @@ def get_sign_action_type(source_chain: str) -> str:
     elif source in ("btc", "bitcoin"):
         return "SIGN_BTC_TRANSACTION"
     else:
-        # Generic fallback — frontend should handle based on chain field in payload
+        # Generic fallback   frontend should handle based on chain field in payload
         return "SIGN_GENERIC_TRANSACTION"
 
 
@@ -933,5 +949,65 @@ async def submit_deposit_tx(
             return data
     except Exception as e:
         print(f"[TOOL] Deposit submit error (non-critical): {e}")
-        # This is optional — don't fail the swap if this call fails
+        # This is optional   don't fail the swap if this call fails
         return {"error": str(e)}
+
+async def get_wallet_portfolio(wallet_address: str, chain: str = "near") -> dict:
+    """
+    Fetch live token balances from the blockchain for an agent wallet.
+    Uses native NEAR RPC and FastNEAR indexer for NEP-141 tokens.
+    Returns: {"near": 40.5, "usdt": 100.0, ...}
+    """
+    portfolio = {}
+    if chain != "near":
+        return portfolio
+        
+    try:
+        import httpx
+        from knowledge_base import _token_cache
+        tokens = _token_cache if _token_cache else []
+        
+        async with httpx.AsyncClient() as client:
+            # 1. Fetch native NEAR balance
+            rpc_url = "https://rpc.mainnet.near.org"
+            resp = await client.post(rpc_url, json={
+                "jsonrpc": "2.0", "id": "1", "method": "query",
+                "params": {"request_type": "view_account", "finality": "final", "account_id": wallet_address}
+            }, timeout=10.0)
+            
+            if resp.status_code == 200:
+                result = resp.json().get("result", {})
+                if "amount" in result:
+                    # Subtract ~0.05 NEAR for storage to get liquid balance
+                    available = max(0, int(result["amount"]) - 50000000000000000000000)
+                    if available > 0:
+                        portfolio["near"] = available / 1e24
+            else:
+                print(f"[TOOL-DEBUG] NEAR RPC failed for {wallet_address}: {resp.status_code} {resp.text}")
+            
+            # 2. Fetch NEP-141 tokens via FastNEAR
+            fn_resp = await client.get(f"https://api.fastnear.com/v1/account/{wallet_address}/ft", timeout=10.0)
+            if fn_resp.status_code == 200:
+                data = fn_resp.json()
+                for token_data in data.get("tokens", []):
+                    contract = token_data.get("contract_id", "")
+                    bal_str = token_data.get("balance", "0")
+                    if not bal_str or int(bal_str) == 0:
+                        continue
+                        
+                    # Match contract to our supported token list to get decimals & symbol
+                    matched_symbol = None
+                    decimals = 18
+                    for t in tokens:
+                        if t.get("contractAddress", "").lower() == contract.lower() or t.get("defuseAssetId", "").endswith(contract):
+                            matched_symbol = t.get("symbol", "").lower()
+                            decimals = t.get("decimals", 18)
+                            break
+                    
+                    if matched_symbol:
+                        portfolio[matched_symbol] = int(bal_str) / (10 ** decimals)
+                    
+    except Exception as e:
+        print(f"[TOOL] Error fetching portfolio for {wallet_address}: {e}")
+        
+    return portfolio

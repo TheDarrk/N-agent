@@ -32,7 +32,7 @@ async def get_available_tokens_tool() -> str:
         # Use chain prefix format
         return format_tokens_with_chain_prefix(tokens, limit=80)
     except Exception as e:
-        return f"⚠️ Can't get supported tokens for now: {str(e)}"
+        return f"  Can't get supported tokens for now: {str(e)}"
 
 
 @tool
@@ -51,7 +51,7 @@ def get_token_chains_tool(token_symbol: str) -> str:
     
     tokens = _token_cache if _token_cache else []
     if not tokens:
-        return "⚠️ Token data not loaded yet. Please try again."
+        return "  Token data not loaded yet. Please try again."
     
     symbol_upper = token_symbol.upper().strip()
     
@@ -59,13 +59,13 @@ def get_token_chains_tool(token_symbol: str) -> str:
     matching_tokens = [t for t in tokens if t["symbol"].upper() == symbol_upper]
     
     if not matching_tokens:
-        return f"❌ Token '{token_symbol}' not found. Use get_available_tokens_tool to see all available tokens."
+        return f"  Token '{token_symbol}' not found. Use get_available_tokens_tool to see all available tokens."
     
     # Group by chain
     chains = []
     for t in matching_tokens:
         chain = t.get("blockchain", "near").upper()
-        chains.append(f"• [{chain}] {symbol_upper}")
+        chains.append(f"  [{chain}] {symbol_upper}")
     
     result = f"**{symbol_upper} is available on {len(chains)} chain(s):**\n"
     result += "\n".join(chains)
@@ -94,24 +94,24 @@ async def validate_token_names_tool(token_in: str, token_out: str) -> str:
         match_out = fuzzy_match_token(token_out, available)
         
         if match_in['exact_match'] and match_out['exact_match']:
-            return f"✅ Both tokens are valid: {token_in.upper()} and {token_out.upper()}"
+            return f"  Both tokens are valid: {token_in.upper()} and {token_out.upper()}"
         
         issues = []
         if not match_in['exact_match']:
             if match_in['suggested_token']:
-                issues.append(f"'{token_in}' → Did you mean '{match_in['suggested_token']}'?")
+                issues.append(f"'{token_in}' -> Did you mean '{match_in['suggested_token']}'?")
             else:
                 issues.append(f"'{token_in}' is not recognized")
         
         if not match_out['exact_match']:
             if match_out['suggested_token']:
-                issues.append(f"'{token_out}' → Did you mean '{match_out['suggested_token']}'?")
+                issues.append(f"'{token_out}' -> Did you mean '{match_out['suggested_token']}'?")
             else:
                 issues.append(f"'{token_out}' is not recognized")
         
-        return "⚠️ Token validation issues:\n" + "\n".join(issues)
+        return "  Token validation issues:\n" + "\n".join(issues)
     except Exception as e:
-        return f"⚠️ Can't validate tokens right now: {str(e)}"
+        return f"  Can't validate tokens right now: {str(e)}"
 
 
 @tool
@@ -143,14 +143,14 @@ def get_swap_quote_tool(
         account_id: User's primary wallet address (required)
         connected_chains: Comma-separated list of chains user has wallets on (e.g., "near,eth,solana")
         wallet_addresses: Comma-separated chain:address pairs (e.g., "near:alice.near,eth:0x123")
-        destination_address: Explicit destination address — use when user specifies a recipient different from their own wallet
+        destination_address: Explicit destination address   use when user specifies a recipient different from their own wallet
         destination_chain: Specify which chain for the DESTINATION token (e.g., "near", "base", "arb")
         source_chain: Specify which chain the SOURCE token is on (e.g., "base" for USDC on Base, "near" for NEAR)
     
     Returns: Quote information or safety error with guidance
     """
     if not account_id or account_id == "Not connected":
-        return "⚠️ **Wallet Not Connected**\n\nPlease connect your wallet using the Connect button first. You can connect wallets from any chain — NEAR, Ethereum, Solana, Tron, and more."
+        return "  **Wallet Not Connected**\n\nPlease connect your wallet using the Connect button first. You can connect wallets from any chain   NEAR, Ethereum, Solana, Tron, and more."
     
     # DEBUG: Log parameters
     print(f"[TOOL] get_swap_quote_tool called:")
@@ -182,7 +182,7 @@ def get_swap_quote_tool(
     else:
         user_chains_expanded = user_chains
     
-    # ── SAFETY CHECK 1: Validate source token exists ──
+    # -- SAFETY CHECK 1: Validate source token exists --
     # If source_chain is specified by the LLM, use it to find the correct token variant
     if source_chain:
         source_chain = source_chain.strip().lower()
@@ -194,7 +194,7 @@ def get_swap_quote_tool(
         source_token = get_token_by_symbol(token_in.upper(), tokens, chain=None)
     
     if not source_token:
-        return f"❌ Token '{token_in}' not found. Use get_available_tokens_tool to see available tokens."
+        return f"  Token '{token_in}' not found. Use get_available_tokens_tool to see available tokens."
     
     # Determine source chain: prefer explicit source_chain, then token metadata
     if source_chain:
@@ -212,7 +212,7 @@ def get_swap_quote_tool(
             if t["symbol"].upper() == token_in.upper()
         ))
         return (
-            f"❌ **Cannot Swap — Wallet Not Connected**\n\n"
+            f"  **Cannot Swap   Wallet Not Connected**\n\n"
             f"**{token_in.upper()}** exists on: {', '.join(all_chains_for_token)}\n"
             f"**Your connected wallets**: {', '.join(c.upper() for c in user_chains)}\n\n"
             f"You need a connected wallet on one of those chains to swap {token_in.upper()}.\n"
@@ -227,7 +227,7 @@ def get_swap_quote_tool(
     if destination_chain:
         dest_chain = destination_chain.strip().lower()
 
-    # ── SAFETY CHECK 3: Resolve destination ──
+    # -- SAFETY CHECK 3: Resolve destination --
     # STRICT LOOKUP: If user specified a chain, we MUST find the token on that chain.
     # Do NOT fallback to default (which finds NEAR token) if explicit chain is requested.
     lookup_chain = dest_chain if destination_chain else None
@@ -235,18 +235,18 @@ def get_swap_quote_tool(
     
     if not dest_token:
         if destination_chain:
-            return f"❌ Token '{token_out.upper()}' not found on chain '{dest_chain}'. Use get_available_tokens_tool to check availability."
+            return f"  Token '{token_out.upper()}' not found on chain '{dest_chain}'. Use get_available_tokens_tool to check availability."
         else:
             # Fallback for generic request (should verify if this ever happens given safety check 1)
             # Try to find ANY token match
             dest_token = get_token_by_symbol(token_out.upper(), tokens)
             
     if not dest_token:
-        return f"❌ Token '{token_out}' not found. Use get_available_tokens_tool to see available tokens."
+        return f"  Token '{token_out}' not found. Use get_available_tokens_tool to see available tokens."
 
     dest_chain = dest_token.get("blockchain", "near").lower()
     
-    # ── SAFETY CHECK 4: Validate recipient format matching destination chain ──
+    # -- SAFETY CHECK 4: Validate recipient format matching destination chain --
     # If using an explicit destination address, ensure it matches the token's chain
     if destination_address:
         is_evm_addr = destination_address.startswith("0x") and len(destination_address) == 42
@@ -256,7 +256,7 @@ def get_swap_quote_tool(
             # Mismatch: User gave 0x address but we found a NEAR token (likely default behavior)
             # We must fail and ask for the chain
             return (
-                f"⚠️ **Chain Not Specified**\n\n"
+                f"  **Chain Not Specified**\n\n"
                 f"You provided an Ethereum-style address (`{destination_address}`) but the system selected **{token_out.upper()} on {dest_chain.upper()}**.\n"
                 f"This mismatch usually happens if you didn't specify the destination chain.\n\n"
                 f"Please try again specifying the chain, e.g.:\n"
@@ -267,22 +267,22 @@ def get_swap_quote_tool(
     # Determine if cross-chain
     is_cross_chain = dest_chain != effective_source_chain
     
-    # ── Resolve recipient address ──
+    # -- Resolve recipient address --
     # IMPORTANT: If user provides an explicit destination_address, ALWAYS use it
     # This handles "send USDC to frigid_degen5.user.intear.near" even on same chain
     if destination_address:
-        # User provided explicit address — validate format
+        # User provided explicit address   validate format
         if is_cross_chain and not validate_address_for_chain(destination_address, dest_chain):
             expected_format = get_chain_address_format(dest_chain)
             return (
-                f"❌ **Invalid Address Format**\n\n"
+                f"  **Invalid Address Format**\n\n"
                 f"The address `{destination_address}` doesn't match the expected format for **{dest_chain.upper()}**.\n"
                 f"Expected: {expected_format}\n\n"
                 f"Please provide a valid {dest_chain.upper()} address."
             )
         recipient = destination_address
     elif is_cross_chain:
-        # Cross-chain, no explicit address — try to auto-fill from connected wallets
+        # Cross-chain, no explicit address   try to auto-fill from connected wallets
         # For EVM dest chains, use the 'eth' address
         dest_addr_key = "eth" if is_evm_chain(dest_chain) else dest_chain
         if dest_addr_key in addr_map:
@@ -292,13 +292,13 @@ def get_swap_quote_tool(
         else:
             expected_format = get_chain_address_format(dest_chain)
             return (
-                f"⚠️ **Cross-Chain Swap — Address Needed**\n\n"
+                f"  **Cross-Chain Swap   Address Needed**\n\n"
                 f"You want to receive **{token_out.upper()}** on **{dest_chain.upper()}** chain.\n"
                 f"You don't have a {dest_chain.upper()} wallet connected.\n\n"
                 f"Please provide your **{dest_chain.upper()} wallet address** ({expected_format})."
             )
     else:
-        # Same chain, no explicit address — use the connected wallet for that chain
+        # Same chain, no explicit address   use the connected wallet for that chain
         # For NEAR source, use 'near' key; for EVM source, use 'eth' key
         if effective_source_chain == "near":
             recipient = addr_map.get("near", account_id)
@@ -307,7 +307,7 @@ def get_swap_quote_tool(
         else:
             recipient = addr_map.get(effective_source_chain, account_id)
     
-    # ── Get the actual quote ──
+    # -- Get the actual quote --
     # Determine refund address: for EVM source, use eth address; for NEAR, use NEAR address
     if is_evm_chain(effective_source_chain):
         refund_addr = addr_map.get("eth", account_id)
@@ -316,7 +316,7 @@ def get_swap_quote_tool(
         # If fallback to account_id occurred (and account_id is "user.near"), it will fail validation
         if not refund_addr or not refund_addr.startswith("0x") or len(refund_addr) != 42:
              return (
-                f"⚠️ **Missing EVM Address for Refund**\n\n"
+                f"  **Missing EVM Address for Refund**\n\n"
                 f"You are swapping from **{effective_source_chain.upper()}**, so we need your EVM wallet address for refunds.\n"
                 f"We couldn't find a valid EVM address in your connected wallets.\n\n"
                 f"**Please connect your Ethereum/EVM wallet** to proceed."
@@ -340,7 +340,7 @@ def get_swap_quote_tool(
     )
     
     if "error" in quote:
-        return f"❌ Error getting quote: {quote['error']}"
+        return f"  Error getting quote: {quote['error']}"
     
     # Store quote globally for confirmation
     global _last_quote
@@ -361,11 +361,11 @@ def get_swap_quote_tool(
     # Format response
     dest_info = f" on **{dest_chain.upper()}**" if is_cross_chain else ""
     auto_filled = not destination_address and is_cross_chain and (dest_chain in addr_map or ("eth" if is_evm_chain(dest_chain) else "") in addr_map)
-    addr_note = f"\n💡 _Using your connected {dest_chain.upper()} address. Reply 'use [address]' to change._" if auto_filled else ""
+    addr_note = f"\n  _Using your connected {dest_chain.upper()} address. Reply 'use [address]' to change._" if auto_filled else ""
     
     return (
-        f"✅ **Swap Quote**\n"
-        f"**Swap**: {amount} [{effective_source_chain.upper()}] {token_in.upper()} → ~{quote['amount_out']:.6f} [{dest_chain.upper()}] {token_out.upper()}\n"
+        f"  **Swap Quote**\n"
+        f"**Swap**: {amount} [{effective_source_chain.upper()}] {token_in.upper()} -> ~{quote['amount_out']:.6f} [{dest_chain.upper()}] {token_out.upper()}\n"
         f"**Rate**: 1 {token_in.upper()} = {quote['rate']:.6f} {token_out.upper()}\n"
         f"**Recipient**: `{recipient}`{dest_info}\n"
         f"{addr_note}\n\n"
@@ -391,7 +391,7 @@ def confirm_swap_tool() -> str:
     global _last_quote
     
     if not _last_quote:
-        return "❌ No recent quote found. Please get a quote first by asking for a swap."
+        return "  No recent quote found. Please get a quote first by asking for a swap."
     
     try:
         from tools import create_deposit_transaction, get_sign_action_type
@@ -414,7 +414,7 @@ def confirm_swap_tool() -> str:
         return f"[TRANSACTION_READY] Transaction prepared for {source_chain.upper()}. Action: {action_type}. User needs to sign in their wallet."
         
     except Exception as e:
-        return f"❌ Error preparing transaction: {str(e)}"
+        return f"  Error preparing transaction: {str(e)}"
 
 
 
@@ -430,24 +430,292 @@ def hot_pay_coming_soon_tool(query: str) -> str:
     Returns: A standard "Feature In Progress" message.
     """
     return (
-        "🚧 **Feature In Progress**\n\n"
+        "  **Feature In Progress**\n\n"
         "HOT Pay integration (Payment Links & Merchant Tracking) is currently being developed.\n"
         "I know about these features, but I can't execute them just yet!\n\n"
         "Current capabilities:\n"
-        "✅ Token Swaps\n"
-        "✅ Balance Checks\n"
-        "✅ Cross-Chain Bridge\n"
-        "❌ Merchant Payments (Coming Soon)"
+        "  Token Swaps\n"
+        "  Balance Checks\n"
+        "  Cross-Chain Bridge\n"
+        "  Merchant Payments (Coming Soon)"
     )
 
-# Tool metadata for agent configuration
-TOOL_LIST = [
+
+# ===================================================================
+# Autonomy Tools   Let the user set up strategies through conversation
+# ===================================================================
+
+@tool
+def create_strategy_tool(
+    wallet_address: str,
+    strategy_type: str,
+    token: str = "",
+    threshold_pct: float = 0,
+    direction: str = "",
+    target_allocation: str = "",
+    schedule: str = "every_10m",
+    chain: str = "near"
+) -> str:
+    """
+    Create an autonomous strategy rule for the user through conversation.
+    The agent MUST gather all required details from the user BEFORE calling this tool.
+
+    ALWAYS ASK THE USER THESE QUESTIONS FIRST:
+    - For price_alert: Which token? What % threshold? Alert on drop or surge?
+    - For stop_loss: Which token? At what % drop should I sell? What chain?
+    - For rebalance: What's your target allocation? What drift % triggers it? What chain?
+
+    Args:
+        wallet_address: The user's wallet address (you already have this from context)
+        strategy_type: One of "price_alert", "stop_loss", "rebalance", "restake"
+        token: The token symbol this strategy applies to (e.g., "btc", "eth", "near")
+        threshold_pct: The percentage threshold that triggers the strategy
+        direction: For price_alert only   "drop" or "surge"
+        target_allocation: For rebalance only   JSON string like '{"eth": 50, "btc": 30, "near": 20}'
+        schedule: How often to check   "every_10m" (default), "every_1h", "every_24h"
+        chain: The blockchain network where the agent wallet lives (e.g., "near", "base", "ethereum"). Defaults to "near".
+
+    Returns: Confirmation message with strategy details
+    """
+    import json as _json
+    try:
+        from database import add_strategy
+
+        # Build the trigger condition based on strategy type
+        if strategy_type == "price_alert":
+            if not token or not threshold_pct or not direction:
+                return "  Missing info. I need: which token, what % threshold, and whether to alert on 'drop' or 'surge'. Please provide all details."
+            condition = {"token": token.lower(), "threshold_pct": threshold_pct, "direction": direction.lower(), "chain": chain}
+
+        elif strategy_type == "stop_loss":
+            if not token or not threshold_pct:
+                return "  Missing info. I need: which token and at what % drop to trigger the stop-loss."
+            condition = {"token": token.lower(), "drop_pct": threshold_pct, "chain": chain}
+
+        elif strategy_type == "rebalance":
+            if not target_allocation or not threshold_pct:
+                return "  Missing info. I need: your target portfolio allocation (e.g., 50% ETH, 30% BTC, 20% NEAR) and what drift % should trigger rebalancing."
+            try:
+                targets = _json.loads(target_allocation) if isinstance(target_allocation, str) else target_allocation
+            except:
+                return "  I couldn't parse the target allocation. Please provide it like: 50% ETH, 30% BTC, 20% NEAR"
+            condition = {"drift_pct": threshold_pct, "target": targets, "chain": chain}
+
+        elif strategy_type == "restake":
+            condition = {"token": token.lower() if token else "near", "chain": chain}
+
+        else:
+            return f"  Unknown strategy type '{strategy_type}'. Available types: price_alert, stop_loss, rebalance, restake"
+
+        strategy_id = add_strategy(wallet_address, strategy_type, condition, schedule)
+
+        # Build confirmation message
+        type_label = strategy_type.replace("_", " ").title()
+        msg = f"  **{type_label} Strategy Created** (ID: {strategy_id})\n\n"
+
+        if strategy_type == "price_alert":
+            msg += f"I'll monitor **{token.upper()}** and alert you if it **{direction}s {threshold_pct}%** or more.\n"
+        elif strategy_type == "stop_loss":
+            msg += f"I'll monitor **{token.upper()}** and recommend selling if it **drops {threshold_pct}%**.\n"
+        elif strategy_type == "rebalance":
+            msg += f"I'll check your portfolio every cycle and trigger rebalancing if allocation **drifts {threshold_pct}%** from your targets.\n"
+        elif strategy_type == "restake":
+            msg += f"I'll auto-restake your **{token.upper() or 'NEAR'}** rewards when available.\n"
+
+        msg += f"\nChecking frequency: **{schedule.replace('_', ' ')}**"
+        msg += "\n\nYou can view and manage your strategies in the **Autonomy** panel in the sidebar."
+        return msg
+
+    except Exception as e:
+        return f"  Error creating strategy: {str(e)}"
+
+
+@tool
+def list_strategies_tool(wallet_address: str) -> str:
+    """
+    List all active strategies for the user's wallet.
+    Use when user asks: "what strategies do I have?", "show my rules", "list my alerts", "what's set up?"
+
+    Args:
+        wallet_address: The user's wallet address (you already have this from context)
+
+    Returns: Formatted list of active strategies
+    """
+    import json as _json
+    try:
+        from database import get_active_strategies
+
+        strategies = get_active_strategies(wallet_address)
+        if not strategies:
+            return "You don't have any active strategies yet. Would you like me to set one up? I can help with:\n\n  **Price Alert**   Alert when a token drops or surges past a threshold\n  **Stop Loss**   Auto-sell when a token drops dangerously\n  **Portfolio Rebalance**   Keep your portfolio balanced\n\nJust tell me what you'd like!"
+
+        msg = f"  **Your Active Strategies** ({len(strategies)} total)\n\n"
+        for s in strategies:
+            sid = s["id"]
+            stype = s["strategy_type"].replace("_", " ").title()
+            condition = s["trigger_condition"] if isinstance(s["trigger_condition"], dict) else _json.loads(s["trigger_condition"])
+            schedule = s["schedule"]
+
+            msg += f"**{sid}. {stype}** ({schedule.replace('_', ' ')})\n"
+
+            if s["strategy_type"] == "price_alert":
+                msg += f"   Token: {condition.get('token', '?').upper()} | Threshold: {condition.get('threshold_pct', '?')}% {condition.get('direction', '?')}\n"
+            elif s["strategy_type"] == "stop_loss":
+                msg += f"   Token: {condition.get('token', '?').upper()} | Trigger at: {condition.get('drop_pct', '?')}% drop\n"
+            elif s["strategy_type"] == "rebalance":
+                targets = condition.get("target", {})
+                target_str = ", ".join(f"{v}% {k.upper()}" for k, v in targets.items())
+                msg += f"   Target: {target_str} | Drift trigger: {condition.get('drift_pct', '?')}%\n"
+            elif s["strategy_type"] == "restake":
+                msg += f"   Token: {condition.get('token', 'near').upper()}\n"
+
+            msg += "\n"
+
+        msg += "To remove a strategy, just say 'remove strategy [number]'."
+        return msg
+
+    except Exception as e:
+        return f"  Error listing strategies: {str(e)}"
+
+
+@tool
+def remove_strategy_tool(strategy_id: int) -> str:
+    """
+    Remove/deactivate a strategy by its ID.
+    Use when user says: "remove strategy 3", "delete my stop loss", "cancel alert #2"
+
+    Args:
+        strategy_id: The ID of the strategy to remove (shown in list_strategies_tool output)
+
+    Returns: Confirmation message
+    """
+    try:
+        from database import deactivate_strategy
+        deactivate_strategy(strategy_id)
+        return f"  Strategy #{strategy_id} has been deactivated. It will no longer trigger."
+    except Exception as e:
+        return f"  Error removing strategy: {str(e)}"
+
+
+@tool
+def update_autonomy_settings_tool(
+    wallet_address: str,
+    autonomy_level: int = -1,
+    max_tx_amount: float = -1,
+    daily_limit: float = -1,
+    kill_switch: int = -1
+) -> str:
+    """
+    Update the user's autonomy settings (guardrails, limits, autonomy level, kill switch).
+    Use when user says things like: "set my max trade to $100", "turn on auto mode", "activate kill switch", "set daily limit to $500"
+
+    Args:
+        wallet_address: The user's wallet address (you already have this from context)
+        autonomy_level: 0=Off, 1=Notify Only, 2=Auto-Execute. Pass -1 to keep unchanged.
+        max_tx_amount: Maximum USD per transaction. Pass -1 to keep unchanged.
+        daily_limit: Maximum USD per day. Pass -1 to keep unchanged.
+        kill_switch: 1=activate (halt everything), 0=deactivate. Pass -1 to keep unchanged.
+
+    Returns: Confirmation of updated settings
+    """
+    try:
+        from database import upsert_user
+
+        updates = {}
+        if autonomy_level >= 0:
+            updates["autonomy_level"] = autonomy_level
+        if max_tx_amount >= 0:
+            updates["max_tx_amount"] = max_tx_amount
+        if daily_limit >= 0:
+            updates["daily_limit"] = daily_limit
+        if kill_switch >= 0:
+            updates["kill_switch"] = kill_switch
+
+        if not updates:
+            return "No settings were changed. Tell me what you'd like to update:\n  Autonomy level (Off / Notify / Auto)\n  Max per transaction\n  Daily spending limit\n  Kill switch (on/off)"
+
+        upsert_user(wallet_address, updates)
+
+        msg = "  **Settings Updated:**\n"
+        if "autonomy_level" in updates:
+            levels = {0: "Off", 1: "Notify Only", 2: "Auto-Execute"}
+            msg += f"  Autonomy Level: **{levels.get(autonomy_level, autonomy_level)}**\n"
+        if "max_tx_amount" in updates:
+            msg += f"  Max per transaction: **${max_tx_amount}**\n"
+        if "daily_limit" in updates:
+            msg += f"  Daily limit: **${daily_limit}**\n"
+        if "kill_switch" in updates:
+            msg += f"  Kill switch: **{'ACTIVATED  ' if kill_switch else 'Deactivated  '}**\n"
+
+        return msg
+
+    except Exception as e:
+        return f"  Error updating settings: {str(e)}"
+
+
+@tool
+def get_autonomy_status_tool(wallet_address: str) -> str:
+    """
+    Get the user's current autonomy settings and status overview.
+    Use when user asks: "what are my settings?", "am I in auto mode?", "is kill switch on?", "show my limits"
+
+    Args:
+        wallet_address: The user's wallet address
+
+    Returns: Overview of current autonomy settings
+    """
+    try:
+        from database import get_user, get_active_strategies, get_agent_logs
+
+        user = get_user(wallet_address)
+        strategies = get_active_strategies(wallet_address)
+        logs = get_agent_logs(wallet_address, limit=5)
+
+        if not user:
+            return "You haven't set up autonomy yet. Would you like me to help? I can configure:\n  Your autonomy level (Off / Notify / Auto)\n  Spending limits and guardrails\n  Trading strategies (price alerts, stop-loss, rebalancing)"
+
+        levels = {0: "Off", 1: "Notify Only", 2: "Auto-Execute"}
+        kill = "  ACTIVE" if user["kill_switch"] else "  Off"
+
+        msg = "  **Your Autonomy Status**\n\n"
+        msg += f"  Autonomy Level: **{levels.get(user['autonomy_level'], 'Unknown')}**\n"
+        msg += f"  Kill Switch: **{kill}**\n"
+        msg += f"  Max per TX: **${user['max_tx_amount']}**\n"
+        msg += f"  Daily Limit: **${user['daily_limit']}**\n"
+        msg += f"  Active Strategies: **{len(strategies)}**\n"
+
+        if logs:
+            msg += f"\n  **Last {len(logs)} Decisions:**\n"
+            for log in logs[:3]:
+                status_icon = " " if log["status"] == "executed" else " " if log["status"] == "blocked" else " "
+                msg += f"  {status_icon} [{log['agent_name']}] {log['action_taken'][:50]}...\n"
+
+        return msg
+
+    except Exception as e:
+        return f"  Error getting status: {str(e)}"
+
+
+# -- Tool Lists per Agent (each agent gets ONLY its own tools) ----
+
+# Swap Agent   handles token swaps, quotes, discovery
+SWAP_TOOL_LIST = [
     get_available_tokens_tool,
     get_token_chains_tool,
     validate_token_names_tool,
     get_swap_quote_tool,
     confirm_swap_tool,
-    # HOT Pay placeholder
     hot_pay_coming_soon_tool,
 ]
 
+# Autonomy Agent   handles strategies, settings, guardrails
+AUTONOMY_TOOL_LIST = [
+    create_strategy_tool,
+    list_strategies_tool,
+    remove_strategy_tool,
+    update_autonomy_settings_tool,
+    get_autonomy_status_tool,
+]
+
+# Combined (backward compatibility)
+TOOL_LIST = SWAP_TOOL_LIST + AUTONOMY_TOOL_LIST

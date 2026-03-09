@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:29:45.448241Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.3% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.3%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.33,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.02719,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": true,
+    "tx_hash": null,
+    "message": "\u2705 Swap prepared: 0.02719 NEAR -> USDT via NEAR Intents. TX payload ready for signing."
+  },
+  "market_snapshot": {
+    "arb": 0.096606,
+    "bnb": 620.9,
+    "btc": 67288,
+    "doge": 0.089898,
+    "eth": 1964.95,
+    "flow": 0.04311142,
+    "near": 1.21,
+    "xrp": 1.35,
+    "sol": 82.86,
+    "usdt": 0.999938,
+    "usdc": 1.0,
+    "_changes": {
+      "arb": -3.172590711256465,
+      "bnb": -1.3120685030201042,
+      "btc": -1.110267272369515,
+      "doge": -0.9697013858599368,
+      "eth": -0.6673406577347355,
+      "flow": 1.9414479597780643,
+      "near": -1.8394399866925186,
+      "xrp": -0.42352930723639354,
+      "sol": -2.4880344020708227,
+      "usdt": -0.004025181590832094,
+      "usdc": 0.00334661816297121
+    }
+  }
+}

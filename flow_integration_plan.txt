@@ -1,0 +1,340 @@
+================================================================================
+        NEPTUNE AI — FLOW BLOCKCHAIN INTEGRATION DOCUMENT
+================================================================================
+                        Research & Implementation Plan
+================================================================================
+
+## 1. DOES NEAR INTENTS / 1-CLICK API SUPPORT FLOW?
+
+**NO.** Confirmed by querying the 1-Click API — 0 Flow tokens found.
+
+Supported chains (29): adi, aleo, aptos, arb, avax, base, bch, bera, bsc, btc,
+cardano, doge, eth, gnosis, ltc, monad, near, op, plasma, pol, sol, starknet,
+stellar, sui, ton, tron, xlayer, xrp, zec
+
+Flow is NOT on this list. All Flow functionality must be built from scratch.
+
+================================================================================
+
+## 2. KEY DISCOVERY: FLOW HAS EVM COMPATIBILITY (Crescendo Upgrade)
+
+Since Sept 2024, Flow has FULL EVM equivalence via the "Crescendo" upgrade:
+- Solidity contracts run natively on Flow EVM
+- MetaMask connects to Flow EVM (chainId: 747)
+- Uniswap V2/V3 forks exist (KittyPunch PunchSwap)
+
+This means TWO possible approaches for Flow token swaps:
+  A) Native Cadence path (FCL + Cadence scripts) — more complex, deeper Flow
+  B) EVM path (ethers.js + Flow EVM RPC) — simpler, reuses existing EVM code
+
+>>> RECOMMENDATION: Use the EVM path for swaps (simpler), FCL for NFT transfers
+
+================================================================================
+
+## 3. ARCHITECTURE: DUAL-AGENT FLOW
+
+Current: User → HOT Kit wallet → NEAR Intents flow
+New:     User → Flow wallet (FCL) → Flow-native flow
+
+┌──────────────────────────────────────────────────────────────────────┐
+│                        FRONTEND                                      │
+│                                                                      │
+│  ┌─────────────┐    ┌─────────────────┐    ┌──────────────────────┐ │
+│  │  HOT Kit     │    │  Flow FCL        │    │  Wallet Detection   │ │
+│  │  Provider    │    │  Provider        │    │  (auto-route)       │ │
+│  │  (existing)  │    │  (@onflow/fcl)   │    │                     │ │
+│  └──────┬──────┘    └───────┬─────────┘    └──────────┬───────────┘ │
+│         │                    │                          │             │
+│         ▼                    ▼                          ▼             │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │                    Chat Interface                                │ │
+│  │  Same UI, different wallet provider based on connection          │ │
+│  └─────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                        BACKEND                                       │
+│                                                                      │
+│  ┌──────────────────────┐    ┌──────────────────────────────────┐   │
+│  │  NEAR Intents Agent  │    │  Flow Agent                      │   │
+│  │  (existing)          │    │  (separate prompt + tools)       │   │
+│  │                      │    │                                  │   │
+│  │  Tools:              │    │  Tools:                          │   │
+│  │  - get_swap_quote    │    │  - flow_get_swap_quote           │   │
+│  │  - confirm_swap      │    │  - flow_confirm_swap             │   │
+│  │  - get_tokens        │    │  - flow_get_tokens               │   │
+│  │  - validate_tokens   │    │  - flow_transfer_nft             │   │
+│  │  - hot_pay           │    │  - flow_get_nfts                 │   │
+│  └──────────────────────┘    └──────────────────────────────────┘   │
+│                                                                      │
+│  Router: session["wallet_type"] == "flow" → Flow Agent               │
+│          session["wallet_type"] == "hotkit" → NEAR Intents Agent     │
+└──────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+
+## 4. WHAT TO INSTALL
+
+### Frontend (Next.js)
+npm install @onflow/fcl           # Flow Client Library (wallet + tx)
+npm install @onflow/react-sdk     # React hooks for FCL
+npm install @onflow/types         # Cadence type definitions
+
+### Backend (Python)
+pip install flow-py-sdk           # Flow SDK for Python (tx building, queries)
+pip install httpx                 # Already installed (for API calls)
+
+================================================================================
+
+## 5. FILES TO CREATE / EDIT
+
+### ─── FRONTEND ────────────────────────────────────────────────
+
+#### [NEW] providers/flow-wallet-provider.tsx
+Flow wallet connection via FCL (separate from HOT Kit).
+- Configure FCL for Flow mainnet (accessNode, discoveryWallet)
+- Connect/disconnect Flow Wallet / Dapper Wallet
+- Get account address, balance
+- Sign and send Cadence transactions
+- Sign and send Flow EVM transactions (for swaps)
+
+Key config:
+  fcl.config({
+    "accessNode.api": "https://rest-mainnet.onflow.org",
+    "discovery.wallet": "https://fcl-discovery.onflow.org/authn",
+    "app.detail.title": "Neptune AI",
+    "flow.network": "mainnet"
+  })
+
+Exports:
+  - flowAccountId: string | null
+  - flowBalance: number
+  - connectFlowWallet(): void
+  - disconnectFlow(): void
+  - signAndSendCadenceTransaction(cadenceScript, args): Promise<{ hash }>
+  - signAndSendFlowEvmTransaction(txPayload): Promise<{ hash }>
+
+#### [EDIT] components/chat-header.tsx
+- Add "Connect Flow Wallet" button alongside existing HOT Kit connect
+- Show Flow account address when connected
+- Visual indicator for which wallet type is active
+
+#### [EDIT] components/chat-interface.tsx
+- Detect active wallet type (HOT Kit vs Flow)
+- Route handleSign to the appropriate provider
+- Pass wallet_type to backend API calls
+
+#### [EDIT] components/chat-message.tsx
+- Add SIGN_FLOW_TRANSACTION action type
+- Add NFT transfer confirmation card (shows NFT image, name, recipient)
+
+### ─── BACKEND ─────────────────────────────────────────────────
+
+#### [NEW] flow_tools.py
+All Flow-specific tool implementations:
+
+  flow_get_available_tokens()
+    - Query KittyPunch/IncrementFi API for available Flow tokens
+    - Cache token list (similar to knowledge_base.py)
+
+  flow_get_swap_quote(token_in, token_out, amount)
+    - Call PunchSwap/IncrementFi router for quote
+    - PunchSwap is Uniswap V2/V3 fork — use standard router ABI
+    - Flow EVM RPC: https://mainnet.evm.nodes.onflow.org
+    - Flow EVM chain ID: 747
+    - Return: { amount_out, rate, path, router_address }
+
+  flow_confirm_swap(quote)
+    - Build the swap transaction (Cadence or EVM)
+    - For EVM path: standard Uniswap V2 swapExactTokensForTokens call
+    - Return transaction payload for frontend signing
+
+  flow_get_user_nfts(account_address)
+    - Query Flow NFT catalog API or Alchemy Flow API
+    - Endpoint: https://flow-nft-catalog.com (community catalog)
+    - Return: list of { id, name, collection, image, contract_address }
+
+  flow_transfer_nft(nft_id, collection, to_address)
+    - Build Cadence transaction for NFT transfer
+    - Uses NonFungibleToken.transfer() standard
+    - Cadence script:
+        import NonFungibleToken from 0x1d7e57aa55817448
+        transaction(recipient: Address, withdrawID: UInt64) {
+          prepare(signer: auth(BorrowValue) &Account) {
+            let collection = signer.storage
+              .borrow<auth(NonFungibleToken.Withdraw) &{NonFungibleToken.Collection}>(
+                from: /storage/[CollectionPath]
+              )!
+            let nft <- collection.withdraw(withdrawID: withdrawID)
+            let recipientCollection = getAccount(recipient)
+              .capabilities.get<&{NonFungibleToken.Collection}>(/public/[CollectionPath])
+              .borrow()!
+            recipientCollection.deposit(token: <-nft)
+          }
+        }
+    - Return transaction payload for FCL signing
+
+#### [NEW] flow_prompts.py
+Separate system prompt for Flow agent:
+  - Identity: Neptune AI (Flow Mode)
+  - Capabilities: token swaps (via PunchSwap), NFT transfers, balance checking
+  - Tool selection guide (flow-specific tools only)
+  - NO NEAR Intents references
+  - Flow address format: 0x followed by 16 hex chars (e.g., 0x1d7e57aa55817448)
+
+#### [NEW] flow_agent_tools.py
+LangChain tool definitions wrapping flow_tools.py functions:
+  - flow_get_available_tokens_tool
+  - flow_get_swap_quote_tool
+  - flow_confirm_swap_tool
+  - flow_get_user_nfts_tool
+  - flow_transfer_nft_tool
+
+#### [EDIT] agents.py
+Add routing logic at the top of process_message():
+  - Check user_context["wallet_type"]
+  - If "flow" → use FLOW_SYSTEM_MESSAGE + FLOW_TOOL_LIST
+  - If "hotkit" or default → use existing SYSTEM_MESSAGE + TOOL_LIST
+  - This way the LLM gets different prompts and tools based on wallet
+
+#### [EDIT] main.py
+- Accept wallet_type in chat request body
+- Pass to process_message via user_context
+
+#### [EDIT] requirements.txt
+- Add: flow-py-sdk
+
+================================================================================
+
+## 6. ENV VARIABLES
+
+Backend (.env):
+  FLOW_ACCESS_NODE=https://rest-mainnet.onflow.org
+  FLOW_EVM_RPC=https://mainnet.evm.nodes.onflow.org
+  FLOW_EVM_CHAIN_ID=747
+
+Frontend (.env.local):
+  NEXT_PUBLIC_FLOW_ACCESS_NODE=https://rest-mainnet.onflow.org
+  NEXT_PUBLIC_FLOW_NETWORK=mainnet
+
+================================================================================
+
+## 7. FLOW TOKEN SWAP APPROACH (via PunchSwap/Flow EVM)
+
+Since Flow has EVM equivalence, we can use the SAME EVM signing code:
+
+1. PunchSwap = Uniswap V2 fork on Flow EVM
+   - Router: standard swapExactTokensForTokens ABI
+   - Factory: standard Uniswap V2 factory ABI
+   - Chain ID: 747
+   - RPC: https://mainnet.evm.nodes.onflow.org
+
+2. Quote flow:
+   User says "swap 10 FLOW for USDC" →
+   Backend calls PunchSwap router.getAmountsOut(amount, [FLOW, USDC]) →
+   Returns quote to user →
+   User confirms →
+   Backend builds swapExactTokensForTokens tx →
+   Frontend signs via FCL EVM or MetaMask →
+   Done
+
+3. Key tokens on Flow EVM:
+   - FLOW (native, wrapped as WFLOW)
+   - USDC, USDT (bridged)
+   - stFLOW (liquid staking)
+   - Various community tokens
+
+================================================================================
+
+## 8. NFT TRANSFER APPROACH
+
+Flow NFTs use Cadence's NonFungibleToken standard:
+
+1. User says "transfer my TopShot moment #12345 to 0xabc123"
+2. Agent calls flow_get_user_nfts() to list user's NFTs
+3. User selects the NFT
+4. Agent calls flow_transfer_nft(nft_id, collection, recipient)
+5. Backend builds Cadence transaction
+6. Frontend signs via FCL (Flow Wallet / Dapper)
+7. Transaction confirmed
+
+Key NFT collections on Flow:
+  - NBA Top Shot (topshot)
+  - NFL ALL DAY
+  - UFC Strike
+  - CryptoKitties (original!)
+  - .find (Flow name service)
+
+API for listing user NFTs:
+  - Flow NFT Catalog: https://flow-nft-catalog.com
+  - Alchemy Flow API (if available)
+  - Direct Cadence scripts querying account storage
+
+================================================================================
+
+## 9. IMPLEMENTATION ORDER
+
+Phase 1: Flow Wallet Connection (frontend)
+  1. Create flow-wallet-provider.tsx with FCL config
+  2. Add "Connect Flow Wallet" button in chat-header
+  3. Detect wallet type and pass to backend
+  4. Test: connect Flow Wallet / Dapper, see address
+
+Phase 2: Backend Agent Routing
+  5. Create flow_prompts.py with Flow-specific system prompt
+  6. Create flow_agent_tools.py with tool definitions
+  7. Add wallet_type routing in agents.py + main.py
+  8. Test: Flow wallet sends message → gets Flow-specific response
+
+Phase 3: Flow Token Swaps
+  9. Implement flow_get_available_tokens (query PunchSwap factory)
+  10. Implement flow_get_swap_quote (PunchSwap router)
+  11. Implement flow_confirm_swap (build EVM tx payload)
+  12. Wire signing in frontend (FCL EVM or reuse EVM signer with chainId 747)
+  13. Test: swap FLOW for USDC end-to-end
+
+Phase 4: NFT Transfers
+  14. Implement flow_get_user_nfts (Cadence script to query account)
+  15. Implement flow_transfer_nft (build Cadence transaction)
+  16. Add NFT display card in chat-message.tsx
+  17. Test: list NFTs → transfer one to another address
+
+================================================================================
+
+## 10. COMPLEXITY ASSESSMENT
+
+| Component               | Difficulty | Notes                              |
+|--------------------------|------------|------------------------------------|
+| Flow wallet (FCL)        | Medium     | Well-documented, React hooks exist |
+| Agent routing            | Easy       | Simple if/else on wallet_type      |
+| Token swaps (EVM path)   | Medium     | Reuse existing EVM code + chainId  |
+| NFT listing              | Medium     | Need Cadence scripts per collection|
+| NFT transfer             | Medium     | StandardCadence tx, well-documented|
+| Flow-specific prompts    | Easy       | Copy + adapt existing prompts      |
+| Token swap (Cadence)     | Hard       | IncrementFi Cadence is complex     |
+
+Total estimated effort: ~3-5 days for a working MVP
+
+================================================================================
+
+## 11. IMPORTANT NOTES
+
+- Flow addresses are 0x + 16 hex chars (NOT 40 like EVM)
+  Example: 0x1654653399040a61
+  The agent must validate Flow addresses differently from EVM!
+
+- Flow EVM addresses ARE standard 0x + 40 hex chars
+  Same as Ethereum, since Flow EVM is EVM-compatible
+
+- User can connect BOTH HOT Kit AND Flow wallet simultaneously
+  The frontend should detect which wallet is "active" for the current swap
+
+- Flow Wallet and Dapper Wallet use FCL discovery protocol
+  No need to import specific wallet SDKs — FCL handles wallet selection
+
+- Flow EVM is a separate environment from Cadence
+  Tokens on Flow EVM ≠ tokens on Cadence flow
+  The Cadence bridge can move tokens between environments
+
+================================================================================

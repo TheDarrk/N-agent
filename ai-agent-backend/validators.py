@@ -152,7 +152,7 @@ def validate_address_for_chain(address: str, chain: str) -> bool:
     if validator:
         return validator(address)
     
-    # Unknown chain — accept any non-empty string as we can't validate
+    # Unknown chain   accept any non-empty string as we can't validate
     return bool(address and len(address) > 5)
 
 
@@ -196,7 +196,7 @@ def get_chain_address_format(chain: str) -> str:
     return formats.get(chain.lower(), f'{chain} wallet address')
 
 
-# ─── Token Matching ───────────────────────────────────────
+#   Token Matching  
 
 def fuzzy_match_token(
     input_token: str, 

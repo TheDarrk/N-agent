@@ -42,22 +42,28 @@ async def get_available_tokens_from_api() -> List[Dict]:
             print("[KNOWLEDGE] Unexpected API response format")
             raise ValueError("Can't get supported tokens - API returned unexpected format")
         
+        def _sanitize(text: str) -> str:
+            if not text: return ""
+            import re
+            return re.sub(r'[^\x00-\x7F]+', ' ', str(text)).strip()
+
         # Extract relevant token info
         tokens = []
         for item in data:
             if item.get("assetId") and item.get("symbol"):
                 # Normalize NEAR/WNEAR
-                symbol = item["symbol"]
+                symbol = _sanitize(item["symbol"])
                 if symbol.upper() in ["WNEAR", "NEAR"]:
                     symbol = "NEAR"
                 
                 tokens.append({
                     "symbol": symbol,
-                    "name": item.get("name", symbol),
+                    "name": _sanitize(item.get("name", symbol)),
                     "decimals": item.get("decimals", 18),
                     "defuseAssetId": item["assetId"],
                     "contractAddress": item.get("contractAddress", ""),
                     "blockchain": item.get("blockchain", "near")
+
                 })
         
         if not tokens:
@@ -155,7 +161,7 @@ def format_token_list_for_display(tokens: List[Dict]) -> str:
     for chain, chain_tokens in sorted(by_chain.items()):
         lines.append(f"\n**{chain.title()} Tokens:**")
         for token in sorted(chain_tokens[:20], key=lambda x: x["symbol"]):  # Limit to 20 per chain
-            lines.append(f"  • {token['symbol']} - {token['name']}")
+            lines.append(f"    {token['symbol']} - {token['name']}")
     
     return "\n".join(lines)
 
@@ -174,7 +180,7 @@ def format_tokens_with_chain_prefix(tokens: List[Dict], limit: int = 80) -> str:
     for token in tokens[:limit]:
         chain = token.get("blockchain", "near").upper()
         symbol = token["symbol"]
-        lines.append(f"• [{chain}] {symbol}")
+        lines.append(f"  [{chain}] {symbol}")
     
     if len(tokens) > limit:
         lines.append(f"\n...and {len(tokens) - limit} more tokens")

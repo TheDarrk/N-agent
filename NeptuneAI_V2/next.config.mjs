@@ -8,6 +8,11 @@ const nextConfig = {
   },
   turbopack: {},
   serverExternalPackages: ["near-api-js"],
+  logging: {
+    fetches: {
+      fullUrl: false
+    }
+  }
 }
 
 export default nextConfig

@@ -1,0 +1,276 @@
+================================================================================
+                    NEPTUNE AI — VOICE MODE IMPLEMENTATION PLAN
+================================================================================
+
+GOAL: Real-time voice conversation with the Neptune AI agent, just like 
+ChatGPT's voice mode. User speaks → agent processes → agent replies with voice.
+
+================================================================================
+APPROACH OPTIONS (Pick One)
+================================================================================
+
+OPTION A: Browser STT + Server TTS (RECOMMENDED — simplest, cheapest)
+  - Speech-to-Text: Browser's Web Speech API (free, runs in browser)
+  - Text-to-Speech: OpenAI TTS API ($15/1M chars) or ElevenLabs
+  - Flow: User speaks → browser transcribes → send text to backend → 
+          get text response → server generates audio → stream to frontend
+  - Pros: Cheap, easy to implement, works with your existing chat flow
+  - Cons: Web Speech API needs Chrome/Edge (no Firefox), slight delay
+
+OPTION B: Full Server-Side (Whisper + TTS)  
+  - Speech-to-Text: OpenAI Whisper API ($0.006/min) — record audio, send to API
+  - Text-to-Speech: OpenAI TTS API or ElevenLabs
+  - Flow: User speaks → record audio blob → send to backend → 
+          Whisper transcribes → LLM processes → TTS generates audio → stream back
+  - Pros: Works in ALL browsers, more accurate transcription
+  - Cons: More latency (upload audio → transcribe → process → generate audio)
+
+OPTION C: OpenAI Realtime API (Most ChatGPT-like, but expensive)
+  - Uses WebSocket connection with GPT-4o-realtime
+  - Native voice-to-voice with interruptions, emotions, natural flow
+  - Pros: Most natural, lowest latency, supports interruptions
+  - Cons: Very expensive ($5/1M input tokens audio), needs OpenAI API key 
+          (not NEAR AI), completely separate from your current LLM flow
+
+>>> RECOMMENDATION: Option A for v1, upgrade to B later if needed.
+
+================================================================================
+ARCHITECTURE FLOW (Option A)
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                        FRONTEND                             │
+  │                                                             │
+  │  1. User clicks 🎤 mic button                              │
+  │  2. Browser Web Speech API starts listening                 │
+  │  3. Real-time transcript shown in input box                 │
+  │  4. User stops speaking (or clicks button again)            │
+  │  5. Final transcript sent to /api/chat (same as text chat)  │
+  │  6. Response received from backend                          │
+  │  7. Response text sent to /api/tts for audio generation     │
+  │  8. Audio streamed back and played through <audio> element  │
+  │  9. Visual waveform/pulse animation while agent speaks      │
+  │                                                             │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │                        BACKEND                              │
+  │                                                             │
+  │  Existing /chat endpoint stays UNCHANGED                    │
+  │                                                             │
+  │  NEW: POST /api/tts                                         │
+  │    - Receives: { text: "agent's response text" }            │
+  │    - Calls OpenAI TTS API (or ElevenLabs)                   │
+  │    - Returns: audio/mpeg stream                             │
+  │    - Voice: "nova" or "alloy" (natural-sounding)            │
+  │                                                             │
+  └─────────────────────────────────────────────────────────────┘
+
+================================================================================
+WHAT TO INSTALL
+================================================================================
+
+BACKEND (Python):
+  pip install openai          # For TTS API (you may already have this)
+  # OR
+  pip install elevenlabs      # Alternative TTS provider (more natural voices)
+  
+  # Add to requirements.txt:
+  openai>=1.0.0               # If using OpenAI TTS
+
+FRONTEND (Next.js):
+  No new packages needed! Web Speech API is built into browsers.
+  Optional:
+  npm install wavesurfer.js   # For audio waveform visualization (nice-to-have)
+
+================================================================================
+FILES TO CREATE / EDIT
+================================================================================
+
+--- BACKEND ---
+
+1. [NEW] ai-agent-backend/tts.py
+   - TTS service module
+   - Function: generate_speech(text, voice="nova") -> audio bytes
+   - Uses OpenAI TTS API: client.audio.speech.create(model="tts-1", ...)
+   - Supports streaming for low latency
+   - Voice options: alloy, echo, fable, onyx, nova, shimmer
+
+2. [EDIT] ai-agent-backend/main.py
+   - Add new endpoint: POST /tts
+     - Receives JSON { "text": "...", "voice": "nova" }
+     - Calls tts.generate_speech()
+     - Returns StreamingResponse with audio/mpeg content-type
+   - Add CORS for audio streaming headers
+
+3. [EDIT] ai-agent-backend/requirements.txt
+   - Add: openai>=1.0.0 (if not already there)
+
+4. [EDIT] ai-agent-backend/.env
+   - Add: OPENAI_API_KEY=sk-... (needed for TTS, separate from NEAR AI key)
+   - OR: ELEVENLABS_API_KEY=... (if using ElevenLabs)
+
+--- FRONTEND ---
+
+5. [NEW] NeptuneAI_V2/hooks/use-speech-recognition.ts
+   - Custom React hook wrapping Web Speech API
+   - Handles: start/stop listening, interim/final transcripts, language
+   - Browser compatibility check (Chrome/Edge only)
+   - Auto-stop on silence detection
+   
+   Key exports:
+   - isListening: boolean
+   - transcript: string  
+   - startListening(): void
+   - stopListening(): void
+   - isSupported: boolean
+
+6. [NEW] NeptuneAI_V2/hooks/use-text-to-speech.ts
+   - Custom React hook for playing TTS audio
+   - Calls /api/tts with the agent's text response
+   - Manages audio playback state (playing, paused, stopped)
+   - Handles audio queue (if agent sends multiple messages)
+   
+   Key exports:
+   - speak(text: string): void
+   - stop(): void
+   - isSpeaking: boolean
+   - isLoading: boolean
+
+7. [NEW] NeptuneAI_V2/components/voice-mode-button.tsx
+   - Mic button component (replaces send button when voice mode active)
+   - States: idle (🎤), listening (pulsing red), processing (spinner)
+   - Click to toggle listening on/off
+   - Shows real-time transcript as user speaks
+   - Animated waveform/pulse while agent is speaking
+
+8. [NEW] NeptuneAI_V2/app/api/tts/route.ts
+   - Next.js API route that proxies to backend /tts endpoint
+   - Handles audio streaming to avoid CORS issues
+   - Returns audio/mpeg content type
+
+9. [EDIT] NeptuneAI_V2/components/chat-interface.tsx
+   - Add voice mode toggle button in header or input area
+   - Import and use useSpeechRecognition hook
+   - When voice mode is on:
+     * Show mic button instead of text input
+     * Auto-send transcript when user stops speaking
+     * Auto-play TTS for agent responses
+   - When voice mode is off: normal text chat (unchanged)
+   - Add state: isVoiceMode, isListening, isSpeaking
+
+10. [EDIT] NeptuneAI_V2/components/chat-message.tsx
+    - Add small 🔊 speaker button on AI messages to replay audio
+    - Visual indicator when message is being spoken
+
+================================================================================
+ENV VARIABLES NEEDED
+================================================================================
+
+Backend (.env):
+  OPENAI_API_KEY=sk-...           # For TTS (required for voice)
+  TTS_VOICE=nova                  # Default voice (nova sounds natural)
+  TTS_MODEL=tts-1                 # tts-1 (fast) or tts-1-hd (quality)
+
+Frontend (.env.local):  
+  (No new env vars needed — proxies through /api/tts)
+
+================================================================================
+IMPLEMENTATION ORDER (Step by Step)
+================================================================================
+
+Phase 1: Backend TTS Endpoint
+  1. Create tts.py with OpenAI TTS integration
+  2. Add POST /tts endpoint to main.py
+  3. Test: curl -X POST http://localhost:8000/tts -d '{"text":"Hello"}' > test.mp3
+
+Phase 2: Frontend Speech-to-Text
+  4. Create use-speech-recognition.ts hook
+  5. Add mic button to chat-interface.tsx
+  6. Test: Click mic → speak → see transcript in input
+
+Phase 3: Frontend Text-to-Speech  
+  7. Create /api/tts Next.js route
+  8. Create use-text-to-speech.ts hook
+  9. Wire up: agent response → auto-play audio
+  10. Test: Send message → hear agent respond
+
+Phase 4: Full Voice Mode UX
+  11. Create voice-mode-button.tsx with animations
+  12. Add voice mode toggle (switch between text/voice)
+  13. Auto-detect silence & send
+  14. Add speaking indicator (pulsing animation on agent avatar)
+  15. Add 🔊 replay button on messages
+
+Phase 5: Polish
+  16. Handle edge cases (no mic permission, unsupported browser)
+  17. Add keyboard shortcut (hold Space to talk?)
+  18. Interrupt: stop TTS when user starts speaking
+  19. Mobile support (may need different speech recognition approach)
+
+================================================================================
+COST ESTIMATES
+================================================================================
+
+OpenAI TTS (tts-1):
+  - $15 per 1 million characters
+  - Average response: ~200 chars = $0.003 per response
+  - 1000 voice interactions/day = ~$3/day
+
+OpenAI Whisper (if using Option B):
+  - $0.006 per minute of audio
+  - Average voice input: 10 seconds = $0.001 per input
+  - Very cheap
+
+ElevenLabs (alternative, more natural voices):
+  - Free tier: 10,000 chars/month
+  - Starter: $5/month for 30,000 chars
+  - More expensive but MUCH more natural-sounding
+
+Browser Web Speech API (Option A):
+  - FREE — runs entirely in the browser
+  - No API costs for speech recognition
+
+================================================================================
+BROWSER COMPATIBILITY
+================================================================================
+
+Web Speech API (for STT):
+  ✅ Chrome (desktop + Android)
+  ✅ Edge  
+  ✅ Safari (iOS 14.5+, macOS)
+  ❌ Firefox (not supported)
+  
+  Fallback for Firefox: Show text input with message 
+  "Voice mode requires Chrome, Edge, or Safari"
+
+Audio playback (for TTS):
+  ✅ All modern browsers support <audio> with MP3
+
+================================================================================
+ALTERNATIVE: DEEPER VOICE INTEGRATION
+================================================================================
+
+If you want even MORE ChatGPT-like voice mode in the future:
+
+1. WebRTC + Server-Sent Events
+   - Real-time bidirectional audio streaming
+   - Lower latency, more natural conversation flow
+   - Significantly more complex to implement
+
+2. OpenAI Realtime API
+   - Native voice-to-voice, no STT/TTS pipeline needed
+   - Supports interruptions mid-sentence
+   - Would need separate WebSocket connection
+   - ~$100/day for 1000 conversations (expensive)
+
+3. Ultravox / LiveKit
+   - Open-source alternatives for realtime voice AI
+   - Can run your own models
+   - More control, lower cost at scale
+
+>>> Start with Option A (Browser STT + OpenAI TTS), it's 90% of the 
+    ChatGPT voice experience at 1% of the cost.
+
+================================================================================

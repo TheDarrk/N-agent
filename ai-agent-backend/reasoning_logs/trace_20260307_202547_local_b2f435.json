@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:25:47.320037Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.3% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.3%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.33,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.027189,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": true,
+    "tx_hash": null,
+    "message": "\ud83d\udce2 Notification: REBALANCE: Portfolio drift 26.3%. Reason: Portfolio drift 26.3% exceeds threshold 10%. Trading NEAR -> USDT"
+  },
+  "market_snapshot": {
+    "arb": 0.096588,
+    "bnb": 621.04,
+    "btc": 67226,
+    "doge": 0.089857,
+    "eth": 1963.69,
+    "flow": 0.04316993,
+    "near": 1.21,
+    "xrp": 1.35,
+    "sol": 82.84,
+    "usdt": 0.999993,
+    "usdc": 0.999998,
+    "_changes": {
+      "arb": -3.2328146571748926,
+      "bnb": -1.5719542258490877,
+      "btc": -1.2308946462507895,
+      "doge": -1.0152007575287343,
+      "eth": -0.7969250898606194,
+      "flow": 2.398449441126645,
+      "near": -1.8709794485821118,
+      "xrp": -0.5158484729561091,
+      "sol": -2.6115881069796973,
+      "usdt": 0.0007125256937227866,
+      "usdc": -5.211839916933796e-05
+    }
+  }
+}

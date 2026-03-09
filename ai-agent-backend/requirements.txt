@@ -13,5 +13,7 @@ python-Levenshtein
 web3
 tenacity
 pytest
-pytest
 slowapi
+flow-py-sdk
+apscheduler>=3.10
+aiosqlite

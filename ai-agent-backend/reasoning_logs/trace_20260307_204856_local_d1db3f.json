@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:48:56.415678Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.5% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.5%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.48,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.02729,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": false,
+    "tx_hash": null,
+    "message": "Swap logic failed. Details: access key ed25519:5agZkVN1DREpPoJGUZuHTVZTAKodRqUGDLFx7vDp3u9F does not exist while viewing"
+  },
+  "market_snapshot": {
+    "arb": 0.096779,
+    "bnb": 620.91,
+    "btc": 67397,
+    "doge": 0.090078,
+    "eth": 1966.26,
+    "flow": 0.0432669,
+    "near": 1.22,
+    "xrp": 1.36,
+    "sol": 83.03,
+    "usdt": 0.999967,
+    "usdc": 0.999998,
+    "_changes": {
+      "arb": -2.9338461176445474,
+      "bnb": -1.3245163853914201,
+      "btc": -0.9999665613239509,
+      "doge": -0.9916382033901746,
+      "eth": -0.6921342364739047,
+      "flow": 1.9999916628358323,
+      "near": -1.5773591485212217,
+      "xrp": -0.14169461412136003,
+      "sol": -2.1309163014465997,
+      "usdt": 0.0021533439617577132,
+      "usdc": 0.0001237283356629128
+    }
+  }
+}

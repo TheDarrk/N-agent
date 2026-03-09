@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:38:01.141529Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.3% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.3%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.33,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.027189,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": false,
+    "tx_hash": null,
+    "message": "Swap quote obtained but TX logic failed. Details: "
+  },
+  "market_snapshot": {
+    "arb": 0.096631,
+    "bnb": 620.66,
+    "btc": 67312,
+    "doge": 0.089965,
+    "eth": 1964.51,
+    "flow": 0.04316381,
+    "near": 1.21,
+    "xrp": 1.35,
+    "sol": 82.92,
+    "usdt": 0.999988,
+    "usdc": 0.999999,
+    "_changes": {
+      "arb": -2.8228455936835815,
+      "bnb": -1.1431494116161642,
+      "btc": -0.7781068152260819,
+      "doge": -0.742921994363267,
+      "eth": -0.43727241705688064,
+      "flow": 1.9016260003396475,
+      "near": -1.5620881152551982,
+      "xrp": -0.12186311699590678,
+      "sol": -2.084177437284568,
+      "usdt": 0.005787356516337431,
+      "usdc": -0.000289569792774531
+    }
+  }
+}

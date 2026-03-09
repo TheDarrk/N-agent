@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-09T19:51:55.361442Z",
+  "user": "testagen.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 20.0% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 7
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 20.0%",
+    "should_act": true,
+    "details": {
+      "max_drift": 20.0,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.009992,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED   $0.00 within limits (max_tx: $500.00, daily: $2000.00)",
+    "checks": {
+      "policy": {
+        "wallet": "testagen.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 500.0,
+        "daily_limit": 2000.0,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS   level 2",
+      "transaction": "PASS   APPROVED   $0.00 within limits (max_tx: $500.00, daily: $2000.00)"
+    }
+  },
+  "execution": {
+    "success": true,
+    "tx_hash": null,
+    "message": "Quote error: Token NEAR not found in supported list. Logged action: REBALANCE: Portfolio drift 20.0%"
+  },
+  "market_snapshot": {
+    "arb": 0.099391,
+    "bnb": 637.92,
+    "btc": 68951,
+    "doge": 0.091598,
+    "eth": 2032.46,
+    "flow": 0.050594,
+    "near": 1.26,
+    "xrp": 1.37,
+    "sol": 86.26,
+    "usdt": 1.0,
+    "usdc": 0.999998,
+    "_changes": {
+      "arb": 3.0095193327055245,
+      "bnb": 2.995451105341408,
+      "btc": 2.35601954949151,
+      "doge": 2.3442669535930185,
+      "eth": 3.3024734000742297,
+      "flow": 19.736066266647466,
+      "near": 1.9473788942351682,
+      "xrp": 0.7843968637600639,
+      "sol": 4.558683882019731,
+      "usdt": 0.0061191099728091026,
+      "usdc": -0.00017371428306649654
+    }
+  }
+}

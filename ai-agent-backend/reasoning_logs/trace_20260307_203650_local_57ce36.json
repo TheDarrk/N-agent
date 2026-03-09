@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:36:50.767722Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.3% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.3%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.33,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.027189,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": false,
+    "tx_hash": null,
+    "message": "Swap quote obtained but TX logic failed. Details: Agent key is missing encrypted material or salt."
+  },
+  "market_snapshot": {
+    "arb": 0.09662,
+    "bnb": 620.65,
+    "btc": 67298,
+    "doge": 0.089946,
+    "eth": 1964.08,
+    "flow": 0.04314401,
+    "near": 1.21,
+    "xrp": 1.35,
+    "sol": 82.9,
+    "usdt": 0.999981,
+    "usdc": 0.999999,
+    "_changes": {
+      "arb": -2.8340457728048887,
+      "bnb": -1.1445113517052035,
+      "btc": -0.7976177222024303,
+      "doge": -0.7634331121478445,
+      "eth": -0.4590445868652417,
+      "flow": 1.8548728768559255,
+      "near": -1.5445528454028057,
+      "xrp": -0.11381634127032657,
+      "sol": -2.106084783601797,
+      "usdt": 0.005101613293297527,
+      "usdc": -0.000256251528260566
+    }
+  }
+}

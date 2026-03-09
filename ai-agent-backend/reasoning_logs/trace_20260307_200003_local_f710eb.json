@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:00:03.447938Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.3% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.3%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.33,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.02719,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": true,
+    "tx_hash": null,
+    "message": "\ud83d\udce2 Notification: REBALANCE: Portfolio drift 26.3%. Reason: Portfolio drift 26.3% exceeds threshold 10%. Trading NEAR -> USDT"
+  },
+  "market_snapshot": {
+    "arb": 0.096213,
+    "bnb": 619.96,
+    "btc": 67105,
+    "doge": 0.089592,
+    "eth": 1955.09,
+    "flow": 0.04326967,
+    "near": 1.21,
+    "xrp": 1.35,
+    "sol": 82.51,
+    "usdt": 0.999926,
+    "usdc": 0.999999,
+    "_changes": {
+      "arb": -3.52030590901928,
+      "bnb": -1.7036750378088434,
+      "btc": -1.5135555754827115,
+      "doge": -1.3698403340720502,
+      "eth": -1.3984277909593943,
+      "flow": 2.3421683596827663,
+      "near": -1.7167115532760517,
+      "xrp": -0.9969391008576536,
+      "sol": -3.2170602746917445,
+      "usdt": -0.005358687819294638,
+      "usdc": 0.007606917167484364
+    }
+  }
+}

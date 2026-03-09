@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:41:16.066429Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.5% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.5%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.48,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.02729,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": false,
+    "tx_hash": null,
+    "message": "Failed to submit transaction: access key ed25519:9da44eW1ap5qnXGqYdXUW1xU1WZjTzkiKUSg3j14s5Z does not exist while viewing"
+  },
+  "market_snapshot": {
+    "arb": 0.096767,
+    "bnb": 620.91,
+    "btc": 67384,
+    "doge": 0.090049,
+    "eth": 1967.51,
+    "flow": 0.04318009,
+    "near": 1.22,
+    "xrp": 1.36,
+    "sol": 82.99,
+    "usdt": 0.999975,
+    "usdc": 1.0,
+    "_changes": {
+      "arb": -2.8771693592328935,
+      "bnb": -1.202914143154965,
+      "btc": -0.7540481432055769,
+      "doge": -0.9206810478532368,
+      "eth": -0.6290057523413112,
+      "flow": 2.047156064812359,
+      "near": -1.4951139400699764,
+      "xrp": -0.08058624315460507,
+      "sol": -1.9995222867536153,
+      "usdt": 0.002333393001815783,
+      "usdc": 0.006404487538340191
+    }
+  }
+}

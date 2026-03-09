@@ -1,0 +1,72 @@
+{
+  "agent": "Neptune AI",
+  "version": "2.0",
+  "timestamp": "2026-03-07T20:52:02.678730Z",
+  "user": "thedarrrk.near",
+  "trigger": {
+    "type": "rebalance",
+    "rule": "Portfolio drift 26.5% exceeds threshold 10%. Trading NEAR -> USDT",
+    "strategy_id": 6
+  },
+  "decision": {
+    "strategy_agent": "REBALANCE: Portfolio drift 26.5%",
+    "should_act": true,
+    "details": {
+      "max_drift": 26.48,
+      "sell_token": "near",
+      "buy_token": "usdt",
+      "rebalance_amount": 0.02729,
+      "chain": "near"
+    }
+  },
+  "risk_evaluation": {
+    "approved": true,
+    "reason": "APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)",
+    "checks": {
+      "policy": {
+        "wallet": "thedarrrk.near",
+        "autonomy_level": 2,
+        "autonomy_mode": "auto_execute",
+        "max_tx_amount": 0.04,
+        "daily_limit": 0.45,
+        "risk_profile": "moderate",
+        "kill_switch": false,
+        "allowed_tokens": ""
+      },
+      "kill_switch": "PASS",
+      "autonomy": "PASS \u2014 level 2",
+      "transaction": "PASS \u2014 APPROVED \u2014 $0.00 within limits (max_tx: $0.04, daily: $0.45)"
+    }
+  },
+  "execution": {
+    "success": false,
+    "tx_hash": null,
+    "message": "Swap logic failed. Details: {'balance': '10000000000000000000000', 'cost': '33508475509927700000001', 'signer_id': 'eee6a8f445641f0cbd25fc8965925de31f4746fb9ed82b4e6a3085a837168146'}"
+  },
+  "market_snapshot": {
+    "arb": 0.096749,
+    "bnb": 620.84,
+    "btc": 67363,
+    "doge": 0.090084,
+    "eth": 1966.05,
+    "flow": 0.04336024,
+    "near": 1.22,
+    "xrp": 1.36,
+    "sol": 83.01,
+    "usdt": 0.999927,
+    "usdc": 1.0,
+    "_changes": {
+      "arb": -3.0070332942401277,
+      "bnb": -1.4000021118288974,
+      "btc": -1.0500212998522658,
+      "doge": -1.029778356739529,
+      "eth": -0.7012205132601496,
+      "flow": 2.5235931221909937,
+      "near": -1.5447372097924867,
+      "xrp": -0.14635798547270504,
+      "sol": -2.2818451322595212,
+      "usdt": -0.002148922655624511,
+      "usdc": 0.004231370334345584
+    }
+  }
+}
