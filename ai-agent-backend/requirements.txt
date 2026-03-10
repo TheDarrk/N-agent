@@ -18,3 +18,5 @@ flow-py-sdk
 apscheduler>=3.10
 aiosqlite
 cryptography
+PyNaCl
+base58
