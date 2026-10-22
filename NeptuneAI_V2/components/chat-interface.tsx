@@ -1,12 +1,17 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Send, ArrowDownUp, Coins, HelpCircle, CreditCard, X } from "lucide-react";
+import { Send, ArrowDownUp, Coins, HelpCircle, CreditCard, X, TrendingUp, ShieldAlert, Sparkles } from "lucide-react";
 import ChatHeader from "@/components/chat-header";
 import ChatSidebar from "@/components/chat-sidebar";
 import ChatMessage from "@/components/chat-message";
 import TransactionModal, { type TxStep } from "@/components/transaction-modal";
 import { useWallet } from "@/providers/wallet-provider";
+import TraderSection from "@/components/agent-sections/trader-section";
+import RebalancerSection from "@/components/agent-sections/rebalancer-section";
+import ResearchSection from "@/components/agent-sections/research-section";
+import ModeratorSection from "@/components/agent-sections/moderator-section";
+import AgentMarketplace from "@/components/agent-marketplace";
 
 type Message = {
   id: string;
@@ -21,10 +26,10 @@ function uid() {
 }
 
 const SUGGESTIONS = [
-  { icon: ArrowDownUp, label: "Swap 5 NEAR for USDC", desc: "Token exchange" },
-  { icon: Coins, label: "What tokens are available?", desc: "Browse tokens" },
-  { icon: CreditCard, label: "Create a payment link for 50 USDC", desc: "HOT Pay" },
-  { icon: HelpCircle, label: "What can you do?", desc: "Learn more" },
+  { icon: TrendingUp, label: "What is my Trader Agent doing right now?", desc: "Check active trades & TP/SL" },
+  { icon: Sparkles, label: "Scan NEAR market for high confidence setups", desc: "4-node LLM Judge pipeline" },
+  { icon: Coins, label: "Have my Trader hire Research Agent for 0.1 NEAR", desc: "Track 7 Agent-to-Agent demo" },
+  { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator Watchdog status" },
 ];
 
 /* ── Draggable floating About button ── */
@@ -95,6 +100,7 @@ export default function ChatInterface() {
     signAndSendGenericTransaction,
   } = useWallet();
 
+  const [activeTab, setActiveTab] = useState<string>("chat");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState("");
@@ -317,8 +323,22 @@ export default function ChatInterface() {
           onDisconnect={disconnect}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           sidebarOpen={sidebarOpen}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
         />
 
+        {activeTab === "trader" ? (
+          <TraderSection accountId={accountId} />
+        ) : activeTab === "marketplace" ? (
+          <AgentMarketplace accountId={accountId} onSelectAgentTab={setActiveTab} />
+        ) : activeTab === "rebalancer" ? (
+          <RebalancerSection accountId={accountId} />
+        ) : activeTab === "research" ? (
+          <ResearchSection accountId={accountId} />
+        ) : activeTab === "moderator" ? (
+          <ModeratorSection accountId={accountId} />
+        ) : (
+          <>
         {/* Chat Area */}
         <div className={`flex-1 ${isEmpty ? "overflow-hidden" : "overflow-y-auto"}`}>
           {isEmpty ? (
@@ -424,6 +444,8 @@ export default function ChatInterface() {
             </p>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* Floating Draggable About Button */}

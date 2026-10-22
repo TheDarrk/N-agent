@@ -91,6 +91,25 @@ def init_db():
             tx_hash TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- Active and Historical Trades with TP/SL & Confidence metrics
+        CREATE TABLE IF NOT EXISTS active_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_wallet TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            action TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            current_price REAL NOT NULL,
+            tp_price REAL NOT NULL,
+            sl_price REAL NOT NULL,
+            confidence_score INTEGER NOT NULL,
+            expected_roi_pct REAL NOT NULL,
+            amount_usd REAL DEFAULT 50.0,
+            status TEXT DEFAULT 'OPEN',
+            tx_hash TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at TIMESTAMP
+        );
     """);
 
     conn.commit()
@@ -100,6 +119,11 @@ def init_db():
         "ALTER TABLE users ADD COLUMN agent_wallet TEXT DEFAULT ''",
         "ALTER TABLE users ADD COLUMN notification_email TEXT DEFAULT ''",
         "ALTER TABLE agent_keys ADD COLUMN agent_account_id TEXT DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN trader_timeframe TEXT DEFAULT '1h'",
+        "ALTER TABLE users ADD COLUMN trader_min_confidence INTEGER DEFAULT 75",
+        "ALTER TABLE users ADD COLUMN trader_risk_profile TEXT DEFAULT 'moderate'",
+        "ALTER TABLE users ADD COLUMN trader_max_trades_per_day INTEGER DEFAULT 3",
+        "ALTER TABLE users ADD COLUMN trader_max_trades_per_week INTEGER DEFAULT 12",
     ]
     for migration in migrations:
         try:
@@ -145,7 +169,10 @@ def upsert_user(wallet_address: str, settings: Dict[str, Any] = None) -> Dict[st
             allowed_keys = [
                 'autonomy_level', 'max_tx_amount', 'daily_limit',
                 'risk_profile', 'allowed_tokens', 'kill_switch',
-                'agent_wallet', 'notification_email'
+                'agent_wallet', 'notification_email',
+                'trader_timeframe', 'trader_min_confidence',
+                'trader_risk_profile', 'trader_max_trades_per_day',
+                'trader_max_trades_per_week'
             ]
             updates = {k: v for k, v in settings.items() if k in allowed_keys}
             if updates:
@@ -438,3 +465,106 @@ def delete_all_user_agent_keys(user_wallet: str):
     conn.commit()
     conn.close()
     print(f"[DB] All agent keys deleted for {user_wallet}")
+
+
+# -- Active Trades CRUD (TP/SL & Orders) ---------------------------
+
+def create_active_trade(
+    user_wallet: str,
+    symbol: str,
+    action: str,
+    entry_price: float,
+    current_price: float,
+    tp_price: float,
+    sl_price: float,
+    confidence_score: int,
+    expected_roi_pct: float,
+    amount_usd: float = 50.0,
+    tx_hash: str = ""
+) -> int:
+    """Record a newly opened trade with its TP/SL & confidence metrics."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO active_trades 
+           (user_wallet, symbol, action, entry_price, current_price, tp_price, sl_price, 
+            confidence_score, expected_roi_pct, amount_usd, tx_hash, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')""",
+        (user_wallet, symbol.upper(), action.upper(), entry_price, current_price, tp_price, sl_price,
+         confidence_score, expected_roi_pct, amount_usd, tx_hash)
+    )
+    trade_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    print(f"[DB] Created active trade #{trade_id} ({action} {symbol} @ {entry_price}, TP: {tp_price}, SL: {sl_price})")
+    return trade_id
+
+
+def get_open_trades(user_wallet: str = None) -> list:
+    """Get all currently OPEN trades for polling."""
+    conn = get_connection()
+    if user_wallet:
+        rows = conn.execute(
+            "SELECT * FROM active_trades WHERE user_wallet = ? AND status = 'OPEN' ORDER BY created_at DESC",
+            (user_wallet,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM active_trades WHERE status = 'OPEN' ORDER BY created_at DESC"
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_trade_status(trade_id: int, status: str, current_price: float = None):
+    """Update trade status (e.g. CLOSED_TP, CLOSED_SL, REVOKED)."""
+    conn = get_connection()
+    if current_price is not None:
+        conn.execute(
+            """UPDATE active_trades 
+               SET status = ?, current_price = ?, closed_at = CURRENT_TIMESTAMP 
+               WHERE id = ?""",
+            (status, current_price, trade_id)
+        )
+    else:
+        conn.execute(
+            "UPDATE active_trades SET status = ?, closed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, trade_id)
+        )
+    conn.commit()
+    conn.close()
+    print(f"[DB] Trade #{trade_id} status updated to {status}")
+
+
+def get_user_trade_history(user_wallet: str, limit: int = 20) -> list:
+    """Get recent trades history for a user."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM active_trades WHERE user_wallet = ? ORDER BY created_at DESC LIMIT ?",
+        (user_wallet, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def count_trades_today(user_wallet: str) -> int:
+    """Count trades taken by user in the last 24 hours."""
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT COUNT(*) as count FROM active_trades 
+           WHERE user_wallet = ? AND created_at >= datetime('now', '-1 day')""",
+        (user_wallet,)
+    ).fetchone()
+    conn.close()
+    return row["count"] if row else 0
+
+
+def count_trades_this_week(user_wallet: str) -> int:
+    """Count trades taken by user in the last 7 days."""
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT COUNT(*) as count FROM active_trades 
+           WHERE user_wallet = ? AND created_at >= datetime('now', '-7 days')""",
+        (user_wallet,)
+    ).fetchone()
+    conn.close()
+    return row["count"] if row else 0

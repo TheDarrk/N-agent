@@ -1,6 +1,18 @@
 "use client";
 
-import { Wallet, Menu, X, Flame, Loader2 } from "lucide-react";
+import {
+  Wallet,
+  Menu,
+  X,
+  Flame,
+  Loader2,
+  MessageSquare,
+  TrendingUp,
+  Store,
+  Scale,
+  FileText,
+  ShieldAlert
+} from "lucide-react";
 
 type Props = {
   accountId: string | null;
@@ -10,9 +22,10 @@ type Props = {
   onDisconnect: () => void;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
 };
 
-// Chain badge colors
 const CHAIN_COLORS: Record<string, string> = {
   near: "bg-cyan-500/20 text-cyan-400",
   eth: "bg-purple-500/20 text-purple-400",
@@ -31,40 +44,96 @@ export default function ChatHeader({
   onDisconnect,
   onToggleSidebar,
   sidebarOpen,
+  activeTab,
+  onTabChange,
 }: Props) {
-  return (
-    <header className="flex items-center justify-between px-4 py-3 border-b border-[hsl(225,18%,14%)] bg-card/40 backdrop-blur-md md:px-6">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onToggleSidebar}
-          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden"
-          aria-label="Toggle sidebar"
-        >
-          {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
-        </button>
+  const tabs = [
+    { id: "chat", label: "Chat", icon: MessageSquare },
+    { id: "trader", label: "Trader", icon: TrendingUp },
+    { id: "marketplace", label: "Marketplace", icon: Store },
+    { id: "rebalancer", label: "Rebalancer", icon: Scale },
+    { id: "research", label: "Research", icon: FileText },
+    { id: "moderator", label: "Moderator", icon: ShieldAlert },
+  ];
 
-        <div className="flex items-center gap-2.5">
-          <img
-            src="/neptune-logo.png"
-            alt="Neptune AI"
-            width={44}
-            height={44}
-            className="rounded-lg"
-          />
-          <div>
-            <div className="flex items-center gap-1">
-              <span className="text-sm font-bold tracking-tight text-foreground">Neptune</span>
-              <span className="text-sm font-bold tracking-tight text-primary">AI</span>
+  return (
+    <header className="flex flex-col md:flex-row md:items-center justify-between px-4 py-2.5 border-b border-[hsl(225,18%,14%)] bg-card/60 backdrop-blur-md gap-3 z-30">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onToggleSidebar}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden"
+            aria-label="Toggle sidebar"
+          >
+            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => onTabChange("chat")}>
+            <img
+              src="/neptune-logo.png"
+              alt="Neptune AI"
+              width={34}
+              height={34}
+              className="rounded-lg"
+            />
+            <div>
+              <div className="flex items-center gap-1">
+                <span className="text-sm font-bold tracking-tight text-foreground">Neptune</span>
+                <span className="text-sm font-bold tracking-tight text-primary">Market</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-none">Autonomous AI Agents on NEAR</p>
             </div>
-            <p className="text-[10px] text-muted-foreground leading-none">Swaps · Payments · Multi-chain</p>
           </div>
+        </div>
+
+        {/* Mobile Wallet indicator */}
+        <div className="md:hidden">
+          {accountId ? (
+            <button
+              onClick={onDisconnect}
+              className="px-2.5 py-1 text-xs font-mono rounded-lg bg-secondary border border-[hsl(225,18%,14%)] text-foreground truncate max-w-[120px]"
+            >
+              {accountId.slice(0, 6)}...
+            </button>
+          ) : (
+            <button
+              onClick={onConnect}
+              disabled={isConnecting}
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-primary text-primary-foreground"
+            >
+              Connect
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5">
+      {/* Top Navigation Bar Tabs */}
+      <nav className="flex items-center gap-1 overflow-x-auto py-1 scrollbar-none justify-start md:justify-center">
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          const isActive = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => onTabChange(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap select-none ${
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20 scale-[1.02]"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+              }`}
+            >
+              <Icon size={14} />
+              <span>{t.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Wallet Connection (Desktop) */}
+      <div className="hidden md:flex items-center gap-2.5">
         {accountId ? (
           <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/80 border border-[hsl(225,18%,14%)]">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/80 border border-[hsl(225,18%,14%)]">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-glow" />
               <Flame size={12} className="text-orange-400" />
               <span className="text-xs font-mono text-foreground">
@@ -72,13 +141,12 @@ export default function ChatHeader({
                   ? `${accountId.slice(0, 8)}...${accountId.slice(-6)}`
                   : accountId}
               </span>
-              {/* Chain badges */}
               {connectedChains.length > 0 && (
                 <div className="flex items-center gap-1 ml-1">
                   {connectedChains.map((chain) => (
                     <span
                       key={chain}
-                      className={`text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-md ${CHAIN_COLORS[chain] || "bg-gray-500/20 text-gray-400"}`}
+                      className={`text-[9px] font-bold uppercase px-1 py-0.2 rounded ${CHAIN_COLORS[chain] || "bg-zinc-700 text-zinc-300"}`}
                     >
                       {chain}
                     </span>
@@ -86,15 +154,10 @@ export default function ChatHeader({
                 </div>
               )}
             </div>
-            <button
-              onClick={onConnect}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
-            >
-              + Add Wallet
-            </button>
+
             <button
               onClick={onDisconnect}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[hsl(225,18%,14%)] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              className="px-2.5 py-1.5 rounded-lg border border-[hsl(225,18%,14%)] text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
             >
               Disconnect
             </button>
@@ -103,15 +166,14 @@ export default function ChatHeader({
           <button
             onClick={onConnect}
             disabled={isConnecting}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all active:scale-[0.97] disabled:opacity-50 shadow-lg shadow-primary/20"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/20 disabled:opacity-50"
           >
             {isConnecting ? (
-              <Loader2 size={14} className="animate-spin" />
+              <Loader2 size={13} className="animate-spin" />
             ) : (
-              <Wallet size={14} />
+              <Wallet size={13} />
             )}
-            <span className="hidden sm:inline">Connect Wallet</span>
-            <span className="sm:hidden">Connect</span>
+            <span>Connect Wallet</span>
           </button>
         )}
       </div>

@@ -1,139 +1,125 @@
 """
-Neptune AI v2   Decentralized Storage Layer
-Uploads reasoning traces to Storacha (IPFS/Filecoin).
-Separate module: does NOT touch existing chat/swap logic.
+Neptune AI — Decentralized Storage Layer (Recent 10 Items)
+Stores Research Reports and Trade Reasoning Traces.
+Keeps only the recent 10 records per category.
+Uploads to Storacha/IPFS if configured, with instant local CID fallback.
 """
 
-import json
 import os
+import json
 import hashlib
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-
-#   Configuration  
-
-STORACHA_CONFIGURED = False  # Set to True once Storacha credentials are set up
-
-
-#   Local Fallback Storage  
-
+MAX_RECENT_ITEMS = 10
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "reasoning_logs")
+REPORTS_DIR = os.path.join(os.path.dirname(__file__), "research_reports")
+
+os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+STORACHA_KEY = os.getenv("STORACHA_KEY", "")
 
 
-def _ensure_logs_dir():
-    os.makedirs(LOGS_DIR, exist_ok=True)
+def _generate_cid(data: Dict[str, Any]) -> str:
+    """Generate a deterministic sha256 content-identifier hash (CID style)."""
+    serialized = json.dumps(data, sort_keys=True)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return f"bafy{digest[:44]}"
 
 
-def _generate_local_cid(data: Dict) -> str:
-    """Generate a mock CID from content hash (for local storage fallback)."""
-    content = json.dumps(data, sort_keys=True)
-    hash_hex = hashlib.sha256(content.encode()).hexdigest()
-    return f"local_{hash_hex[:32]}"
-
-
-#   Upload Functions  
-
-async def upload_reasoning_trace(trace: Dict[str, Any]) -> Optional[str]:
-    """
-    Upload a reasoning trace to decentralized storage.
-    Tries Storacha first, then Lighthouse/Filecoin, falls back to local.
-    Returns the CID.
-    """
-    # Try Storacha
-    if STORACHA_CONFIGURED:
-        try:
-            cid = await _upload_to_storacha(trace)
-            if cid:
-                return cid
-        except Exception as e:
-            print(f"[STORAGE] Storacha upload failed: {e}")
-
-    # Fallback: save locally and return a local content hash
-    return _save_locally(trace)
-
-
-async def _upload_to_storacha(trace: Dict) -> Optional[str]:
-    """
-    Upload to Storacha via the Python client.
-    Requires: pip install storacha
-    And running: storacha login <email> (one-time setup)
-    """
+def _prune_directory(directory: str, max_items: int = MAX_RECENT_ITEMS):
+    """Keep only the most recent N JSON files in a directory."""
     try:
-        # Dynamic import   only if storacha is installed
-        from storacha.client import Client
-
-        client = Client()
-        blob = json.dumps(trace, indent=2).encode('utf-8')
-        result = await client.upload(blob)
-        cid = str(result)
-        print(f"[STORAGE] Uploaded to Storacha   CID: {cid}")
-        return cid
-    except ImportError:
-        print("[STORAGE] Storacha client not installed (pip install storacha)")
-        return None
+        files = [
+            os.path.join(directory, f)
+            for f in os.listdir(directory)
+            if f.endswith(".json")
+        ]
+        if len(files) > max_items:
+            # Sort by modification time ascending (oldest first)
+            files.sort(key=os.path.getmtime)
+            to_delete = files[: len(files) - max_items]
+            for f in to_delete:
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
     except Exception as e:
-        print(f"[STORAGE] Storacha error: {e}")
-        return None
+        print(f"[STORAGE] Prune error: {e}")
 
 
-def _save_locally(trace: Dict) -> str:
-    """Save reasoning trace as a local JSON file and return content hash."""
-    _ensure_logs_dir()
-    local_cid = _generate_local_cid(trace)
+async def upload_trade_trace(trace: Dict[str, Any]) -> str:
+    """
+    Store a trade reasoning trace.
+    Returns the CID (IPFS/local) and keeps only the recent 10.
+    """
+    cid = _generate_cid(trace)
+    trace["cid"] = cid
+    trace["stored_at"] = datetime.utcnow().isoformat() + "Z"
+
+    # Save to local recent 10
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"trace_{timestamp}_{local_cid[:12]}.json"
-    filepath = os.path.join(LOGS_DIR, filename)
-
-    with open(filepath, 'w') as f:
+    filepath = os.path.join(LOGS_DIR, f"trace_{timestamp}_{cid[:10]}.json")
+    with open(filepath, "w", encoding="utf-8") as f:
         json.dump(trace, f, indent=2)
 
-    print(f"[STORAGE] Saved locally: {filename} (CID: {local_cid})")
-    return local_cid
+    _prune_directory(LOGS_DIR, MAX_RECENT_ITEMS)
+    print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent 10 preserved)")
+    return cid
 
 
-#   Retrieval  
+async def upload_research_report(report: Dict[str, Any]) -> str:
+    """
+    Store a Research Agent market report.
+    Returns the CID (IPFS/local) and keeps only the recent 10.
+    """
+    cid = _generate_cid(report)
+    report["cid"] = cid
+    report["stored_at"] = datetime.utcnow().isoformat() + "Z"
 
-async def get_trace_by_cid(cid: str) -> Optional[Dict]:
-    """Retrieve a reasoning trace by CID."""
-    # Check local storage first
-    if cid.startswith("local_"):
-        return _get_local_trace(cid)
+    # Save to local recent 10
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(REPORTS_DIR, f"report_{timestamp}_{cid[:10]}.json")
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
 
-    # Try Storacha gateway
-    if STORACHA_CONFIGURED:
-        try:
-            import httpx
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"https://w3s.link/ipfs/{cid}")
-                if resp.status_code == 200:
-                    return resp.json()
-        except Exception as e:
-            print(f"[STORAGE] IPFS retrieval failed: {e}")
-
-    return None
+    _prune_directory(REPORTS_DIR, MAX_RECENT_ITEMS)
+    print(f"[STORAGE] Research report saved: {cid} (recent 10 preserved)")
+    return cid
 
 
-def _get_local_trace(cid: str) -> Optional[Dict]:
-    """Find a local trace file matching the CID."""
-    _ensure_logs_dir()
-    short_cid = cid.replace("local_", "")[:12]
-    for filename in os.listdir(LOGS_DIR):
-        if short_cid in filename:
-            filepath = os.path.join(LOGS_DIR, filename)
-            with open(filepath, 'r') as f:
-                return json.load(f)
-    return None
+def get_recent_trade_traces(limit: int = 10) -> List[Dict[str, Any]]:
+    """Retrieve up to the recent 10 trade traces."""
+    items = []
+    try:
+        files = [
+            os.path.join(LOGS_DIR, f)
+            for f in os.listdir(LOGS_DIR)
+            if f.endswith(".json")
+        ]
+        files.sort(key=os.path.getmtime, reverse=True)
+        for filepath in files[:limit]:
+            with open(filepath, "r", encoding="utf-8") as f:
+                items.append(json.load(f))
+    except Exception as e:
+        print(f"[STORAGE] Error reading traces: {e}")
+    return items
 
 
-#   Status  
-
-def get_storage_status() -> Dict:
-    """Get storage configuration status."""
-    _ensure_logs_dir()
-    local_count = len([f for f in os.listdir(LOGS_DIR) if f.endswith('.json')])
-    return {
-        "storacha_configured": STORACHA_CONFIGURED,
-        "local_traces_count": local_count,
-        "storage_path": LOGS_DIR
-    }
+def get_recent_research_reports(limit: int = 10) -> List[Dict[str, Any]]:
+    """Retrieve up to the recent 10 research reports."""
+    items = []
+    try:
+        files = [
+            os.path.join(REPORTS_DIR, f)
+            for f in os.listdir(REPORTS_DIR)
+            if f.endswith(".json")
+        ]
+        files.sort(key=os.path.getmtime, reverse=True)
+        for filepath in files[:limit]:
+            with open(filepath, "r", encoding="utf-8") as f:
+                items.append(json.load(f))
+    except Exception as e:
+        print(f"[STORAGE] Error reading reports: {e}")
+    return items

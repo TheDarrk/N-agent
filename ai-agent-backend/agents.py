@@ -20,7 +20,7 @@ from orchestrator import orchestrate_compound_query
 
 
 # Initialize LLM with NEAR AI endpoint
-api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY")
+api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
 
 llm = ChatOpenAI(
     model="openai/gpt-oss-120b",
@@ -71,6 +71,12 @@ AUTONOMY_KEYWORDS = {
     "my strategies", "active strategies", "remove strategy",
     "delete strategy", "cancel alert", "autonomy status",
     "my settings", "auto mode", "notify mode",
+    # Agent Market keywords
+    "trader", "trader agent", "take profit", "stop loss", "tp", "sl",
+    "confidence score", "expected profit", "expected roi", "roi",
+    "research agent", "hire research", "research report", "alpha report",
+    "rebalancer", "rebalance agent", "moderator", "health score",
+    "watchdog", "exposure", "scan market",
 }
 
 def _is_autonomy_message(msg: str) -> bool:

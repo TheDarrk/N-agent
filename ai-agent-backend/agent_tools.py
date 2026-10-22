@@ -708,14 +708,16 @@ SWAP_TOOL_LIST = [
     hot_pay_coming_soon_tool,
 ]
 
-# Autonomy Agent   handles strategies, settings, guardrails
+from market_agent_tools import AGENT_MARKET_TOOLS
+
+# Autonomy Agent   handles strategies, settings, guardrails, and all 4 specialized agents
 AUTONOMY_TOOL_LIST = [
     create_strategy_tool,
     list_strategies_tool,
     remove_strategy_tool,
     update_autonomy_settings_tool,
     get_autonomy_status_tool,
-]
+] + AGENT_MARKET_TOOLS
 
 # Combined (backward compatibility)
 TOOL_LIST = SWAP_TOOL_LIST + AUTONOMY_TOOL_LIST

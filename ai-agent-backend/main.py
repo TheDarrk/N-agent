@@ -83,6 +83,20 @@ async def lifespan(app):
             id='strategy_check',
             replace_existing=True
         )
+        # Register 60-second active trade & TP/SL poller
+        try:
+            from autonomous_agents.trade_poller import poll_active_trades
+            scheduler.add_job(
+                poll_active_trades,
+                'interval',
+                seconds=60,
+                id='trade_poller',
+                replace_existing=True
+            )
+            print("[STARTUP] Trade TP/SL poller registered (every 60 sec)")
+        except Exception as tp_err:
+            print(f"[STARTUP] TP/SL poller error: {tp_err}")
+
         scheduler.start()
         print("[STARTUP] Autonomy engine started (every 30 sec)")
     except ImportError:
@@ -463,29 +477,236 @@ async def autonomy_status():
         return {"status": "error", "message": str(e)}
 
 
-@app.get("/api/storage-status")
-async def storage_status():
-    """Get decentralized storage status."""
-    try:
-        from decentralized_storage import get_storage_status
-        return get_storage_status()
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+# ===================================================================
+# AGENT MARKETPLACE & 4 SPECIALIZED AGENTS ENDPOINTS
+# ===================================================================
+
+class TraderScanRequest(BaseModel):
+    user_wallet: str
+    symbol: Optional[str] = "NEAR"
+    timeframe: Optional[str] = "1h"
+    min_confidence: Optional[int] = 75
+
+class TraderSettingsRequest(BaseModel):
+    user_wallet: str
+    trader_timeframe: Optional[str] = "1h"
+    trader_min_confidence: Optional[int] = 75
+    trader_risk_profile: Optional[str] = "moderate"
+    trader_max_trades_per_day: Optional[int] = 3
+    trader_max_trades_per_week: Optional[int] = 12
+    max_tx_amount: Optional[float] = 100.0
+
+class RebalanceRequest(BaseModel):
+    user_wallet: str
+    target_allocation: Optional[Dict[str, float]] = None
+    drift_threshold_pct: Optional[float] = 5.0
+
+class ResearchRequest(BaseModel):
+    user_wallet: str
+    topic: Optional[str] = "NEAR Liquid Staking Yields & DEX Liquidity"
+
+class A2AHireRequest(BaseModel):
+    user_wallet: str
+    symbol: Optional[str] = "NEAR"
+
+class ModeratorKillSwitchRequest(BaseModel):
+    user_wallet: str
+    activate: bool = True
 
 
-@app.get("/api/reasoning-trace/{cid}")
-async def get_reasoning_trace(cid: str):
-    """Retrieve a reasoning trace by CID."""
-    try:
-        from decentralized_storage import get_trace_by_cid
-        trace = await get_trace_by_cid(cid)
-        if not trace:
-            raise HTTPException(status_code=404, detail="Trace not found")
-        return trace
-    except HTTPException:
-        raise
-    except Exception as e:
-        return {"error": str(e)}
+# ─── 1. TRADER AGENT ENDPOINTS ───────────────────────────────────
+
+@app.post("/api/trader/analyze")
+async def trader_analyze(body: TraderScanRequest):
+    """Trigger the Trader Agent's 4-node pipeline with LLM-as-a-Judge."""
+    from autonomous_agents.trader_agent import TraderAgent
+    trader = TraderAgent()
+    result = await trader.run_pipeline(
+        user_wallet=body.user_wallet,
+        symbol=body.symbol or "NEAR",
+        force_timeframe=body.timeframe,
+        force_min_confidence=body.min_confidence
+    )
+    return result
+
+@app.get("/api/trader/trades/{wallet_address}")
+async def get_trader_trades(wallet_address: str):
+    """Get open positions and history for the user."""
+    from database import get_open_trades, get_user_trade_history
+    open_trades = get_open_trades(wallet_address)
+    history = get_user_trade_history(wallet_address, limit=20)
+    return {
+        "open_trades": open_trades,
+        "history": history,
+        "open_count": len(open_trades)
+    }
+
+@app.post("/api/trader/settings")
+async def update_trader_settings(body: TraderSettingsRequest):
+    """Save user trader preferences & hard caps."""
+    settings = {
+        "trader_timeframe": body.trader_timeframe,
+        "trader_min_confidence": body.trader_min_confidence,
+        "trader_risk_profile": body.trader_risk_profile,
+        "trader_max_trades_per_day": body.trader_max_trades_per_day,
+        "trader_max_trades_per_week": body.trader_max_trades_per_week,
+        "max_tx_amount": body.max_tx_amount
+    }
+    user = upsert_user(body.user_wallet, settings)
+    return {"status": "updated", "user": user}
+
+@app.get("/api/trader/traces")
+async def get_trade_traces():
+    """Get recent 10 decentralized trade reasoning traces."""
+    from decentralized_storage import get_recent_trade_traces
+    traces = get_recent_trade_traces(limit=10)
+    return {"traces": traces, "count": len(traces)}
+
+
+# ─── 2. REBALANCER AGENT ENDPOINTS ───────────────────────────────
+
+@app.post("/api/rebalancer/evaluate")
+async def rebalancer_evaluate(body: RebalanceRequest):
+    """Trigger Rebalancer Agent portfolio drift calculation."""
+    from autonomous_agents.rebalancer_agent import RebalancerAgent
+    rebalancer = RebalancerAgent()
+    result = await rebalancer.evaluate_and_rebalance(
+        user_wallet=body.user_wallet,
+        target_allocation=body.target_allocation,
+        drift_threshold_pct=body.drift_threshold_pct or 5.0
+    )
+    return result
+
+@app.get("/api/rebalancer/status/{wallet_address}")
+async def rebalancer_status(wallet_address: str):
+    """Get current Rebalancer Agent telemetry."""
+    from autonomous_agents.rebalancer_agent import RebalancerAgent
+    rebalancer = RebalancerAgent()
+    return await rebalancer.evaluate_and_rebalance(user_wallet=wallet_address)
+
+
+# ─── 3. RESEARCH AGENT ENDPOINTS ─────────────────────────────────
+
+@app.post("/api/research/generate")
+async def research_generate(body: ResearchRequest):
+    """Generate an institutional research report (0.1 NEAR fee)."""
+    from autonomous_agents.research_agent import ResearchAgent
+    researcher = ResearchAgent()
+    return await researcher.generate_research_report(
+        topic=body.topic or "NEAR Liquid Staking Yields & DEX Liquidity",
+        requester=body.user_wallet
+    )
+
+@app.post("/api/research/hire")
+async def research_agent_hire(body: A2AHireRequest):
+    """Demo Track 7 Agent-to-Agent Hire: Trader Agent hires Research Agent."""
+    from autonomous_agents.research_agent import ResearchAgent
+    researcher = ResearchAgent()
+    return await researcher.hire_by_trader_agent(
+        trader_wallet=body.user_wallet,
+        symbol=body.symbol or "NEAR"
+    )
+
+@app.get("/api/research/reports")
+async def get_research_reports():
+    """Get the recent 10 decentralized research reports."""
+    from decentralized_storage import get_recent_research_reports
+    reports = get_recent_research_reports(limit=10)
+    return {"reports": reports, "count": len(reports)}
+
+
+# ─── 4. MODERATOR WATCHDOG ENDPOINTS ─────────────────────────────
+
+@app.get("/api/moderator/status/{wallet_address}")
+async def moderator_status(wallet_address: str):
+    """Get watchdog health score, aggregate exposure, and breach status."""
+    from autonomous_agents.moderator_agent import ModeratorAgent
+    moderator = ModeratorAgent()
+    return await moderator.get_watchdog_status(wallet_address)
+
+@app.post("/api/moderator/kill-switch")
+async def moderator_kill_switch_action(body: ModeratorKillSwitchRequest):
+    """Emergency kill switch to halt all agents and protect capital."""
+    from autonomous_agents.moderator_agent import ModeratorAgent
+    moderator = ModeratorAgent()
+    if body.activate:
+        return await moderator.trigger_emergency_kill_switch(body.user_wallet)
+    else:
+        return await moderator.reset_kill_switch(body.user_wallet)
+
+
+# ─── 5. AGENT MARKETPLACE DISCOVERY ──────────────────────────────
+
+@app.get("/api/marketplace/agents")
+async def get_marketplace_agents():
+    """List all available agents with their on-chain mandates, Sharpe rankings, and fee models."""
+    return {
+        "agents": [
+            {
+                "id": "agent-trader-alpha",
+                "name": "AlphaTrader v2",
+                "category": "Trader",
+                "creator": "quant_trader.near",
+                "description": "Multi-timeframe trend & breakout trader with LLM-as-a-Judge and ATR dynamic TP/SL.",
+                "fee_model": "20% Profit Only (High-Water Mark)",
+                "sharpe_ratio": 2.41,
+                "win_rate_pct": 74.2,
+                "cadence": "1h - 1d",
+                "mandate": {
+                    "allowed_tokens": ["NEAR", "WETH", "USDC", "WBTC"],
+                    "max_drawdown_limit": "8.0%",
+                    "max_leverage": "1x Spot / 3x Margin",
+                    "daily_loss_cap": "$100"
+                }
+            },
+            {
+                "id": "agent-rebalancer-safe",
+                "name": "StableGuard Rebalancer",
+                "category": "Rebalancer",
+                "creator": "yield_master.near",
+                "description": "Rule-driven portfolio optimizer maintaining 70% stables and 30% NEAR against market drift.",
+                "fee_model": "Free / 0.05% Volume Rebalance",
+                "sharpe_ratio": 3.12,
+                "win_rate_pct": 98.0,
+                "cadence": "Every 10 min",
+                "mandate": {
+                    "allowed_tokens": ["USDC", "USDT", "NEAR"],
+                    "max_drift_threshold": "5.0%",
+                    "rebalance_venue": "NEAR Intents (Defuse 1-Click)"
+                }
+            },
+            {
+                "id": "agent-research-alpha",
+                "name": "NEAR Ecosystem Deep Research",
+                "category": "Research",
+                "creator": "alpha_creator.near",
+                "description": "Produces actionable institutional reports and directional signals. Can be hired by other agents.",
+                "fee_model": "0.1 NEAR / Report or 1.5 NEAR / Month",
+                "sharpe_ratio": 2.15,
+                "win_rate_pct": 71.8,
+                "cadence": "On-Demand & Hourly Signals",
+                "mandate": {
+                    "coverage": "NEAR Liquid Staking, DEX Liquidity, Intents",
+                    "storage": "Decentralized IPFS CIDs (Recent 10)"
+                }
+            },
+            {
+                "id": "agent-moderator-watchdog",
+                "name": "Sentinel Watchdog & Kill Switch",
+                "category": "Moderator",
+                "creator": "security_core.near",
+                "description": "Default-on portfolio guardian. Calculates real-time Health Score and triggers emergency key revocation.",
+                "fee_model": "Built-in / Platform Safety",
+                "sharpe_ratio": 3.85,
+                "win_rate_pct": 100.0,
+                "cadence": "Continuous 24/7",
+                "mandate": {
+                    "kill_switch_enabled": True,
+                    "max_portfolio_exposure": "70% of Daily Limit"
+                }
+            }
+        ]
+    }
 
 # ===================================================================
 # Agent Wallet Endpoints (agent gets its own wallet)

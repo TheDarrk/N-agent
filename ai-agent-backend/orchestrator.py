@@ -19,7 +19,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 # -- Orchestrator LLM (lightweight, fast) -------------------------
 
-api_key = os.getenv("NEAR_AI_API_KEY")
+api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
 
 orchestrator_llm = ChatOpenAI(
     model="openai/gpt-oss-120b",
