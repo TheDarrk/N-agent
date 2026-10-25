@@ -1,0 +1,522 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<crypto_trading_book version="3.0">
+  <metadata>
+    <title>The Master Encyclopedia of Classical &amp; Quantitative Chart Patterns</title>
+    <sources>
+      <source>NCFE Technical Analysis Price Patterns</source>
+      <source>Fidelity Learning Center - Identifying Chart Patterns with Technical Analysis (Charles D. Kirkpatrick II, CMT)</source>
+      <source>Thomas Bulkowski Encyclopedia of Chart Patterns &amp; Statistical Performance</source>
+      <source>Neptune AI Quantitative Trading Research Lab</source>
+    </sources>
+    <description>
+      Complete institutional reference manual covering orthodox price patterns, geometric construction,
+      volume characteristics, measured target calculations, confirmation filters, invalidation thresholds,
+      smart money concepts, and deterministic risk management.
+    </description>
+  </metadata>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 1: THE 8-STEP TRADING PROCESS & PATTERN FOUNDATIONS         -->
+  <!-- =================================================================== -->
+  <chapter id="ch1_process_foundations" title="The 8-Step Trading Process &amp; Pattern Foundations">
+    <section id="sec_8step_process" title="Kirkpatrick &amp; NCFE 8-Step Systematic Trading Process">
+      <keywords>process, systematic, trading plan, trend direction, volume, open interest, support, resistance, measuring objective, stop out</keywords>
+      <content>
+        Technical chart pattern analysis requires a strict, non-emotional sequence of steps before capital is committed:
+        1. Direction of Major Price Trend: Determine the primary trend direction using higher timeframe Dow Theory (higher highs/higher lows) and moving average orientation.
+        2. Internal Health of the Trend: Verify the trend's internal strength using Volume (V) and Open Interest (OI). An uptrend accompanied by expanding volume indicates healthy accumulation; an uptrend on declining volume signals internal exhaustion.
+        3. Identify Closest Support and Resistance Levels: Mark horizontal congestion boundaries, prior swing extremes, and dynamic indicators (EMA 20/50/200).
+        4. Look for Orthodox Price Patterns: Scan for recognizable classical geometric structures (reversals such as Head &amp; Shoulders, Double Bottoms, or continuations such as Flags, Pennants, and Triangles).
+        5. Determine Measuring Objectives and Stop-Out Levels: Compute mathematically precise price targets using the pattern's vertical amplitude projected from the breakout level, and establish protective stop-loss thresholds prior to entry.
+        6. Create a Written Trading Plan: Specify exact entry trigger, position sizing capped at max risk, primary target, and trail stops.
+        7. Maintain Discipline: Do not force a conclusion. Sometimes "no trade" is the most profitable trade.
+        8. Diversify Analysis: Cross-verify price action across multiple timeframes and quantitative indicators to avoid false confirmation.
+      </content>
+      <rules>
+        <rule id="rule_no_forced_trades">Never enter a position unless all pattern criteria, volume validation, and minimum 1.5:1 risk-reward criteria are satisfied.</rule>
+        <rule id="rule_trend_alignment">Trading with the major trend direction increases pattern success rates from 55% to over 78%.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_breakout_confirmation_filters" title="Breakout Confirmation Filters &amp; False Breakout Mitigation">
+      <keywords>breakout, confirmation, false breakout, filter, time filter, price filter, volume filter, whipsaw</keywords>
+      <content>
+        A pattern is not activated until a definitive breakout occurs outside its boundary trendlines. To prevent being trapped by false breakouts (whipsaws), institutional technicians apply four strict confirmation filters:
+        1. Price Filter: The price must penetrate the boundary by a predetermined minimum percentage (typically 1.5% to 3.0% for crypto assets, or 1.0x ATR) or close decisively beyond the boundary line on the timeframe under analysis.
+        2. Time Filter: The price must sustain itself beyond the breakout boundary for at least 1 to 2 closed candles. An intraday wick piercing the line that closes back inside the pattern is a false breakout.
+        3. Volume Filter: A genuine breakout must be accompanied by an explosive expansion in trading volume—at least 1.35x to 2.0x the 20-period average volume. Breakouts on low or average volume have a failure rate exceeding 65%.
+        4. Retracement / Pullback Behavior: After a valid breakout, price frequently retraces (pulls back or throws back) to test the broken boundary line, which should now act as reversed support/resistance. Entering on the retest offers optimal risk-reward.
+      </content>
+      <rules>
+        <rule id="rule_filter_price">Require an hourly or daily close outside the pattern boundary before declaring a valid breakout.</rule>
+        <rule id="rule_filter_volume">Reject breakouts where volume ratio is less than 1.25x the 20-period moving average volume.</rule>
+        <rule id="rule_retest_entry">Entering on the confirmation pullback to the broken boundary allows stop-loss placement within 1.0x ATR of the boundary line.</rule>
+      </rules>
+    </section>
+  </chapter>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 2: MAJOR REVERSAL PRICE PATTERNS                           -->
+  <!-- =================================================================== -->
+  <chapter id="ch2_reversal_patterns" title="Major Reversal Price Patterns (Construction, Geometry &amp; Math)">
+    <section id="sec_head_and_shoulders_top" title="Head and Shoulders Top Formation">
+      <keywords>head and shoulders, reversal, top, distribution, neckline, left shoulder, right shoulder, measured move</keywords>
+      <content>
+        The Head and Shoulders Top is the most reliable major reversal pattern in technical analysis. It signals the transition from an established uptrend to a downtrend:
+        - Construction: Consists of three distinct price peaks. The Left Shoulder forms on high volume as the uptrend continues. Price corrects to form the neckline support. The Head forms on another rally reaching a higher peak than the left shoulder, but often with noticeably lighter volume (divergence). Price declines back to test neckline support. The Right Shoulder forms on a weaker rally that fails to reach the height of the head, accompanied by sharply declining volume.
+        - Neckline: Drawn by connecting the reaction lows between the left shoulder and head, and the head and right shoulder. It can be horizontal, upward-sloping, or downward-sloping (downward sloping necklines are extremely bearish).
+        - Volume Characteristics: Volume is highest during the left shoulder, lower on the head, lowest during the right shoulder, and surges violently when price breaks below the neckline.
+        - Measuring Target Formula: Measure the vertical distance from the peak of the Head straight down to the Neckline (Pattern Height H). Project this distance downward from the Neckline breakout point: Target Price = Neckline Price - H.
+        - Protective Stop: Place initial stop-loss just above the peak of the Right Shoulder or 1.5x ATR above the broken neckline.
+      </content>
+      <rules>
+        <rule id="rule_hs_top_trigger">Enter short only after a decisive candle close below the neckline with expanding volume.</rule>
+        <rule id="rule_hs_top_tp">Set Take-Profit at Neckline - (Head_Price - Neckline_Price).</rule>
+        <rule id="rule_hs_top_sl">Set Stop-Loss above the high of the Right Shoulder.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_inverse_head_and_shoulders" title="Inverse Head and Shoulders Bottom Formation">
+      <keywords>inverse head and shoulders, bottom, reversal, accumulation, neckline, measured move</keywords>
+      <content>
+        The Inverse Head and Shoulders (Head and Shoulders Bottom) signals the exhaustion of a downtrend and the birth of a major bullish trend:
+        - Construction: Features three distinct price troughs. The Left Shoulder trough forms after a sharp selloff on heavy volume. An upward reaction forms the neckline resistance. The Head forms as price plummets to a lower low on moderate volume. Price rebounds back to the neckline. The Right Shoulder trough forms at a higher low than the head (often roughly level with the left shoulder) on light volume, demonstrating that sellers are exhausted.
+        - Volume Characteristics: Volume expands during the advance out of the head, dries up during the right shoulder trough, and must explode into an unmistakable volume surge as price crosses the neckline.
+        - Measuring Target Formula: Measure the vertical distance from the bottom of the Head to the Neckline (Height H). Project this distance upward from the Neckline breakout point: Target Price = Neckline Price + H.
+        - Protective Stop: Place protective stop-loss just below the low of the Right Shoulder or 1.2x ATR below the broken neckline.
+      </content>
+      <rules>
+        <rule id="rule_ihs_trigger">Initiate long position upon an hourly close above the neckline with a volume surge (>1.35x average).</rule>
+        <rule id="rule_ihs_tp">Set Take-Profit at Neckline + (Neckline_Price - Head_Low).</rule>
+        <rule id="rule_ihs_sl">Set Stop-Loss just below the Right Shoulder trough low.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_double_top_m" title="Double Top ('M' Formation) &amp; Resistance Rejections">
+      <keywords>double top, m pattern, reversal, resistance, peak, neckline, distribution</keywords>
+      <content>
+        The Double Top ('M' Pattern) is a prominent reversal formation occurring at market cycle peaks:
+        - Construction: Two prominent price peaks at approximately the same level (within 2-3% price difference). The first peak forms on heavy buying volume. A decline of 10-20% follows, creating an intervening trough (the neckline support). A second rally lifts price back to the resistance level of the first peak, but on significantly lower volume. Price fails to break through and rolls over.
+        - Confirmation: The pattern is NOT confirmed when the second peak fails; it is confirmed ONLY when price decisively penetrates and closes below the intervening trough neckline.
+        - Measuring Target Formula: Measure the vertical height H between the peaks and the neckline trough. Project H downward from the neckline breakout point: Target Price = Neckline - H.
+        - Protective Stop: Place protective stop-loss slightly above the second peak or 1.2x ATR above the neckline.
+      </content>
+      <rules>
+        <rule id="rule_double_top_trigger">Never short until price produces a confirmed close below the intervening neckline trough.</rule>
+        <rule id="rule_double_top_tp">Take-Profit objective is Neckline - (Peak_Price - Neckline_Price).</rule>
+        <rule id="rule_double_top_sl">Stop-Loss is positioned above Peak 2 high.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_double_bottom_w" title="Double Bottom ('W' Formation) &amp; Support Bounces">
+      <keywords>double bottom, w pattern, reversal, support, trough, neckline, accumulation, divergence</keywords>
+      <content>
+        The Double Bottom ('W' Pattern) is one of the highest-performing bullish reversal formations:
+        - Construction: Two distinct troughs at approximately the same support level (within 2-3% tolerance). The first trough forms on heavy panic selling volume. An intervening reaction rally produces a peak (the neckline). A secondary decline retests the support zone of the first trough on noticeably lighter volume, showing seller depletion.
+        - Confluence: Often accompanied by bullish RSI or MACD divergence (RSI makes a higher low while price makes an equal or slightly lower low).
+        - Confirmation: The pattern is confirmed only when price penetrates and closes above the intervening peak neckline on a surge of volume.
+        - Measuring Target Formula: Measure the vertical height H from the lowest trough to the intervening peak neckline. Project H upward from the neckline breakout: Target Price = Neckline + H.
+        - Protective Stop: Place stop-loss just below the lowest low of the two troughs or below the right trough low.
+      </content>
+      <rules>
+        <rule id="rule_double_bottom_trigger">Enter long when price closes above the neckline with volume ratio > 1.35x.</rule>
+        <rule id="rule_double_bottom_tp">Take-Profit target is Neckline + (Neckline_Price - Trough_Low).</rule>
+        <rule id="rule_double_bottom_sl">Stop-Loss is positioned 1.0x ATR below the second trough low.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_triple_top_and_bottom" title="Triple Top and Triple Bottom Formations">
+      <keywords>triple top, triple bottom, multi-test, resistance, support, consolidation, reversal</keywords>
+      <content>
+        Triple Tops and Triple Bottoms are extensions of the double formations, involving three distinct tests of a key price boundary across weeks or months:
+        - Triple Top: Three peaks testing the same resistance zone. Volume diminishes with each successive peak, indicating progressive exhaustion of buyer demand. Confirmed only when price breaks below the lowest intervening trough.
+        - Triple Bottom: Three troughs testing the same support level. Selling volume dries up on the third test. Confirmed when price breaks above the highest intervening peak on explosive volume.
+        - Statistical Performance: Bulkowski's studies show triple formations have an exceptionally low failure rate (&lt; 12%) once the confirmation level is breached.
+        - Measuring Objective: Measure the height from the triple boundary to the intermediate peak/trough and project from the breakout point.
+      </content>
+      <rules>
+        <rule id="rule_triple_pattern_trigger">Wait for the third test to conclude and price to clear the confirmation line before entry.</rule>
+        <rule id="rule_triple_pattern_tp">Project the full pattern height from the breakout level.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_wedges_reversal" title="Rising and Falling Wedge Reversal Formations">
+      <keywords>wedge, rising wedge, falling wedge, converging trendlines, reversal, contraction</keywords>
+      <content>
+        Wedges are bounded by two converging trendlines, both sloping in the same direction:
+        - Rising Wedge: Both trendlines slope upward, but the lower support line rises more steeply than the upper resistance line. This creates a narrowing range where higher highs are achieved with diminishing momentum. Volume contracts steadily as price advances. In an uptrend, a rising wedge is a high-probability bearish reversal pattern once the lower support line breaks.
+        - Falling Wedge: Both trendlines slope downward, but the upper resistance line descends more steeply than the lower support line. Lower lows are made with diminishing velocity and contracting volume. In a downtrend, a falling wedge is a powerful bullish reversal pattern once the upper resistance line breaks.
+        - Confirmation: Breakout must occur before price reaches the apex (typically between 60% and 75% of the distance from the base to the apex).
+      </content>
+      <rules>
+        <rule id="rule_rising_wedge_short">Short upon breakdown below the lower support line of the rising wedge on volume expansion.</rule>
+        <rule id="rule_falling_wedge_long">Go long upon breakout above the upper resistance line of the falling wedge on volume expansion.</rule>
+        <rule id="rule_wedge_target">Target the base origin of the wedge formation.</rule>
+      </rules>
+    </section>
+  </chapter>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 3: HIGH-PROBABILITY CONTINUATION PRICE PATTERNS            -->
+  <!-- =================================================================== -->
+  <chapter id="ch3_continuation_patterns" title="High-Probability Continuation Price Patterns">
+    <section id="sec_bull_bear_flags" title="Bull Flag and Bear Flag Continuations">
+      <keywords>bull flag, bear flag, flagpole, continuation, channel, momentum, pause</keywords>
+      <content>
+        Flags are short-term continuation patterns that represent a brief pause in a dynamic trend:
+        - Bull Flag: Consists of an almost vertical price rally (the Flagpole) driven by high volume and institutional momentum, followed by a compact downward-sloping or horizontal parallel channel (the Flag). The counter-trend consolidation must show a sharp drop in trading volume, indicating lack of selling interest. The flag consolidation should retrace no more than 38.2% to 50% of the flagpole height.
+        - Bear Flag: Consists of an aggressive vertical selloff (Flagpole) on heavy volume, followed by a tight upward-sloping consolidation channel on light volume.
+        - Measuring Target Formula: The expected target is a move equal to the height of the Flagpole (F) projected from the breakout level: Bull Flag Target = Breakout Price + F; Bear Flag Target = Breakdown Price - F.
+        - Protective Stop: Position Stop-Loss just below the lowest point of the flag consolidation channel or 1.2x ATR below entry.
+      </content>
+      <rules>
+        <rule id="rule_flag_entry">Enter immediately on an hourly close outside the flag boundary in the direction of the flagpole.</rule>
+        <rule id="rule_flag_tp">Take-Profit target is the full Flagpole height added to the breakout price.</rule>
+        <rule id="rule_flag_sl">Stop-Loss is positioned 1.0x ATR below the lowest swing low inside the flag channel.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_pennants" title="Bullish and Bearish Pennant Formations">
+      <keywords>pennant, flagpole, symmetrical, continuation, apex, momentum</keywords>
+      <content>
+        Pennants are similar to flags, featuring a sharp flagpole advance, but the consolidation takes the shape of a small symmetrical triangle with converging trendlines rather than a parallel channel:
+        - Characteristics: Duration is typically short (1 to 3 weeks). Volume contracts sharply toward the apex of the pennant.
+        - Breakout: Occurs explosively on high volume before price reaches the apex.
+        - Measuring Target: The height of the flagpole is projected forward from the breakout point.
+      </content>
+      <rules>
+        <rule id="rule_pennant_entry">Enter on the breakout candle close with volume surge (>1.35x average).</rule>
+        <rule id="rule_pennant_tp">Set Take-Profit at Breakout_Price + Flagpole_Height.</rule>
+        <rule id="rule_pennant_sl">Stop-Loss placed at the opposite boundary swing extreme.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_triangles_symmetrical" title="Symmetrical Triangle Coiling Patterns">
+      <keywords>symmetrical triangle, coiling, converging, apex, continuation, breakout</keywords>
+      <content>
+        Symmetrical Triangles (coils) feature converging trendlines where the upper line is sloping downward (lower highs) and the lower line is sloping upward (higher lows):
+        - Dynamics: Represents a balance between buyers and sellers where price volatility continuously contracts. Volume steadily declines as the triangle narrows toward its apex.
+        - Breakout Timing: The breakout typically occurs between two-thirds and three-quarters of the horizontal distance from the base to the apex. Breakouts occurring near the apex are often weak or false.
+        - Measuring Target Formula: Measure the widest vertical base of the triangle (Height H). Project H upward from the breakout point for a bullish breakout, or downward for a bearish breakdown: Target Price = Breakout_Price +/- H.
+      </content>
+      <rules>
+        <rule id="rule_symm_triangle_entry">Enter in the direction of the confirmed close outside the trendline with volume confirmation.</rule>
+        <rule id="rule_symm_triangle_tp">Target the widest vertical base of the triangle projected from the breakout point.</rule>
+        <rule id="rule_symm_triangle_sl">Place Stop-Loss on the opposite side of the breakout candle or the most recent internal swing point.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_triangles_ascending" title="Ascending Triangle Bullish Formations">
+      <keywords>ascending triangle, horizontal resistance, rising lows, accumulation, bullish breakout</keywords>
+      <content>
+        The Ascending Triangle is one of the most reliable bullish continuation patterns (77% bullish breakout rate according to Bulkowski):
+        - Construction: Features a horizontal upper resistance line and a rising lower support trendline. The horizontal line shows sellers distributing at a fixed price level, while the rising trendline shows aggressive buyers willing to buy at increasingly higher prices on each dip.
+        - Volume Characteristics: Volume tends to diminish as the pattern forms, followed by a surge on the breakout above horizontal resistance.
+        - Measuring Target Formula: Measure the vertical height H at the widest left base of the triangle. Add H to the horizontal resistance breakout level: Target Price = Resistance_Level + H.
+        - Protective Stop: Place Stop-Loss just below the most recent rising swing low or 1.2x ATR below horizontal resistance.
+      </content>
+      <rules>
+        <rule id="rule_asc_triangle_entry">Go long upon a confirmed close above horizontal resistance with volume expansion.</rule>
+        <rule id="rule_asc_triangle_tp">Take-Profit target is Resistance_Price + Triangle_Base_Height.</rule>
+        <rule id="rule_asc_triangle_sl">Stop-Loss positioned below the last reaction low of the rising support line.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_triangles_descending" title="Descending Triangle Bearish Formations">
+      <keywords>descending triangle, horizontal support, declining highs, distribution, bearish breakdown</keywords>
+      <content>
+        The Descending Triangle is a dominant bearish continuation/distribution pattern (73% breakdown rate):
+        - Construction: Features a horizontal lower support line and a downward-sloping upper resistance trendline. Sellers are becoming increasingly aggressive, creating lower highs, while buyers are merely holding a static support floor.
+        - Breakdown: Eventually buyer demand at support is exhausted, and price breaks down through the horizontal floor with heavy volume.
+        - Measuring Target Formula: Measure the vertical height H of the triangle at its widest left base. Subtract H from the horizontal support breakdown level: Target Price = Support_Level - H.
+      </content>
+      <rules>
+        <rule id="rule_desc_triangle_entry">Enter short upon a candle close below the horizontal support line with volume surge.</rule>
+        <rule id="rule_desc_triangle_tp">Target is Support_Price - Triangle_Base_Height.</rule>
+        <rule id="rule_desc_triangle_sl">Stop-Loss placed 1.2x ATR above the broken support level.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_cup_and_handle" title="Cup and Handle (Saucer with Handle) Formations">
+      <keywords>cup and handle, saucer, rounding bottom, handle, accumulation, breakout, rim</keywords>
+      <content>
+        The Cup and Handle is an institutional accumulation pattern developed by William O'Neil:
+        - Construction: The Cup forms as a gradual, rounded 'U' shaped bottom (not a sharp 'V'). Left and right rim peaks are approximately equal. Following the right rim, price pulls back slightly to form the Handle, a compact downward channel or flag that drifts lower on declining volume. The handle should not retrace more than one-third to one-half of the cup's total depth.
+        - Volume: Heavy on the left rim decline, drying up completely at the rounded base, rising on the advance to the right rim, quiet during the handle, and explosive upon breakout above the rim resistance.
+        - Measuring Target Formula: Measure the vertical depth D from the rim line to the lowest point of the cup bottom. Project D upward from the rim breakout point: Target Price = Rim_Breakout_Price + D.
+        - Protective Stop: Place Stop-Loss below the lowest point of the handle consolidation.
+      </content>
+      <rules>
+        <rule id="rule_cup_handle_entry">Enter long when price breaks out and closes above the rim resistance line with surging volume.</rule>
+        <rule id="rule_cup_handle_tp">Take-Profit target is Rim_Price + Cup_Depth.</rule>
+        <rule id="rule_cup_handle_sl">Stop-Loss positioned below the handle swing low.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_rectangles_trading_ranges" title="Rectangles &amp; Horizontal Congestion Channels">
+      <keywords>rectangle, trading range, congestion, channel, support, resistance, consolidation</keywords>
+      <content>
+        A Rectangle represents horizontal congestion where price bounces between parallel horizontal support and resistance lines:
+        - Dynamics: At least two highs touch the resistance ceiling and at least two lows touch the support floor. Represents a fierce battle between buyers and sellers with no directional winner during the consolidation.
+        - Breakout: Most commonly resolves in the direction of the preceding trend (continuation). A breakout occurs when price closes outside either parallel boundary on expanding volume.
+        - Measuring Target Formula: Measure the height H of the rectangle (Resistance - Support). Project H from the breakout point in the direction of the break.
+      </content>
+      <rules>
+        <rule id="rule_rectangle_breakout">Enter in the direction of the confirmed close outside the rectangle channel.</rule>
+        <rule id="rule_rectangle_tp">Set Take-Profit at Breakout_Price +/- Rectangle_Height.</rule>
+      </rules>
+    </section>
+  </chapter>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 4: CANDLESTICK FORMATIONS & EXECUTION CONFIRMATIONS         -->
+  <!-- =================================================================== -->
+  <chapter id="ch4_candlestick_confirmations" title="Candlestick Formations &amp; Single-Bar Confirmations">
+    <section id="sec_candlestick_anatomy" title="Candlestick Anatomy, Doji &amp; Equilibrium">
+      <keywords>candlestick, open, high, low, close, real body, shadow, wick, doji, equilibrium</keywords>
+      <content>
+        Candlesticks display the exact battle between bulls and bears over a fixed timeframe:
+        - Real Body: Distance between open and close. A wide green body indicates intense buying conviction; a wide red body indicates intense selling pressure.
+        - Shadows (Wicks): The extreme high and low reached during the period. Long wicks represent price rejection.
+        - Doji: Occurs when Open and Close are virtually identical. Indicates complete equilibrium and indecision. A Doji appearing after a prolonged trend signals potential exhaustion. Dragonfly Doji (long lower wick) at support signals bullish rejection. Gravestone Doji (long upper wick) at resistance signals bearish rejection.
+      </content>
+      <rules>
+        <rule id="rule_doji_confirmation">Never trade a Doji alone; wait for the next candle to confirm direction by closing above/below the Doji extreme.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_hammer_hanging_man" title="Hammer and Hanging Man Reversals">
+      <keywords>hammer, hanging man, rejection, lower wick, reversal, support, resistance</keywords>
+      <content>
+        Characterized by a small real body near the top of the range and a long lower shadow (at least 2x the length of the real body) with little or no upper shadow:
+        - Hammer (Bullish at Swing Low): Forms during a downtrend. Bears drove prices aggressively lower, but aggressive buyers stepped in, rejecting lower levels and driving price back near the open. Signals a powerful bullish reversal when accompanied by volume.
+        - Hanging Man (Bearish at Swing High): Forms during an uptrend. Although buyers recovered the session, the deep lower shadow reveals that sellers were able to break support for the first time. Requires a bearish confirmation candle.
+      </content>
+      <rules>
+        <rule id="rule_hammer_long">Go long when a Hammer forms at key support (or lower Bollinger/EMA band) and the subsequent candle closes above the Hammer high.</rule>
+        <rule id="rule_hammer_sl">Place Stop-Loss 0.5x ATR below the Hammer lower shadow low.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_shooting_star_inverted_hammer" title="Shooting Star and Inverted Hammer">
+      <keywords>shooting star, inverted hammer, upper shadow, rejection, exhaustion, resistance</keywords>
+      <content>
+        Characterized by a small real body near the bottom of the range and a long upper shadow (at least 2x the body length):
+        - Shooting Star (Bearish at Swing High): Forms during an uptrend. Bulls drove price to a new high, but fierce selling overwhelmed buyers and drove price back down near the open. Signals rejection of higher prices and impending reversal.
+        - Inverted Hammer (Bullish at Swing Low): Forms during a downtrend. Bulls tested higher prices; although sellers pushed price back down, the test demonstrates that buying pressure is entering the market.
+      </content>
+      <rules>
+        <rule id="rule_shooting_star_short">Short when a Shooting Star forms at resistance and the next candle confirms with a lower close.</rule>
+        <rule id="rule_shooting_star_sl">Stop-Loss is positioned above the high of the Shooting Star wick.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_engulfing_patterns" title="Bullish and Bearish Engulfing Formations">
+      <keywords>engulfing, bullish engulfing, bearish engulfing, momentum reversal, outside bar</keywords>
+      <content>
+        A powerful two-candle reversal pattern where the second candle's real body completely covers (engulfs) the real body of the preceding candle:
+        - Bullish Engulfing: A smaller red candle is followed by a tall green candle whose body opens below the prior close and surges to close above the prior open. Indicates aggressive buyer takeover.
+        - Bearish Engulfing: A smaller green candle is engulfed by a tall red candle. Indicates aggressive seller liquidation.
+        - Volume: Volume on the engulfing candle should be substantially higher than the prior candle.
+      </content>
+      <rules>
+        <rule id="rule_engulfing_trigger">Enter in the direction of the engulfing candle on the open of the third candle.</rule>
+        <rule id="rule_engulfing_sl">Stop-Loss placed 1.0x ATR beyond the extreme of the engulfing bar.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_harami_and_inside_bars" title="Harami Formations &amp; Inside Bar Volatility Contraction">
+      <keywords>harami, inside bar, pregnant, volatility contraction, pause, expansion</keywords>
+      <content>
+        The Harami (Japanese for 'pregnant') is a two-candle pattern where a small second candle is completely contained within the large real body of the first candle:
+        - Dynamics: Represents sudden deceleration of trend momentum. The market has coiled into a state of temporary suspension.
+        - Breakout Strategy: An inside bar breakout occurs when subsequent price action exceeds the high or low of the mother bar, frequently sparking rapid volatility expansion.
+      </content>
+      <rules>
+        <rule id="rule_harami_breakout">Enter upon breakout beyond the mother bar extreme in the direction of trend.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_dark_cloud_piercing_pipe" title="Dark Cloud Cover, Piercing Line &amp; Pipe Bottoms">
+      <keywords>dark cloud cover, piercing line, pipe bottom, two-bar reversal, penetration</keywords>
+      <content>
+        Two-bar penetration patterns:
+        - Piercing Line: In a downtrend, a tall red candle is followed by a green candle that gaps lower at open but rallies strongly to close well above the 50% midpoint of the red candle's body. Bullish reversal.
+        - Dark Cloud Cover: In an uptrend, a tall green candle is followed by a red candle that opens higher but sells off to close below the 50% midpoint of the green candle's body. Bearish reversal.
+        - Pipe Bottom (Kirkpatrick Discovery): Two consecutive abnormally long bars with deep overlapping shadows and extreme volume spikes at support, marking an institutional absorption floor.
+      </content>
+      <rules>
+        <rule id="rule_piercing_entry">Enter long when green candle penetrates >50% into prior red candle body with heavy volume.</rule>
+        <rule id="rule_pipe_bottom">Treat Pipe Bottoms with double volume spikes as institutional cycle bottom confirmations.</rule>
+      </rules>
+    </section>
+  </chapter>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 5: VOLATILITY CONTRACTION & GAP ANALYSIS                    -->
+  <!-- =================================================================== -->
+  <chapter id="ch5_volatility_and_gaps" title="Volatility Contraction &amp; Price Gap Dynamics">
+    <section id="sec_nr7_vcp" title="Narrow Range (NR7) &amp; Volatility Contraction Pattern (VCP)">
+      <keywords>narrow range, nr7, vcp, volatility contraction, expansion, compression, explosion</keywords>
+      <content>
+        Markets alternate continuously between periods of volatility expansion and volatility compression:
+        - NR7 (Narrow Range 7): A session whose daily or hourly range (High minus Low) is narrower than any of the previous 6 sessions (narrowest range in 7 bars).
+        - Market Principle: Low volatility leads directly to high volatility. A market coiling into an NR7 bar is storing kinetic energy. The breakout from an NR7 bar almost always initiates a multi-bar trending impulse.
+        - Volatility Contraction Pattern (VCP): Identified by Mark Minervini. Price undergoes successive contractions (e.g. 20% correction, then 10% pullback, then 4% tight range) where volume steadily diminishes, setting up an explosive institutional stage-2 breakout.
+      </content>
+      <rules>
+        <rule id="rule_nr7_setup">When NR7 occurs above rising EMA 50, place a buy-stop order 0.1% above the NR7 high.</rule>
+        <rule id="rule_nr7_sl">Place Stop-Loss 0.1% below the NR7 low for an exceptionally tight risk-to-reward ratio.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_gap_classification" title="Gap Analysis: Breakaway, Runaway &amp; Exhaustion Gaps">
+      <keywords>gaps, breakaway gap, runaway gap, measuring gap, exhaustion gap, volume</keywords>
+      <content>
+        A price gap occurs when price opens beyond the prior session's high or low, leaving an unfilled space on the chart:
+        - Breakaway Gap: Occurs at the completion of an orthodox price pattern (e.g., breaking out of a Head and Shoulders or Rectangle) on massive volume. Rarely fills immediately. Signals rapid trend initiation.
+        - Runaway (Measuring) Gap: Occurs approximately midway through a powerful trend. Represents frantic momentum. Can be used to project the remaining length of the move (the distance from the origin to the gap equals the distance from the gap to the final target).
+        - Exhaustion Gap: Occurs at the very end of an extended trend. Price gaps forward one last time on huge volume, but stalls within 1 to 2 sessions and reverses, filling the gap. Signals final climax.
+      </content>
+      <rules>
+        <rule id="rule_breakaway_gap">Do not wait for a breakaway gap to fill; enter immediately in the breakout direction.</rule>
+        <rule id="rule_exhaustion_gap">When a gap is followed by a reversal candle and high volume, exit all trend positions immediately.</rule>
+      </rules>
+    </section>
+  </chapter>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 6: SMART MONEY CONCEPTS & MARKET STRUCTURE                  -->
+  <!-- =================================================================== -->
+  <chapter id="ch6_smart_money_structure" title="Smart Money Concepts, Order Blocks &amp; Liquidity">
+    <section id="sec_bos_choch_structure" title="Break of Structure (BOS) vs Change of Character (CHoCH)">
+      <keywords>market structure, bos, choch, higher highs, higher lows, trend shift</keywords>
+      <content>
+        Market structure represents the directional footprint of institutional capital:
+        - Uptrend: A sequence of Higher Highs (HH) and Higher Lows (HL).
+        - Break of Structure (BOS): When price closes beyond the preceding swing high in an uptrend, confirming continuation of institutional accumulation.
+        - Change of Character (CHoCH): When price violates and closes below the last Higher Low in an uptrend (or above the last Lower High in a downtrend). CHoCH is the earliest structural warning of trend reversal, signaling that institutional sponsors have paused absorption and are distributing.
+      </content>
+      <rules>
+        <rule id="rule_bos_entry">Add to trend continuation positions only on verified BOS candle body closes.</rule>
+        <rule id="rule_choch_exit">Immediately revoke active long mandates or tighten stops to breakeven upon hourly CHoCH.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_order_blocks_liquidity" title="Institutional Order Blocks &amp; Liquidity Sweeps">
+      <keywords>order block, liquidity sweep, stop hunt, mitigation, fair value gap, fvg</keywords>
+      <content>
+        Institutions engineer liquidity by sweeping retail stop clusters:
+        - Bullish Order Block (OB): The last down-closing candle prior to a violent upward impulse that broke structure. When price retraces back to mitigate this order block (especially the 50% equilibrium level), institutional algorithms refill long positions.
+        - Liquidity Sweep: Price wicks beneath a conspicuous support level (or double bottom) to trigger retail sell-stop orders, absorbing that liquidity to fuel an immediate upward reversal.
+        - Fair Value Gap (FVG): A 3-candle sequence where Candle 1's high and Candle 3's low do not overlap, leaving an imbalance in Candle 2. Price acts as a magnet to rebalance this gap.
+      </content>
+      <rules>
+        <rule id="rule_liquidity_sweep_long">Enter long when a liquidity sweep candle wicks below support and immediately closes back above support.</rule>
+        <rule id="rule_ob_entry">Place limit orders at the top of the unmitigated Order Block with stop-loss beneath its base.</rule>
+      </rules>
+    </section>
+  </chapter>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 7: QUANTITATIVE INDICATORS & VOLUME SPREAD CONFLUENCE       -->
+  <!-- =================================================================== -->
+  <chapter id="ch7_indicators_confluence" title="Quantitative Indicators &amp; Volume Spread Confluence">
+    <section id="sec_ema_ribbon_system" title="Exponential Moving Average (EMA 20/50/200) Ribbon Alignment">
+      <keywords>ema, moving average, ema 20, ema 50, ema 200, golden cross, death cross, ribbon</keywords>
+      <content>
+        Triple EMA systems establish trend hierarchy across all timeframes:
+        - EMA 20: Short-term momentum trigger. In strong trends, price respects the EMA 20 as dynamic support.
+        - EMA 50: Intermediate trend arbiter. Separates institutional pullbacks from macro trend changes.
+        - EMA 200: Macro regime boundary. Price above EMA 200 is an institutional bull regime; below is a bear regime.
+        - Golden Cross / Death Cross: EMA 20 or 50 crossing above/below EMA 200 signals macro trend regime transition.
+        - Perfect Bullish Ribbon: Price > EMA 20 > EMA 50 > EMA 200 with all lines expanding fan-wise.
+      </content>
+      <rules>
+        <rule id="rule_ema_alignment">Only initiate aggressive long trades when EMA 20 is above EMA 50 and price is above EMA 200.</rule>
+        <rule id="rule_ema20_pullback">Use test of EMA 20 in an established trend as a low-risk continuation entry.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_rsi_momentum_divergence" title="Relative Strength Index (RSI 14) Regimes &amp; Divergences">
+      <keywords>rsi, momentum, overbought, oversold, divergence, regular divergence, hidden divergence</keywords>
+      <content>
+        RSI measures velocity and magnitude of directional price movements:
+        - Bull Market Range: In healthy uptrends, RSI fluctuates between 40 (support) and 80+ (overbought expansion). RSI reaching 70 is a sign of momentum strength, not an automatic sell signal.
+        - Regular Bearish Divergence: Price makes a Higher High while RSI makes a Lower High. Signals exhaustion of trend momentum and imminent reversal.
+        - Regular Bullish Divergence: Price makes a Lower Low while RSI makes a Higher Low. Signals seller depletion and impending bullish turnaround.
+        - Hidden Divergence: Signals trend continuation (Price makes Higher Low while RSI makes Lower Low).
+      </content>
+      <rules>
+        <rule id="rule_rsi_divergence">Require RSI divergence confirmation when taking counter-trend reversal setups.</rule>
+        <rule id="rule_rsi_filter">Avoid taking long breakouts when RSI is above 78 on the execution timeframe.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_atr_volatility_bands" title="Average True Range (ATR 14) Dynamic Sizing &amp; Chandelier Stops">
+      <keywords>atr, average true range, volatility, dynamic stop, position sizing, chandelier stop</keywords>
+      <content>
+        Average True Range measures absolute market volatility regardless of price direction:
+        - Volatility-Adjusted Sizing: Assets with high ATR % require smaller position sizes to keep total capital risk constant.
+        - Dynamic Stop-Loss Placement: Static dollar or percentage stops fail because they ignore volatility. Optimal protective stops are placed at a multiple of ATR (e.g. 1.2x to 1.8x ATR) beyond key structural support.
+        - Chandelier Trailing Stop: Highest High since entry minus (2.5 x ATR). Automatically locks in profit as trend develops while allowing normal market breathing room.
+      </content>
+      <rules>
+        <rule id="rule_atr_stop">Set stop-loss distance equal to max(1.2 * ATR, 0.03 * Current_Price).</rule>
+        <rule id="rule_atr_trail">Trail stop-loss upwards by 1.5x ATR behind each consecutive higher swing low.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_vsa_volume_spread" title="Volume Spread Analysis (VSA) &amp; Institutional Footprints">
+      <keywords>vsa, volume spread analysis, effort vs result, absorption, volume surge, stopping volume</keywords>
+      <content>
+        Volume Spread Analysis evaluates the relationship between candle spread (range), close, and volume:
+        - Effort vs. Result: High volume (effort) must yield a wide candle body in the direction of volume (result). If high volume produces a tiny candle body or a long rejection wick, it indicates hidden opposing institutional orders (absorption).
+        - Stopping Volume: Extreme volume spike on a wide down candle that closes well off its lows, showing institutional buyers stepping in to halt the decline.
+        - No Supply Test: A low-volume down candle testing prior support, proving that floating supply has been removed and price is primed to advance.
+      </content>
+      <rules>
+        <rule id="rule_vsa_breakout">A valid pattern breakout requires volume ratio > 1.35x average volume.</rule>
+        <rule id="rule_vsa_absorption">High volume on resistance test with narrow spread indicates institutional supply; do not buy.</rule>
+      </rules>
+    </section>
+  </chapter>
+
+  <!-- =================================================================== -->
+  <!-- CHAPTER 8: CAPITAL PRESERVATION, SIZING & HARD CAPS                 -->
+  <!-- =================================================================== -->
+  <chapter id="ch8_risk_management_hardcaps" title="Capital Preservation, Risk-to-Reward &amp; Hard Caps">
+    <section id="sec_risk_reward_math" title="The Mathematics of Risk-to-Reward (R:R) Ratios">
+      <keywords>risk reward, r:r, expectancy, win rate, mathematical edge, asymmetric</keywords>
+      <content>
+        Profitability in trading is a function of Win Rate and Win/Loss Ratio (R:R):
+        - Minimum Acceptable R:R: The Neptune Agent enforces a strict minimum Risk-to-Reward ratio of 1.5:1, with an optimal target of 2.0:1 or greater.
+        - Mathematical Expectancy: With a 2:1 R:R, an agent needs only a 35% win rate to achieve profitability:
+          Expectancy = (Win_Rate * Average_Win) - (Loss_Rate * Average_Loss).
+        - Take-Profit / Stop-Loss Geometry: If the distance to the nearest major structural resistance is less than 1.5x the distance to the ATR stop-loss, the setup MUST be rejected with a STAND_ASIDE verdict.
+      </content>
+      <rules>
+        <rule id="rule_min_rr">Reject any trade setup where (Take_Profit - Entry) / (Entry - Stop_Loss) &lt; 1.5.</rule>
+        <rule id="rule_expectancy_positive">Only deploy capital when mathematical expectancy is strictly positive.</rule>
+      </rules>
+    </section>
+
+    <section id="sec_hard_caps" title="Deterministic Hard Caps, Frequency Limits &amp; Kill Switch">
+      <keywords>hard caps, daily limit, weekly limit, capital cap, kill switch, emergency shutdown</keywords>
+      <content>
+        Deterministic hard caps override all model decisions to protect capital:
+        1. Max Capital Per Trade: User-configured maximum USD allocation per single position.
+        2. Daily Frequency Cap: Maximum of 3 trade executions per 24-hour rolling window.
+        3. Weekly Frequency Cap: Maximum of 12 trade executions per 7-day rolling window.
+        4. Minimum Confidence Gate: Model must output a confidence score equal to or exceeding the user's threshold (e.g. 75%).
+        5. Master Kill Switch: Instant administrative kill switch that immediately revokes signing keys, aborts all pipeline execution, and freezes autonomous trades.
+      </content>
+      <rules>
+        <rule id="rule_enforce_kill_switch">If kill_switch == 1, immediately return BLOCKED_KILL_SWITCH without executing orders.</rule>
+        <rule id="rule_enforce_daily_cap">If today_trades >= max_trades_day, reject order with DAILY_LIMIT_REACHED.</rule>
+        <rule id="rule_enforce_weekly_cap">If week_trades >= max_trades_week, reject order with WEEKLY_LIMIT_REACHED.</rule>
+        <rule id="rule_enforce_confidence_gate">If confidence_score &lt; min_confidence, verdict must be STAND_ASIDE.</rule>
+      </rules>
+    </section>
+  </chapter>
+</crypto_trading_book>

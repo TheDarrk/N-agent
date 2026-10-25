@@ -29,7 +29,7 @@ That’s what makes your project a “true autonomous agent” instead of an NLP
 
 🛠 Step-By-Step Upgrade Plan (Ignore NEAR/Impulse as you asked)
 This is exactly how to turn Neptune into a 9.5/10 candidate.
-
+C:\Users\ankit\N-agent\debug_tool.py
 🔥 STEP 1 — Add Persistent Memory
 Goal: The agent must remember past interactions, portfolio moves, and strategy rules.
 

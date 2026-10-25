@@ -30,16 +30,14 @@ async def check_all_strategies():
     Evaluates all active strategies, runs them through the
     Strategy   Risk   Execution   Audit pipeline.
     """
-    print(f"[AUTONOMY] Strategy check started at {datetime.utcnow().isoformat()}")
-
     try:
         # Get all active strategies across all users
         strategies = get_active_strategies()
         if not strategies:
-            print("[AUTONOMY] No active strategies found")
+            # Completely silent idle state — no poller runs until user activates and saves an agent
             return
 
-        print(f"[AUTONOMY] Evaluating {len(strategies)} active strategies")
+        print(f"[AUTONOMY] Evaluating {len(strategies)} active strategies at {datetime.utcnow().isoformat()}")
 
         # Fetch market data once (shared across all evaluations)
         market_data = await get_token_prices()

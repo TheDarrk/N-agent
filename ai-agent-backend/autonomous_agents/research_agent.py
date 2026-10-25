@@ -12,8 +12,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from decentralized_storage import upload_research_report, get_recent_research_reports
 from database import log_agent_action
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+import httpx
 
 
 class ResearchAgent:
@@ -26,13 +25,14 @@ class ResearchAgent:
         self.name = "research"
         self.creator_account = "alpha_creator.near"
         self.report_fee_near = 0.1  # 0.1 NEAR fee per research request
-        api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
-        self.llm = ChatOpenAI(
-            model="openai/gpt-oss-120b",
-            temperature=0.3,
-            openai_api_key=api_key,
-            openai_api_base="https://cloud-api.near.ai/v1"
-        )
+        self.api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
+        self.base_url = os.getenv("NEAR_AI_BASE_URL", "https://cloud-api.near.ai/v1").rstrip("/")
+        self.model = os.getenv("NEAR_AI_COUNCIL_MODEL") or os.getenv("NEAR_AI_MODEL") or "z-ai/glm-5.3-flash"
+        raw_timeout = str(os.getenv("NEAR_AI_TIMEOUT", "0")).strip().lower()
+        if raw_timeout in ["0", "none", "null", "", "-1"]:
+            self.request_timeout = None
+        else:
+            self.request_timeout = float(raw_timeout)
 
     async def generate_research_report(
         self,
@@ -72,19 +72,60 @@ Format as structured JSON with fields:
   "risk_factors": ["...", "..."],
   "summary": "..."
 }}
-Output ONLY valid JSON."""
+CRITICAL QUALITY MANDATE:
+- Conduct deep, high-conviction research. Provide institutional-grade depth on regime, catalysts, and risks.
+- Output ONLY valid JSON."""
 
         try:
-            res = self.llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
-            ])
-            text = res.content.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-                if text.endswith("```"):
-                    text = text[:-3].strip()
-            report_data = json.loads(text)
+            headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 1800,
+                "stream": True
+            }
+            import asyncio
+            def _stream_post():
+                timeout_config = (
+                    httpx.Timeout(None, connect=60.0)
+                    if self.request_timeout is None
+                    else httpx.Timeout(self.request_timeout, connect=60.0)
+                )
+                content_chunks = []
+                reasoning_chunks = []
+                with httpx.Client(timeout=timeout_config) as client:
+                    with client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as resp:
+                        if resp.status_code != 200:
+                            raise Exception(f"HTTP {resp.status_code}")
+                        for line in resp.iter_lines():
+                            if line.startswith("data: ") and line != "data: [DONE]":
+                                raw = line[6:]
+                                try:
+                                    chunk = json.loads(raw)
+                                    delta = chunk["choices"][0].get("delta", {})
+                                    if delta.get("content"):
+                                        content_chunks.append(delta["content"])
+                                    if delta.get("reasoning_content"):
+                                        reasoning_chunks.append(delta["reasoning_content"])
+                                except Exception:
+                                    pass
+                text = "".join(content_chunks).strip() or "".join(reasoning_chunks).strip()
+                return text
+
+            text = await asyncio.to_thread(_stream_post)
+            if "<think>" in text and "</think>" in text:
+                text = text.split("</think>")[1].strip()
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0].strip()
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0].strip()
+            start = text.find("{")
+            end = text.rfind("}")
+            report_data = json.loads(text[start:end+1]) if (start != -1 and end != -1) else json.loads(text)
         except Exception as e:
             print(f"[RESEARCH] LLM error ({e}), generating template report")
             report_data = {
@@ -149,7 +190,12 @@ Output ONLY valid JSON."""
             "fee_transferred": f"{self.report_fee_near} NEAR",
             "recipient": self.creator_account,
             "report_cid": report["cid"],
-            "signal": report.get("actionable_signal"),
+            "signal": (
+                report.get("actionable_signal", {}).get("action", "ACCUMULATE")
+                if isinstance(report.get("actionable_signal"), dict)
+                else str(report.get("actionable_signal") or "ACCUMULATE")
+            ),
+            "actionable_signal_details": report.get("actionable_signal"),
             "full_report": report
         }
 

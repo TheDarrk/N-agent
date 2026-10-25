@@ -22,7 +22,17 @@ async def poll_active_trades() -> List[Dict[str, Any]]:
     if not open_trades:
         return []
 
-    print(f"[POLLER] Checking {len(open_trades)} active trades against live market prices...")
+    # Poller only runs for users who have explicitly activated the Trader Agent
+    valid_trades = []
+    for t in open_trades:
+        user = get_user(t["user_wallet"]) or {}
+        if user.get("trader_active", 0) and not user.get("kill_switch", 0):
+            valid_trades.append(t)
+
+    if not valid_trades:
+        return []
+
+    print(f"[POLLER] Checking {len(valid_trades)} active trades against live market prices...")
 
     # Unique symbols needed
     symbols = list(set([t["symbol"].lower() for t in open_trades]))

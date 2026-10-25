@@ -558,16 +558,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
     }, [loadData]);
 
     if (!accountId) {
-        return (
-            <div className="px-3 pb-4">
-                <div className="rounded-xl border border-dashed border-[hsl(225,18%,14%)] bg-secondary/30 p-5 text-center">
-                    <Brain size={20} className="mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-[10px] text-muted-foreground">
-                        Connect wallet to enable<br />autonomous features
-                    </p>
-                </div>
-            </div>
-        );
+        return null; // Handled cleanly by SidebarFleetBar
     }
 
     const isKillSwitchOn = settings?.kill_switch === 1;

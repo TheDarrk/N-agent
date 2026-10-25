@@ -4,12 +4,40 @@ LLM will handle answering questions naturally - no hardcoded FAQs.
 """
 from typing import Dict, List, Optional
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
-# Cache for token list
+# Cache for token list & live prices
 _token_cache: Optional[List[Dict]] = None
 _cache_timestamp: Optional[datetime] = None
+_token_prices: Dict[str, float] = {}
+_server_time_offset_seconds: float = 0.0
 CACHE_DURATION = timedelta(hours=6)  # Refresh every 6 hours
+
+
+def get_1click_token_price(symbol: str) -> float:
+    """Instant 0ms lookup for live spot price fetched from 1-Click API."""
+    return _token_prices.get(symbol.upper(), _token_prices.get(symbol.lower(), 0.0))
+
+
+def get_1click_server_now() -> datetime:
+    """Returns estimated current UTC time synchronized with 1-Click solver server."""
+    global _server_time_offset_seconds
+    if _server_time_offset_seconds == 0.0:
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                res = client.head("https://1click.chaindefuser.com/v0/tokens")
+                date_hdr = res.headers.get("date")
+                if date_hdr:
+                    server_dt = parsedate_to_datetime(date_hdr)
+                    local_now = datetime.now(timezone.utc)
+                    if server_dt.tzinfo is None:
+                        server_dt = server_dt.replace(tzinfo=timezone.utc)
+                    _server_time_offset_seconds = (server_dt - local_now).total_seconds()
+        except Exception:
+            pass
+    local_now = datetime.now(timezone.utc)
+    return local_now + timedelta(seconds=_server_time_offset_seconds)
 
 
 async def get_available_tokens_from_api() -> List[Dict]:
@@ -30,6 +58,7 @@ async def get_available_tokens_from_api() -> List[Dict]:
     
     try:
         print("[KNOWLEDGE] Fetching token list from 1-Click API...")
+        global _server_time_offset_seconds
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 "https://1click.chaindefuser.com/v0/tokens",
@@ -37,6 +66,15 @@ async def get_available_tokens_from_api() -> List[Dict]:
             )
             response.raise_for_status()
             data = response.json()
+            
+            # Synchronize server clock offset to prevent deadline invalidation errors
+            server_date_str = response.headers.get("date")
+            if server_date_str:
+                server_dt = parsedate_to_datetime(server_date_str)
+                local_now = datetime.now(timezone.utc)
+                if server_dt.tzinfo is None:
+                    server_dt = server_dt.replace(tzinfo=timezone.utc)
+                _server_time_offset_seconds = (server_dt - local_now).total_seconds()
         
         if not isinstance(data, list):
             print("[KNOWLEDGE] Unexpected API response format")
@@ -56,14 +94,19 @@ async def get_available_tokens_from_api() -> List[Dict]:
                 if symbol.upper() in ["WNEAR", "NEAR"]:
                     symbol = "NEAR"
                 
+                price_val = float(item.get("price", 0.0) or 0.0)
+                if price_val > 0:
+                    _token_prices[symbol.upper()] = price_val
+                    _token_prices[symbol.lower()] = price_val
+
                 tokens.append({
                     "symbol": symbol,
                     "name": _sanitize(item.get("name", symbol)),
                     "decimals": item.get("decimals", 18),
                     "defuseAssetId": item["assetId"],
                     "contractAddress": item.get("contractAddress", ""),
-                    "blockchain": item.get("blockchain", "near")
-
+                    "blockchain": item.get("blockchain", "near"),
+                    "price": price_val
                 })
         
         if not tokens:
@@ -117,20 +160,19 @@ def get_token_symbols_with_chain(tokens: List[Dict]) -> List[str]:
 def get_token_by_symbol(symbol: str, tokens: List[Dict], chain: str = None) -> Optional[Dict]:
     """
     Find a token by its symbol (case-insensitive).
-    If chain is specified, match both symbol and chain.
-    If chain is None, prefer NEAR chain token.
+    If chain is specified, prefer exact match on that chain; if not found on that chain,
+    fall back to any chain variation or NEAR/Aurora NEP-141 intent representation.
     """
     symbol_upper = symbol.upper()
     
-    # If chain specified, find exact match
+    # 1. If chain specified, try exact match first
     if chain:
         chain_lower = chain.lower()
         for token in tokens:
             if token["symbol"].upper() == symbol_upper and token.get("blockchain", "near").lower() == chain_lower:
                 return token
-        return None
     
-    # No chain specified - prefer NEAR chain
+    # 2. Prefer NEAR/Aurora chain match
     near_match = None
     first_match = None
     for token in tokens:

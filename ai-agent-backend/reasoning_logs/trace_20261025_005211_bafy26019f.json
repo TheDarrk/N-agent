@@ -1,0 +1,470 @@
+{
+  "agent": "trader",
+  "user_wallet": "neptune1.testnet",
+  "symbol": "PUBLIC",
+  "timeframe": "1h",
+  "verdict": "STAND_ASIDE",
+  "stage": "STAND_ASIDE_EVALUATION",
+  "confidence_score": 86,
+  "min_required": 75,
+  "expected_roi_pct": 0.0,
+  "binary_evidence_checks": {
+    "has_trend_alignment": false,
+    "has_volume_confirmation": false,
+    "has_chart_pattern_support": false,
+    "has_social_sentiment_support": false,
+    "favorable_risk_reward": true
+  },
+  "pattern_detected": "Dynamic EMA BULLISH Trend Structure",
+  "book_section_cited": "The 8-Step Trading Process & Pattern Foundations (sec_8step_process, rule_no_forced_trades)",
+  "reasoning": "Macro confluence is bearish on 4/5 timeframes with no volume confirmation and $0.00 effective tradable capital, so the Council unanimously stands aside per rule_no_forced_trades. Re-evaluate only upon a verified hourly BOS close above $0.0055 with expanding volume.",
+  "council_agreement": "All five advisors independently converged on veto: bearish 4/5 multi-timeframe macro alignment and zero effective tradable capital each separately kill the trade.",
+  "council_clash": "The Expansionist alone sees daily golden-cross continuation potential toward $0.0056, but conceded on cross-examination that volume starvation invalidates the entry trigger.",
+  "blind_spots_caught": "Cross-examination exposed that the headline 'BULLISH' EMA label contradicts the confluence feed's hourly death cross, and the $0.0056 target requires closing above unbroken $0.0055 resistance on volume that does not exist.",
+  "one_thing_first": "Stand aside, preserve the gas reserve, and re-arm the long mandate only on an hourly BOS body close above $0.0055 with 1.5x volume and restored tradable capital.",
+  "advisors": {
+    "contrarian": "Four of five timeframes print death crosses with hourly RR of 0.3; this 'bullish structure' is a bull trap below unbroken $0.0055 resistance.",
+    "first_principles": "EMA alignment is bullish only on the daily; the hourly death cross and 1.08x volume ratio fail rule_ema_alignment prerequisites for aggressive longs.",
+    "expansionist": "Upside toward $0.0056 exists only if the daily golden cross holds, but zero viral velocity and absent volume surge starve continuation fuel.",
+    "outsider": "Crowd sits at exact 50/50 neutrality with zero hype \u2014 no euphoria to fade, but no retail bid to power a resistance breakout either.",
+    "executor": "Effective tradable capital is $0.00 against the $5.00 hard cap; any entry order is infeasible and must be blocked to preserve the 0.05 NEAR gas reserve."
+  },
+  "indicators": {
+    "symbol": "PUBLIC",
+    "timeframe": "1h",
+    "current_price": 0.0054,
+    "rsi": 51.84,
+    "ema20": 0.0054,
+    "ema50": 0.0053,
+    "ema200": 0.0053,
+    "ema_trend": "BULLISH",
+    "ema_cross": "NEUTRAL",
+    "atr": 0.0001,
+    "atr_pct": 1.85,
+    "volume_surge": false,
+    "volume_ratio": 1.08,
+    "recent_support": 0.0053,
+    "recent_resistance": 0.0055,
+    "price_near_support": true,
+    "candles_count": 50,
+    "candles": [
+      {
+        "open_time": 0,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 85000.0
+      },
+      {
+        "open_time": 3600000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 104165.48
+      },
+      {
+        "open_time": 7200000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 114317.13
+      },
+      {
+        "open_time": 10800000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 110680.48
+      },
+      {
+        "open_time": 14400000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 94965.9
+      },
+      {
+        "open_time": 18000000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 74564.2
+      },
+      {
+        "open_time": 21600000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 59070.62
+      },
+      {
+        "open_time": 25200000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 55772.03
+      },
+      {
+        "open_time": 28800000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 66219.82
+      },
+      {
+        "open_time": 32400000,
+        "open": 0.0052,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0052,
+        "volume": 85500.21
+      },
+      {
+        "open_time": 36000000,
+        "open": 0.0052,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0052,
+        "volume": 104545.35
+      },
+      {
+        "open_time": 39600000,
+        "open": 0.0052,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0052,
+        "volume": 114398.0
+      },
+      {
+        "open_time": 43200000,
+        "open": 0.0052,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0052,
+        "volume": 110424.32
+      },
+      {
+        "open_time": 46800000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 94493.18
+      },
+      {
+        "open_time": 50400000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 74097.25
+      },
+      {
+        "open_time": 54000000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 58829.05
+      },
+      {
+        "open_time": 57600000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 55869.46
+      },
+      {
+        "open_time": 61200000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 66610.42
+      },
+      {
+        "open_time": 64800000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 86000.29
+      },
+      {
+        "open_time": 68400000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 104919.7
+      },
+      {
+        "open_time": 72000000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 114470.57
+      },
+      {
+        "open_time": 75600000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 110160.97
+      },
+      {
+        "open_time": 79200000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 94017.77
+      },
+      {
+        "open_time": 82800000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 73633.38
+      },
+      {
+        "open_time": 86400000,
+        "open": 0.0052,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 58594.88
+      },
+      {
+        "open_time": 90000000,
+        "open": 0.0052,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 55975.13
+      },
+      {
+        "open_time": 93600000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0052,
+        "close": 0.0053,
+        "volume": 67006.22
+      },
+      {
+        "open_time": 97200000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 86500.07
+      },
+      {
+        "open_time": 100800000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 105288.42
+      },
+      {
+        "open_time": 104400000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 114534.8
+      },
+      {
+        "open_time": 108000000,
+        "open": 0.0054,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 109890.51
+      },
+      {
+        "open_time": 111600000,
+        "open": 0.0055,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 93539.82
+      },
+      {
+        "open_time": 115200000,
+        "open": 0.0055,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 73172.72
+      },
+      {
+        "open_time": 118800000,
+        "open": 0.0054,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 58368.18
+      },
+      {
+        "open_time": 122400000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 56089.0
+      },
+      {
+        "open_time": 126000000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 67407.11
+      },
+      {
+        "open_time": 129600000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 86999.44
+      },
+      {
+        "open_time": 133200000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 105651.4
+      },
+      {
+        "open_time": 136800000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 114590.68
+      },
+      {
+        "open_time": 140400000,
+        "open": 0.0053,
+        "high": 0.0053,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 109613.01
+      },
+      {
+        "open_time": 144000000,
+        "open": 0.0053,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0053,
+        "volume": 93059.45
+      },
+      {
+        "open_time": 147600000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 72715.41
+      },
+      {
+        "open_time": 151200000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0053,
+        "close": 0.0054,
+        "volume": 58149.0
+      },
+      {
+        "open_time": 154800000,
+        "open": 0.0054,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 56211.04
+      },
+      {
+        "open_time": 158400000,
+        "open": 0.0055,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0055,
+        "volume": 67812.98
+      },
+      {
+        "open_time": 162000000,
+        "open": 0.0055,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0055,
+        "volume": 87498.24
+      },
+      {
+        "open_time": 165600000,
+        "open": 0.0055,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0055,
+        "volume": 106008.54
+      },
+      {
+        "open_time": 169200000,
+        "open": 0.0055,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0055,
+        "volume": 114638.2
+      },
+      {
+        "open_time": 172800000,
+        "open": 0.0054,
+        "high": 0.0055,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 109328.55
+      },
+      {
+        "open_time": 176400000,
+        "open": 0.0054,
+        "high": 0.0054,
+        "low": 0.0054,
+        "close": 0.0054,
+        "volume": 92576.8
+      }
+    ]
+  },
+  "twitter_sentiment": {
+    "symbol": "PUBLIC",
+    "hashtag": "#PUBLIC",
+    "sentiment": "NEUTRAL",
+    "bullish_pct": 50.0,
+    "bearish_pct": 50.0,
+    "viral_velocity_score": 0,
+    "sample_tweets": [],
+    "source": "None",
+    "enabled": false
+  },
+  "researcher_intel": null,
+  "cid": "bafy26019f47e64c8ca12ad9d7dd444dc8d49b28af11a86a",
+  "stored_at": "2026-10-25 00:52:11 UTC",
+  "stored_at_iso": "2026-10-25T00:52:11.550992+00:00",
+  "date_utc": "2026-10-25",
+  "time_utc": "00:52:11 UTC"
+}

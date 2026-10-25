@@ -2,13 +2,18 @@ import asyncio
 from py_near.account import Account
 from py_near.models import Action
 from py_near import transactions
+from network_config import get_near_rpc, is_testnet
 
 async def submit_near_transaction(tx_payload: list, agent_address: str, private_key: str) -> str:
     """
     Translates a Defuse 1-Click tx_payload list into py-near Actions, signs them,
-    and broadcasts to the NEAR protocol.
+    and broadcasts to the NEAR protocol with strict Testnet vs Mainnet RPC routing.
     """
-    account = Account(agent_address, private_key=private_key)
+    # Hard Network RPC Selection Check
+    rpc_addr = get_near_rpc(agent_address)
+    print(f"[SUBMIT] Connecting to NEAR [{ 'TESTNET' if is_testnet(agent_address) else 'MAINNET' }] via {rpc_addr} for {agent_address}")
+
+    account = Account(agent_address, private_key=private_key, rpc_addr=rpc_addr)
     await account.startup()
 
     tx_hash = None
@@ -58,6 +63,6 @@ async def submit_near_transaction(tx_payload: list, agent_address: str, private_
                 print(f"[SUBMIT]   Transaction successful! Hash: {tx_hash}")
 
     finally:
-        await account.shutdown()
-        
+        pass
+
     return tx_hash

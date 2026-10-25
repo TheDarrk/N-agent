@@ -3,14 +3,7 @@
  */
 
 import { POPULAR_TOKENS } from "./constants";
-
-const RPC_ENDPOINTS = [
-  "https://rpc.mainnet.near.org",            // Official
-  "https://mainnet.hello.pizza/api/v1/rpc",  // Reliable community
-  "https://free.rpc.fastnear.com",           // Fast but often rate-limited
-  "https://near-mainnet.rpc.fastnear.com",   // Alternative
-  "https://rpc.neartree.com",                // Backup
-];
+import { getRpcEndpoints, getNetworkConfig, isTestnet } from "./network";
 
 export { POPULAR_TOKENS };
 
@@ -25,61 +18,84 @@ export type TokenConfig = {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function rpcQuery(params: Record<string, unknown>): Promise<any> {
-  let lastError;
-  const ATTEMPTS_PER_URL = 1;
+  let lastError: any = null;
+  const endpoints = getRpcEndpoints();
 
-  for (const url of RPC_ENDPOINTS) {
-    for (let attempt = 0; attempt < ATTEMPTS_PER_URL; attempt++) {
-      try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: "v0",
-            method: "query",
-            params,
-          }),
-        });
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "v0",
+          method: "query",
+          params,
+        }),
+      });
 
-        if (!response.ok) {
-          // If 429, break to next URL immediately
-          if (response.status === 429) throw new Error("429 Too Many Requests");
-          throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        if (response.status === 429) {
+          lastError = new Error(`429 Too Many Requests on ${url}`);
+          continue;
         }
-
-        const data = await response.json();
-        if (data.error) {
-          // If server error, could be node specific, try next endpoint
-          throw new Error(data.error.message || JSON.stringify(data.error));
-        }
-        return data.result;
-      } catch (e) {
-        // Suppress individual RPC failure logs to avoid console flood
-        // console.warn(`RPC call to ${url} failed (attempt ${attempt + 1}):`, e);
-        lastError = e;
-
-        // Small delay before internal retry (if we were to multi-retry same URL)
-        // But for rotation, we just fail and move to next URL
-        break;
+        lastError = new Error(`HTTP error ${response.status} on ${url}`);
+        continue;
       }
+
+      const data = await response.json();
+      if (data.error) {
+        const causeName = data.error?.cause?.name || "";
+        const errDataStr = typeof data.error?.data === "string" ? data.error.data : JSON.stringify(data.error);
+
+        // Deterministic chain state (account/contract does not exist) - NOT an RPC network outage
+        if (
+          causeName === "UNKNOWN_ACCOUNT" ||
+          causeName === "CodeDoesNotExist" ||
+          errDataStr.includes("does not exist") ||
+          errDataStr.includes("CodeDoesNotExist") ||
+          errDataStr.includes("MethodNotFound")
+        ) {
+          const notFoundErr = new Error(`Resource not found: ${errDataStr}`);
+          (notFoundErr as any).isNotFound = true;
+          throw notFoundErr;
+        }
+
+        lastError = new Error(data.error.message || JSON.stringify(data.error));
+        continue;
+      }
+
+      return data.result;
+    } catch (e: any) {
+      if (e?.isNotFound) {
+        throw e;
+      }
+      lastError = e;
     }
   }
 
-  console.error("All RPC endpoints failed");
+  if (lastError?.isNotFound) {
+    throw lastError;
+  }
+
+  console.warn("[RPC] Query degraded across active endpoints:", endpoints, lastError?.message || lastError);
   throw lastError || new Error("All RPC endpoints failed");
 }
 
 export async function getAccountBalance(accountId: string): Promise<string> {
+  if (!accountId) return "0";
   try {
     const result = (await rpcQuery({
       request_type: "view_account",
       finality: "final",
       account_id: accountId,
     })) as { amount: string };
-    return result.amount;
-  } catch (e) {
-    console.error("Error fetching NEAR balance", e);
+    return result?.amount || "0";
+  } catch (e: any) {
+    if (e?.isNotFound) {
+      return "0";
+    }
+    console.warn("[RPC] Could not fetch NEAR balance for", accountId, e?.message || e);
     return "0";
   }
 }
@@ -100,7 +116,7 @@ export async function getTokenBalance(
     const resultStr = String.fromCharCode(...result.result);
     return JSON.parse(resultStr);
   } catch (e) {
-    console.error(`Error fetching token balance for ${contractId}`, e);
+    // Return "0" if account doesn't have token or contract missing
     return "0";
   }
 }
@@ -129,14 +145,14 @@ export type TokenWithBalance = {
 
 /**
  * Fetches all tokens for an account using FastNEAR API (primary)
- * or Kitwallet likelyTokens (fallback).
+ * or Kitwallet / Testnet tokens fallback.
  */
 export async function fetchAllTokens(accountId: string): Promise<TokenWithBalance[]> {
-  const tokens: TokenWithBalance[] = [];
+  const config = getNetworkConfig();
 
-  // 1. Try FastNEAR (Fastest, single call)
+  // 1. Try FastNEAR for the active network
   try {
-    const res = await fetch(`https://api.fastnear.com/v1/account/${accountId}/ft`);
+    const res = await fetch(`${config.fastnearApi}/v1/account/${accountId}/ft`);
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data)) {
@@ -150,10 +166,41 @@ export async function fetchAllTokens(accountId: string): Promise<TokenWithBalanc
       }
     }
   } catch (e) {
-    console.warn("FastNEAR API failed, trying fallback...", e);
+    console.warn("[FastNEAR] API failed, using fallback...", e);
   }
 
-  // 2. Fallback: Kitwallet likelyTokens + RPC
+  // 2. Testnet specific known tokens check (wrap.testnet, usdt.fakes.testnet, usdc.fakes.testnet)
+  if (isTestnet()) {
+    const testnetTokens = [
+      { contractId: "wrap.testnet", symbol: "wNEAR", decimals: 24 },
+      { contractId: "usdt.fakes.testnet", symbol: "USDT", decimals: 6 },
+      { contractId: "usdc.fakes.testnet", symbol: "USDC", decimals: 6 },
+    ];
+
+    const results = await Promise.all(
+      testnetTokens.map(async (t) => {
+        try {
+          const raw = await getTokenBalance(accountId, t.contractId);
+          if (raw && raw !== "0") {
+            return {
+              contractId: t.contractId,
+              symbol: t.symbol,
+              decimals: t.decimals,
+              balance: raw,
+              formatted: formatBalance(raw, t.decimals),
+            };
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return results.filter((t): t is TokenWithBalance => t !== null);
+  }
+
+  // 3. Fallback for mainnet: Kitwallet likelyTokens + RPC
   try {
     const res = await fetch(`https://api.kitwallet.app/account/${accountId}/likelyTokensFromBlock`);
     if (!res.ok) return [];
@@ -166,7 +213,6 @@ export async function fetchAllTokens(accountId: string): Promise<TokenWithBalanc
         const balance = await getTokenBalance(accountId, contractId);
         if (balance === "0") return null;
 
-        // Fetch Metadata
         const metadata = (await rpcQuery({
           request_type: "call_function",
           finality: "final",
@@ -175,7 +221,6 @@ export async function fetchAllTokens(accountId: string): Promise<TokenWithBalanc
           args_base64: "e30=", // {}
         })) as { result: number[] };
 
-        // Handle potential metadata fetch failure
         if (!metadata || !metadata.result) return null;
 
         const metaJson = JSON.parse(String.fromCharCode(...metadata.result));
@@ -188,7 +233,6 @@ export async function fetchAllTokens(accountId: string): Promise<TokenWithBalanc
           formatted: formatBalance(balance, metaJson.decimals),
         };
       } catch (e) {
-        // Silent fail for individual token
         return null;
       }
     });

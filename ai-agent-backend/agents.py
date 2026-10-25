@@ -23,7 +23,7 @@ from orchestrator import orchestrate_compound_query
 api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
 
 llm = ChatOpenAI(
-    model="openai/gpt-oss-120b",
+    model=os.getenv("NEAR_AI_MODEL", "z-ai/glm-5.3-flash"),
     temperature=0.3,
     openai_api_key=api_key,
     openai_api_base="https://cloud-api.near.ai/v1"

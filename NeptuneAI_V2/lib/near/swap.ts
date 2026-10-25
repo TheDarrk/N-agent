@@ -4,6 +4,7 @@
 
 import { TOKEN_MAP, DECIMALS_MAP } from "./constants";
 import { getAvailableTokensFromApi, getTokenBySymbol } from "./knowledge-base";
+import { getNetworkConfig, isTestnet, assertNetworkContract } from "./network";
 
 export interface SwapQuote {
   token_in: string;
@@ -170,7 +171,9 @@ export function createNearIntentTransaction(
   _minAmountOut: number,
   depositAddress = "solver-relay.near"
 ): TransactionPayload[] {
-  const contractId = "intents.near";
+  const config = getNetworkConfig();
+  const contractId = config.defuseContract; // "intents.testnet" on testnet, "intents.near" on mainnet
+  const wrapContract = config.wrapContract; // "wrap.testnet" on testnet, "wrap.near" on mainnet
   const transactions: TransactionPayload[] = [];
 
   const decimalsIn = DECIMALS_MAP[tokenIn.toUpperCase()] ?? 24;
@@ -179,7 +182,7 @@ export function createNearIntentTransaction(
   if (tokenIn.toLowerCase() === "near") {
     // Wrap NEAR then deposit to intents
     transactions.push({
-      receiverId: "wrap.near",
+      receiverId: wrapContract,
       actions: [
         {
           type: "FunctionCall",
@@ -221,10 +224,10 @@ export function createNearIntentTransaction(
     // NEP-141 token deposit
     const tInContract =
       TOKEN_MAP[tokenIn.toUpperCase()]?.replace("nep141:", "") ||
-      `${tokenIn.toLowerCase()}.near`;
+      (isTestnet() ? `${tokenIn.toLowerCase()}.fakes.testnet` : `${tokenIn.toLowerCase()}.near`);
 
     transactions.push({
-      receiverId: tInContract,
+      receiverId: assertNetworkContract(tInContract),
       actions: [
         {
           type: "FunctionCall",
@@ -254,7 +257,9 @@ export function createNearIntentTransaction(
           args: {
             token_id:
               TOKEN_MAP[tokenIn.toUpperCase()] ||
-              `nep141:${tokenIn.toLowerCase()}.near`,
+              (isTestnet()
+                ? `nep141:${tokenIn.toLowerCase()}.fakes.testnet`
+                : `nep141:${tokenIn.toLowerCase()}.near`),
             receiver_id: depositAddress,
             amount: amountInt,
             msg: "",

@@ -341,7 +341,7 @@ async def parse_strategy(body: StrategyParseRequest):
         api_key = os.getenv("NEAR_AI_API_KEY")
 
         llm = ChatOpenAI(
-            model="openai/gpt-oss-120b",
+            model=os.getenv("NEAR_AI_MODEL", "z-ai/glm-5.3-flash"),
             temperature=0,
             openai_api_key=api_key,
             openai_api_base="https://cloud-api.near.ai/v1"
@@ -483,9 +483,12 @@ async def autonomy_status():
 
 class TraderScanRequest(BaseModel):
     user_wallet: str
-    symbol: Optional[str] = "NEAR"
+    symbol: Optional[str] = None
     timeframe: Optional[str] = "1h"
     min_confidence: Optional[int] = 75
+    coin_mode: Optional[str] = "auto"
+    custom_coins: Optional[List[str]] = None
+    enable_researcher_plugin: Optional[bool] = None
 
 class TraderSettingsRequest(BaseModel):
     user_wallet: str
@@ -495,6 +498,13 @@ class TraderSettingsRequest(BaseModel):
     trader_max_trades_per_day: Optional[int] = 3
     trader_max_trades_per_week: Optional[int] = 12
     max_tx_amount: Optional[float] = 100.0
+    trader_coin_mode: Optional[str] = "auto"
+    trader_custom_coins: Optional[str] = ""
+    trader_enable_researcher: Optional[int] = 1
+
+class NetworkToggleRequest(BaseModel):
+    user_wallet: Optional[str] = None
+    network: str = "testnet"
 
 class RebalanceRequest(BaseModel):
     user_wallet: str
@@ -518,42 +528,74 @@ class ModeratorKillSwitchRequest(BaseModel):
 
 @app.post("/api/trader/analyze")
 async def trader_analyze(body: TraderScanRequest):
-    """Trigger the Trader Agent's 4-node pipeline with LLM-as-a-Judge."""
+    """Trigger the Trader Agent's 2-node pipeline with LLM-as-a-Judge, visual charts, and research plugin."""
     from autonomous_agents.trader_agent import TraderAgent
     trader = TraderAgent()
     result = await trader.run_pipeline(
         user_wallet=body.user_wallet,
-        symbol=body.symbol or "NEAR",
+        symbol=body.symbol,
+        coin_mode=body.coin_mode,
+        custom_coins=body.custom_coins,
         force_timeframe=body.timeframe,
-        force_min_confidence=body.min_confidence
+        force_min_confidence=body.min_confidence,
+        enable_researcher_plugin=body.enable_researcher_plugin
     )
     return result
 
 @app.get("/api/trader/trades/{wallet_address}")
 async def get_trader_trades(wallet_address: str):
-    """Get open positions and history for the user."""
-    from database import get_open_trades, get_user_trade_history
+    """Get open positions, dropped trades, and history for the user."""
+    from database import get_open_trades, get_user_trade_history, get_dropped_trades
     open_trades = get_open_trades(wallet_address)
     history = get_user_trade_history(wallet_address, limit=20)
+    dropped = get_dropped_trades(wallet_address, limit=10)
     return {
         "open_trades": open_trades,
         "history": history,
-        "open_count": len(open_trades)
+        "dropped_trades": dropped,
+        "open_count": len(open_trades),
+        "dropped_count": len(dropped)
     }
 
 @app.post("/api/trader/settings")
 async def update_trader_settings(body: TraderSettingsRequest):
-    """Save user trader preferences & hard caps."""
+    """Save user trader preferences, researcher plugin & hard caps."""
     settings = {
         "trader_timeframe": body.trader_timeframe,
         "trader_min_confidence": body.trader_min_confidence,
         "trader_risk_profile": body.trader_risk_profile,
         "trader_max_trades_per_day": body.trader_max_trades_per_day,
         "trader_max_trades_per_week": body.trader_max_trades_per_week,
-        "max_tx_amount": body.max_tx_amount
+        "max_tx_amount": body.max_tx_amount,
+        "trader_coin_mode": body.trader_coin_mode,
+        "trader_custom_coins": body.trader_custom_coins,
+        "trader_enable_researcher": body.trader_enable_researcher
     }
     user = upsert_user(body.user_wallet, settings)
     return {"status": "updated", "user": user}
+
+@app.get("/api/trader/scanner")
+async def get_scanner_rankings(mode: str = "auto", timeframe: str = "1h"):
+    """Get the 20-coin scanner ranking."""
+    from coin_scanner import scan_coin_universe
+    res = await scan_coin_universe(mode=mode, timeframe=timeframe)
+    return res
+
+@app.get("/api/twitter/sentiment/{symbol}")
+async def get_twitter_sentiment(symbol: str):
+    """Get live Twitter/X hashtag sentiment for asset."""
+    from twitter_sentiment import search_twitter_sentiment
+    res = await search_twitter_sentiment(symbol=symbol)
+    return res
+
+@app.get("/api/trader/knowledge")
+async def get_trading_knowledge():
+    """Get indexed sections and rules from Crypto Trading Book."""
+    from trading_book_rag import trading_book_rag
+    return {
+        "total_sections": len(trading_book_rag.sections),
+        "sections": trading_book_rag.sections
+    }
 
 @app.get("/api/trader/traces")
 async def get_trade_traces():
@@ -619,10 +661,67 @@ async def get_research_reports():
 
 @app.get("/api/moderator/status/{wallet_address}")
 async def moderator_status(wallet_address: str):
-    """Get watchdog health score, aggregate exposure, and breach status."""
+    """Get LLM-as-a-Judge evaluation of fleet performance across 5 parameters."""
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()
-    return await moderator.get_watchdog_status(wallet_address)
+    return await moderator.evaluate_fleet_performance(wallet_address)
+
+@app.get("/api/moderator/judge/{wallet_address}")
+async def moderator_judge(wallet_address: str):
+    """Explicit endpoint for Moderator LLM-as-a-Judge 5-parameter audit."""
+    from autonomous_agents.moderator_agent import ModeratorAgent
+    moderator = ModeratorAgent()
+    return await moderator.evaluate_fleet_performance(wallet_address)
+
+@app.get("/api/fleet/{wallet_address}")
+async def get_agent_fleet(wallet_address: str):
+    """Get all 4 specialized agents' avatars, live statuses, and historical telemetry."""
+    from database import get_fleet_activity
+    return get_fleet_activity(wallet_address)
+
+class AgentFleetConfigRequest(BaseModel):
+    user_wallet: str
+    agent_id: str
+    is_active: bool
+    config: Optional[Dict[str, Any]] = None
+
+@app.post("/api/fleet/config")
+async def save_agent_fleet_config(body: AgentFleetConfigRequest):
+    """Activate/deactivate and configure an agent in the fleet."""
+    from database import update_agent_fleet_config
+    return update_agent_fleet_config(
+        user_wallet=body.user_wallet,
+        agent_id=body.agent_id,
+        is_active=body.is_active,
+        config=body.config or {}
+    )
+
+@app.get("/api/network")
+async def get_current_network():
+    """Get active NEAR network mode."""
+    from network_config import get_network, is_mainnet_allowed, get_near_rpc
+    net = get_network()
+    return {
+        "network": net,
+        "rpc": get_near_rpc(),
+        "mainnet_allowed": is_mainnet_allowed(),
+    }
+
+@app.post("/api/network")
+async def set_current_network(body: NetworkToggleRequest):
+    """Set active NEAR network mode (testnet vs mainnet)."""
+    import os
+    from network_config import is_mainnet_allowed
+    if body.network == "mainnet" and not is_mainnet_allowed():
+        return {
+            "status": "prohibited",
+            "message": "Mainnet is prohibited by server configuration (ENABLE_MAINNET=false).",
+            "network": "testnet"
+        }
+    os.environ["NEAR_NETWORK"] = body.network
+    if body.user_wallet:
+        upsert_user(body.user_wallet, {"near_network": body.network})
+    return {"status": "updated", "network": body.network}
 
 @app.post("/api/moderator/kill-switch")
 async def moderator_kill_switch_action(body: ModeratorKillSwitchRequest):
@@ -635,78 +734,74 @@ async def moderator_kill_switch_action(body: ModeratorKillSwitchRequest):
         return await moderator.reset_kill_switch(body.user_wallet)
 
 
-# ─── 5. AGENT MARKETPLACE DISCOVERY ──────────────────────────────
+# ─── 5. AGENT MARKETPLACE DISCOVERY & HIRING ──────────────────────
+
+class PublishMarketplaceAgentRequest(BaseModel):
+    creator_wallet: str
+    agent_type: str  # 'trader', 'rebalancer', 'research'
+    name: str
+    description: str
+    pricing_type: str  # 'profit_share', 'fee_per_trade', 'fee_per_report'
+    pricing_value: float
+    config_snapshot: Optional[Dict[str, Any]] = None
+
+class HireMarketplaceAgentRequest(BaseModel):
+    subscriber_wallet: str
+    listing_id: str
+
+class CancelMarketplaceHireRequest(BaseModel):
+    subscriber_wallet: str
+    hire_id: str
 
 @app.get("/api/marketplace/agents")
-async def get_marketplace_agents():
-    """List all available agents with their on-chain mandates, Sharpe rankings, and fee models."""
-    return {
-        "agents": [
-            {
-                "id": "agent-trader-alpha",
-                "name": "AlphaTrader v2",
-                "category": "Trader",
-                "creator": "quant_trader.near",
-                "description": "Multi-timeframe trend & breakout trader with LLM-as-a-Judge and ATR dynamic TP/SL.",
-                "fee_model": "20% Profit Only (High-Water Mark)",
-                "sharpe_ratio": 2.41,
-                "win_rate_pct": 74.2,
-                "cadence": "1h - 1d",
-                "mandate": {
-                    "allowed_tokens": ["NEAR", "WETH", "USDC", "WBTC"],
-                    "max_drawdown_limit": "8.0%",
-                    "max_leverage": "1x Spot / 3x Margin",
-                    "daily_loss_cap": "$100"
-                }
-            },
-            {
-                "id": "agent-rebalancer-safe",
-                "name": "StableGuard Rebalancer",
-                "category": "Rebalancer",
-                "creator": "yield_master.near",
-                "description": "Rule-driven portfolio optimizer maintaining 70% stables and 30% NEAR against market drift.",
-                "fee_model": "Free / 0.05% Volume Rebalance",
-                "sharpe_ratio": 3.12,
-                "win_rate_pct": 98.0,
-                "cadence": "Every 10 min",
-                "mandate": {
-                    "allowed_tokens": ["USDC", "USDT", "NEAR"],
-                    "max_drift_threshold": "5.0%",
-                    "rebalance_venue": "NEAR Intents (Defuse 1-Click)"
-                }
-            },
-            {
-                "id": "agent-research-alpha",
-                "name": "NEAR Ecosystem Deep Research",
-                "category": "Research",
-                "creator": "alpha_creator.near",
-                "description": "Produces actionable institutional reports and directional signals. Can be hired by other agents.",
-                "fee_model": "0.1 NEAR / Report or 1.5 NEAR / Month",
-                "sharpe_ratio": 2.15,
-                "win_rate_pct": 71.8,
-                "cadence": "On-Demand & Hourly Signals",
-                "mandate": {
-                    "coverage": "NEAR Liquid Staking, DEX Liquidity, Intents",
-                    "storage": "Decentralized IPFS CIDs (Recent 10)"
-                }
-            },
-            {
-                "id": "agent-moderator-watchdog",
-                "name": "Sentinel Watchdog & Kill Switch",
-                "category": "Moderator",
-                "creator": "security_core.near",
-                "description": "Default-on portfolio guardian. Calculates real-time Health Score and triggers emergency key revocation.",
-                "fee_model": "Built-in / Platform Safety",
-                "sharpe_ratio": 3.85,
-                "win_rate_pct": 100.0,
-                "cadence": "Continuous 24/7",
-                "mandate": {
-                    "kill_switch_enabled": True,
-                    "max_portfolio_exposure": "70% of Daily Limit"
-                }
-            }
-        ]
-    }
+async def list_marketplace_agents_endpoint(agent_type: Optional[str] = None):
+    """List all real user-published agents from the decentralized marketplace database."""
+    from database import get_marketplace_agents
+    agents = get_marketplace_agents(agent_type=agent_type)
+    return {"agents": agents}
+
+@app.post("/api/marketplace/publish")
+async def publish_agent_to_marketplace(body: PublishMarketplaceAgentRequest):
+    """Publish an agent to the marketplace with creator-defined profit share or fee."""
+    from database import publish_marketplace_agent
+    if body.agent_type.lower() == "moderator":
+        raise HTTPException(status_code=400, detail="Moderator Watchdog agent is platform-reserved and cannot be listed for sale.")
+    try:
+        listing = publish_marketplace_agent(
+            creator_wallet=body.creator_wallet,
+            agent_type=body.agent_type,
+            name=body.name,
+            description=body.description,
+            pricing_type=body.pricing_type,
+            pricing_value=body.pricing_value,
+            config_snapshot=body.config_snapshot
+        )
+        return {"status": "success", "listing": listing}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/marketplace/hire")
+async def hire_marketplace_agent_endpoint(body: HireMarketplaceAgentRequest):
+    """Hire a shared marketplace agent. Trades & actions taken by creator will be mirrored for subscriber."""
+    from database import hire_marketplace_agent
+    try:
+        result = hire_marketplace_agent(body.subscriber_wallet, body.listing_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/marketplace/hires/{user_wallet}")
+async def get_user_marketplace_hires(user_wallet: str):
+    """Get active hires and subscribers for a wallet."""
+    from database import get_user_hires
+    return get_user_hires(user_wallet)
+
+@app.post("/api/marketplace/hire/cancel")
+async def cancel_marketplace_hire_endpoint(body: CancelMarketplaceHireRequest):
+    """Cancel a hire subscription."""
+    from database import cancel_marketplace_hire
+    success = cancel_marketplace_hire(body.subscriber_wallet, body.hire_id)
+    return {"status": "cancelled" if success else "not_found", "success": success}
 
 # ===================================================================
 # Agent Wallet Endpoints (agent gets its own wallet)
@@ -823,23 +918,194 @@ async def list_agent_keys(wallet_address: str):
 
 
 
+
+# ===================================================================
+# Agent Wallet Manager Endpoints (Track 7: Give AI a Wallet)
+# ===================================================================
+
+class GenerateAgentWalletRequest(BaseModel):
+    user_wallet: str
+    label: Optional[str] = ""
+    wallet_type: Optional[str] = "implicit"
+    subaccount_prefix: Optional[str] = ""
+    funding_near: Optional[float] = 0.5
+    assigned_agent: Optional[str] = None
+
+class ImportAgentWalletRequest(BaseModel):
+    user_wallet: str
+    public_key: str
+    agent_account_id: str
+    label: Optional[str] = ""
+    private_key: Optional[str] = ""
+
+class AssignAgentWalletsRequest(BaseModel):
+    user_wallet: str
+    assignments: Dict[str, Any]
+
+class DeleteAgentWalletRequest(BaseModel):
+    user_wallet: str
+    key_id: int
+
+class ActivateSubaccountRequest(BaseModel):
+    user_wallet: str
+    key_id: int
+    tx_hash: Optional[str] = ""
+    assigned_agent: Optional[str] = None
+
+
+@app.get("/api/agent-wallet/config/{wallet_address}")
+async def get_agent_wallet_configuration(wallet_address: str):
+    """
+    Get full Agent Wallet pool (up to 4 wallets) and agent assignment mapping.
+    """
+    from database import get_user_agent_wallet_config
+    return get_user_agent_wallet_config(wallet_address)
+
+
+@app.post("/api/agent-wallet/generate")
+async def generate_agent_wallet_endpoint(body: GenerateAgentWalletRequest):
+    """
+    Generate a new dedicated Agent Wallet keypair (max 4 per user).
+    Creates an on-chain signing payload for the user's main wallet to fund & delegate FullAccess.
+    """
+    from database import create_agent_wallet
+    try:
+        new_wallet = create_agent_wallet(
+            user_wallet=body.user_wallet,
+            label=body.label or "",
+            wallet_type=body.wallet_type or "implicit",
+            subaccount_prefix=body.subaccount_prefix or "",
+            funding_near=body.funding_near or 0.5,
+            assigned_agent=body.assigned_agent
+        )
+        return {"status": "success", "wallet": new_wallet}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent-wallet/activate-subaccount")
+async def activate_subaccount_endpoint(body: ActivateSubaccountRequest):
+    """
+    Activate a named subaccount agent wallet after the on-chain creation transaction has been signed & confirmed.
+    """
+    from database import activate_agent_wallet
+    try:
+        activated = activate_agent_wallet(
+            user_wallet=body.user_wallet,
+            key_id=body.key_id,
+            tx_hash=body.tx_hash or "",
+            assigned_agent=body.assigned_agent
+        )
+        if not activated:
+            raise HTTPException(status_code=404, detail="Agent wallet not found or already active")
+        return {"status": "success", "activated": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent-wallet/import")
+async def import_agent_wallet_endpoint(body: ImportAgentWalletRequest):
+    """
+    Import an existing account or custom keypair into the user's agent wallet pool (max 4).
+    """
+    from database import import_agent_wallet
+    try:
+        imported = import_agent_wallet(
+            user_wallet=body.user_wallet,
+            public_key=body.public_key,
+            agent_account_id=body.agent_account_id,
+            label=body.label or "",
+            private_key=body.private_key or ""
+        )
+        return {"status": "success", "wallet": imported}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agent-wallet/assign")
+async def assign_agent_wallets_endpoint(body: AssignAgentWalletsRequest):
+    """
+    Assign which agent uses which agent wallet.
+    Constraint: Each agent can only be connected to 1 wallet at a time.
+    However, 1 wallet CAN be shared across multiple agents.
+    """
+    from database import assign_agent_wallets
+    try:
+        updated_config = assign_agent_wallets(user_wallet=body.user_wallet, assignments=body.assignments)
+        return {"status": "success", "config": updated_config}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/agent-wallet/delete")
+async def delete_agent_wallet_endpoint(body: DeleteAgentWalletRequest):
+    """
+    Delete an agent wallet and unassign it from any agents.
+    """
+    from database import delete_user_agent_wallet
+    success = delete_user_agent_wallet(user_wallet=body.user_wallet, key_id=body.key_id)
+    return {"status": "success" if success else "not_found", "deleted": success}
+
+
+class CrossChainSettingsRequest(BaseModel):
+    user_wallet: str
+    allow_cross_chain: bool
+
+
+@app.post("/api/settings/cross-chain")
+async def update_cross_chain_setting_endpoint(body: CrossChainSettingsRequest):
+    """Toggle cross-chain trading permissions via NEAR Intents."""
+    from database import update_cross_chain_setting
+    success = update_cross_chain_setting(body.user_wallet, body.allow_cross_chain)
+    return {"success": success, "allow_cross_chain": body.allow_cross_chain}
+
+
+@app.get("/api/agent-wallet/dropped-trades/{wallet_address}")
+async def get_dropped_trades_endpoint(wallet_address: str, limit: int = 20):
+    """Get all transactions dropped by the Hard Agent Wallet Validator."""
+    from database import get_dropped_trades
+    dropped = get_dropped_trades(wallet_address, limit=limit)
+    return {"dropped_trades": dropped, "total": len(dropped)}
+
 @app.get("/api/agent-wallet/balance/{address}")
 async def get_agent_wallet_balance(address: str, chain: str = "near"):
     """Check the balance of an agent wallet via RPC. Supports near, evm, flow."""
     import requests as req
     try:
         if chain == "near":
-            rpc_url = os.getenv("NEAR_RPC_URL", "https://rpc.mainnet.near.org")
-            resp = req.post(rpc_url, json={
-                "jsonrpc": "2.0", "id": "1", "method": "query",
-                "params": {"request_type": "view_account", "finality": "final", "account_id": address}
-            }, timeout=10)
-            result = resp.json().get("result", {})
-            if "error" in result:
-                return {"balance": "0", "formatted": "0 NEAR", "exists": False}
-            amount = result.get("amount", "0")
-            near_bal = int(amount) / 1e24
-            return {"balance": amount, "formatted": f"{near_bal:.4f} NEAR", "exists": True}
+            from network_config import get_near_rpc, TESTNET_RPC_ENDPOINTS, is_testnet
+            endpoints = TESTNET_RPC_ENDPOINTS if is_testnet(address) else [get_near_rpc(address)]
+            for rpc_url in endpoints:
+                try:
+                    resp = req.post(rpc_url, json={
+                        "jsonrpc": "2.0", "id": "1", "method": "query",
+                        "params": {"request_type": "view_account", "finality": "final", "account_id": address}
+                    }, timeout=6)
+                    data = resp.json()
+                    result = data.get("result", {})
+                    if "error" in result:
+                        return {"balance": "0", "formatted": "0 NEAR", "exists": False}
+                    if "amount" in result:
+                        amount = result.get("amount", "0")
+                        near_bal = int(amount) / 1e24
+                        return {"balance": amount, "formatted": f"{near_bal:.4f} NEAR", "exists": True}
+                except Exception:
+                    continue
+            return {"balance": "0", "formatted": "0 NEAR", "exists": False}
 
         elif chain == "evm":
             rpc_url = os.getenv("ETH_RPC_URL", "https://eth.llamarpc.com")
@@ -898,6 +1164,39 @@ async def remove_agent_wallet(body: DeleteAgentWalletRequest):
     }
 
 
+class ExecuteTxRequest(BaseModel):
+    account_id: str
+    network: str = "testnet"
+    payload: Any
+
+@app.post("/api/autonomy/execute-tx")
+async def execute_tx_broadcast(body: ExecuteTxRequest):
+    """Broadcast or execute transaction payload on the specified network."""
+    import uuid
+    from key_manager import decrypt_private_key
+    from database import get_agent_key
+    from autonomous_agents.near_submitter import submit_near_transaction
+
+    agent_key = get_agent_key(body.account_id, "near")
+    if agent_key and agent_key.get("encrypted_private_key"):
+        try:
+            priv_key = decrypt_private_key(agent_key["encrypted_private_key"])
+            tx_payload = body.payload if isinstance(body.payload, list) else [body.payload]
+            tx_hash = await submit_near_transaction(
+                tx_payload=tx_payload,
+                agent_address=body.account_id,
+                private_key=priv_key
+            )
+            return {"status": "broadcast", "tx_hash": tx_hash}
+        except Exception as e:
+            print(f"[EXECUTE-TX] Submitter error for {body.account_id}: {e}")
+
+    # Fallback simulation hash for testnet testing
+    sim_hash = f"testnet-{uuid.uuid4().hex[:16]}"
+    return {"status": "simulated", "tx_hash": sim_hash}
+
+
+
 
 
 
@@ -907,3 +1206,41 @@ if __name__ == "__main__":
         print("WARNING: NEAR_AI_API_KEY not found in environment variables. Agent will fail.")
 
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+class FundAgentWalletRequest(BaseModel):
+    user_wallet: str
+    key_id: int
+    amount_near: Optional[float] = 0.5
+
+
+@app.post("/api/agent-wallet/fund-payload")
+async def fund_agent_wallet_payload_endpoint(body: FundAgentWalletRequest):
+    """Generate sign payload to deposit funds into an existing agent execution wallet from main connected wallet."""
+    from database import get_fund_agent_wallet_payload
+    try:
+        payload = get_fund_agent_wallet_payload(body.user_wallet, body.key_id, body.amount_near or 0.5)
+        return {"status": "success", "sign_payload": payload}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class GenerateEvmAgentWalletRequest(BaseModel):
+    user_wallet: str
+    label: Optional[str] = "Trader Arbitrum / EVM Wallet"
+    assigned_agent: Optional[str] = None
+
+
+@app.post("/api/agent-wallet/generate-evm")
+async def generate_evm_agent_wallet_endpoint(body: GenerateEvmAgentWalletRequest):
+    """Generate a dedicated EVM / Arbitrum / Ethereum keypair for cross-chain trades."""
+    from database import create_evm_agent_wallet
+    try:
+        w = create_evm_agent_wallet(body.user_wallet, body.label or "", body.assigned_agent)
+        return {"status": "success", "wallet": w}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

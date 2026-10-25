@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import { ArrowRight, ArrowDownUp, CheckCircle2, Sparkles, Copy, Check, ExternalLink } from "lucide-react";
+import { getTokenLogoUrl } from "@/lib/near/token-logos";
 
 type Message = {
   id: string;
@@ -93,6 +94,42 @@ function CopyableLink({ url, label }: { url: string; label?: string }) {
   );
 }
 
+/* ── Safe Chain Icon with Fallback ── */
+function SafeChainIcon({ chain, token, size = 14 }: { chain: string; token?: string; size?: number }) {
+  const [imgError, setImgError] = useState(false);
+  const upperChain = chain.toUpperCase();
+  const upperToken = token ? token.toUpperCase() : "";
+  // Check high-reliability CDN registry first, then fallback to local map
+  const logo = (upperToken ? getTokenLogoUrl(upperToken) : undefined)
+    || getTokenLogoUrl(upperChain)
+    || CHAIN_LOGOS[upperChain]
+    || (upperToken ? CHAIN_LOGOS[upperToken] : undefined);
+
+  if (logo && !imgError) {
+    return (
+      <img
+        src={logo}
+        alt={upperToken || upperChain}
+        width={size}
+        height={size}
+        referrerPolicy="no-referrer"
+        onError={() => setImgError(true)}
+        className="rounded-full flex-shrink-0 object-cover"
+      />
+    );
+  }
+
+  const symbolToDisplay = (upperToken || upperChain).slice(0, 2);
+  return (
+    <span
+      style={{ width: size, height: size, fontSize: Math.max(7, Math.floor(size * 0.55)) }}
+      className="rounded-full bg-primary/20 text-primary border border-primary/30 font-bold flex items-center justify-center flex-shrink-0 uppercase"
+    >
+      {symbolToDisplay}
+    </span>
+  );
+}
+
 /* ── Render chain tokens as inline badges with logo ── */
 function renderChainToken(text: string): React.ReactNode[] {
   // Clean up patterns like "CHAINNAME ( [CHAIN] )" → just "[CHAIN] CHAINNAME"
@@ -122,16 +159,7 @@ function renderChainToken(text: string): React.ReactNode[] {
         key={`ct-${match.index}`}
         className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-primary/8 border border-primary/15 font-mono text-[11px] font-semibold align-middle mx-0.5 hover:bg-primary/12 transition-colors"
       >
-        {logo && (
-          <img
-            src={logo}
-            alt={chain}
-            width={14}
-            height={14}
-            className="rounded-full flex-shrink-0"
-            crossOrigin="anonymous"
-          />
-        )}
+        <SafeChainIcon chain={chain} token={token} size={14} />
         <span className="text-muted-foreground/70 text-[10px] uppercase tracking-wider">{chain}</span>
         {token && <span className="text-primary">{token}</span>}
       </span>
@@ -249,9 +277,7 @@ function renderTableCell(cell: string): React.ReactNode {
     const logo = CHAIN_LOGOS[chain];
     return (
       <span className="inline-flex items-center gap-1.5">
-        {logo && (
-          <img src={logo} alt={chain} width={16} height={16} className="rounded-full" crossOrigin="anonymous" />
-        )}
+        <SafeChainIcon chain={chain} size={16} />
         <span className="font-semibold text-foreground">{chain}</span>
       </span>
     );
@@ -449,11 +475,7 @@ function MarkdownContent({ text }: { text: string }) {
           items.push(
             <li key={i} className="rounded-lg border border-primary/8 bg-secondary/20 p-3 hover:bg-secondary/30 transition-colors">
               <div className="flex items-center gap-2 mb-2">
-                {logo ? (
-                  <img src={logo} alt={chainName} width={18} height={18} className="rounded-full" crossOrigin="anonymous" />
-                ) : (
-                  <span className="w-[18px] h-[18px] rounded-full bg-primary/20 flex-shrink-0" />
-                )}
+                <SafeChainIcon chain={chainName} size={18} />
                 <span className="text-[13px] font-bold text-foreground">{chainName}</span>
               </div>
               <div className="flex flex-wrap gap-1.5">

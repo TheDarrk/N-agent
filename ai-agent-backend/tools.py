@@ -220,8 +220,32 @@ def get_swap_quote(
     t_out = token_out.upper()
     
     # Dynamic lookup from knowledge base
-    from knowledge_base import _token_cache, get_token_by_symbol
-    tokens = _token_cache if _token_cache else []
+    import knowledge_base
+    from knowledge_base import get_token_by_symbol
+    tokens = knowledge_base._token_cache if knowledge_base._token_cache else []
+    if not tokens:
+        import httpx
+        try:
+            res = httpx.get("https://1click.chaindefuser.com/v0/tokens", timeout=5.0)
+            if res.status_code == 200:
+                data = res.json()
+                loaded = []
+                for item in data:
+                    if item.get("assetId") and item.get("symbol"):
+                        sym = item["symbol"].replace("WNEAR", "NEAR")
+                        loaded.append({
+                            "symbol": sym,
+                            "name": item.get("name", sym),
+                            "decimals": item.get("decimals", 18),
+                            "defuseAssetId": item["assetId"],
+                            "contractAddress": item.get("contractAddress", ""),
+                            "blockchain": item.get("blockchain", "near"),
+                            "price": float(item.get("price", 0.0) or 0.0)
+                        })
+                knowledge_base._token_cache = loaded
+                tokens = loaded
+        except Exception:
+            pass
     
     token_in_data = get_token_by_symbol(t_in, tokens, chain=source_chain or chain_id)
     token_out_data = get_token_by_symbol(t_out, tokens, chain=dest_chain)
@@ -231,10 +255,16 @@ def get_swap_quote(
     if not token_out_data:
         return {"error": f"Token {t_out} not found in supported list"}
         
-    asset_in = token_in_data.get("defuseAssetId")
-    asset_out = token_out_data.get("defuseAssetId")
-    
-    decimals_in = token_in_data.get("decimals", 24)
+    if t_in in ("NEAR", "WNEAR"):
+        asset_in = "nep141:wrap.near"
+        decimals_in = 24
+    else:
+        raw_in = token_in_data.get("defuseAssetId") or "nep141:wrap.near"
+        asset_in = raw_in if ":" in raw_in else f"nep141:{raw_in}"
+        decimals_in = token_in_data.get("decimals", 18)
+        
+    raw_out = token_out_data.get("defuseAssetId")
+    asset_out = raw_out if (raw_out and ":" in raw_out) else (f"nep141:{raw_out}" if raw_out else "nep141:wrap.near")
     amount_atomic = int(Decimal(str(amount)) * Decimal(10 ** decimals_in))
     
     print(f"[TOOL] Fetching 1-Click quote for {amount} {t_in} -> {t_out}")
@@ -252,7 +282,9 @@ def get_swap_quote(
     # Use refund_address if provided, otherwise fall back to recipient 
     refund_to = refund_address or recipient_id
     
-    deadline = (datetime.datetime.utcnow() + datetime.timedelta(minutes=5)).isoformat(timespec='seconds') + "Z"
+    from knowledge_base import get_1click_server_now
+    server_now = get_1click_server_now()
+    deadline = (server_now + datetime.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Key logic: depositType/recipientType depend on source and destination chains
     # Determine if source is EVM or NEAR
@@ -267,17 +299,21 @@ def get_swap_quote(
         deposit_type = "INTENTS"
         refund_type = "INTENTS"
     
-    if is_cross_chain:
+    recipient = recipient_id or refund_to
+    dest_chain_name = token_out_data.get("blockchain", "near").lower()
+    is_recipient_near = (
+        isinstance(recipient, str) and (
+            recipient.endswith(".near") or 
+            recipient.endswith(".testnet") or 
+            (len(recipient) == 64 and all(c in "0123456789abcdefABCDEF" for c in recipient))
+        )
+    )
+    if dest_chain_name not in ["near", "aurora"] and is_recipient_near:
+        recipient_type = "INTENTS"
+    elif is_cross_chain:
         recipient_type = "DESTINATION_CHAIN"
-        recipient = recipient_id  # destination chain address (e.g. 0x... for EVM)
     else:
-        # We MUST use DESTINATION_CHAIN even for same-chain NEAR swaps if we want the funds
-        # to actually appear in the user's wallet. If we use INTENTS, Defuse keeps it
-        # as an internal balance on the intents.near contract.
-        recipient_type = "DESTINATION_CHAIN"
-        # Use recipient_id if explicitly provided (e.g. "send USDC to flame1.near")
-        # Only fall back to refund_to when no specific recipient was given
-        recipient = recipient_id or refund_to
+        recipient_type = "DESTINATION_CHAIN" 
 
     payload = {
         "swapType": "EXACT_INPUT",

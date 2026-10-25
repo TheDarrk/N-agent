@@ -9,7 +9,7 @@ import os
 import json
 import hashlib
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 MAX_RECENT_ITEMS = 10
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "reasoning_logs")
@@ -56,10 +56,14 @@ async def upload_trade_trace(trace: Dict[str, Any]) -> str:
     """
     cid = _generate_cid(trace)
     trace["cid"] = cid
-    trace["stored_at"] = datetime.utcnow().isoformat() + "Z"
+    now_utc = datetime.now(timezone.utc)
+    trace["stored_at"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    trace["stored_at_iso"] = now_utc.isoformat()
+    trace["date_utc"] = now_utc.strftime("%Y-%m-%d")
+    trace["time_utc"] = now_utc.strftime("%H:%M:%S UTC")
 
     # Save to local recent 10
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
     filepath = os.path.join(LOGS_DIR, f"trace_{timestamp}_{cid[:10]}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(trace, f, indent=2)
@@ -76,10 +80,14 @@ async def upload_research_report(report: Dict[str, Any]) -> str:
     """
     cid = _generate_cid(report)
     report["cid"] = cid
-    report["stored_at"] = datetime.utcnow().isoformat() + "Z"
+    now_utc = datetime.now(timezone.utc)
+    report["stored_at"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    report["stored_at_iso"] = now_utc.isoformat()
+    report["date_utc"] = now_utc.strftime("%Y-%m-%d")
+    report["time_utc"] = now_utc.strftime("%H:%M:%S UTC")
 
     # Save to local recent 10
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
     filepath = os.path.join(REPORTS_DIR, f"report_{timestamp}_{cid[:10]}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
@@ -101,7 +109,30 @@ def get_recent_trade_traces(limit: int = 10) -> List[Dict[str, Any]]:
         files.sort(key=os.path.getmtime, reverse=True)
         for filepath in files[:limit]:
             with open(filepath, "r", encoding="utf-8") as f:
-                items.append(json.load(f))
+                item = json.load(f)
+                if not item.get("chart_image") and item.get("indicators", {}).get("candles"):
+                    try:
+                        from chart_visualizer import render_chart_image
+                        candles = item["indicators"]["candles"]
+                        cur_p = float(item.get("entry_price") or candles[-1]["close"])
+                        tp = float(item.get("take_profit_price") or (cur_p * 1.05))
+                        sl = float(item.get("stop_loss_price") or (cur_p * 0.95))
+                        item["chart_image"] = render_chart_image(
+                            candles=candles,
+                            symbol=item.get("symbol", "NEAR"),
+                            timeframe=item.get("timeframe", "1h"),
+                            pattern_name=item.get("pattern_detected") or "Dynamic Trend Structure",
+                            tp_price=tp,
+                            sl_price=sl,
+                            entry_price=cur_p,
+                            verdict=item.get("verdict", "STAND_ASIDE"),
+                            expected_roi_pct=float(item.get("expected_roi_pct", 0.0)),
+                            confidence_score=int(item.get("confidence_score", 25)),
+                            indicators=item.get("indicators")
+                        )
+                    except Exception:
+                        pass
+                items.append(item)
     except Exception as e:
         print(f"[STORAGE] Error reading traces: {e}")
     return items

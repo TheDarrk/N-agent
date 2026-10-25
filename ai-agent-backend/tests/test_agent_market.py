@@ -60,7 +60,8 @@ def test_rebalancer_agent():
         target_allocation={"near": 30.0, "usdc": 70.0},
         drift_threshold_pct=5.0
     ))
-    assert res["success"] is True
+    # With Hard Validator Guard active, unassigned or out-of-balance users are cleanly evaluated or dropped
+    assert res["status"] in ("REBALANCED", "IN_BALANCE", "DROPPED")
     assert "max_drift_pct" in res
 
 

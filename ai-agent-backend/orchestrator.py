@@ -22,7 +22,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
 
 orchestrator_llm = ChatOpenAI(
-    model="openai/gpt-oss-120b",
+    model=os.getenv("NEAR_AI_MODEL", "z-ai/glm-5.3-flash"),
     temperature=0,
     openai_api_key=api_key,
     openai_api_base="https://cloud-api.near.ai/v1"

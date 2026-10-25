@@ -201,7 +201,13 @@ class ExecutionAgent:
                 from autonomous_agents.near_submitter import submit_near_transaction
                 from key_manager import decrypt_private_key
                 
-                decrypted_key = decrypt_private_key(agent_key.get("encrypted_private_key"))
+                try:
+                    decrypted_key = decrypt_private_key(agent_key.get("encrypted_private_key"))
+                except Exception as key_err:
+                    print(f"[EXECUTION] Key decryption failed for {agent_address}: {key_err}. Please re-delegate agent key.")
+                    result["success"] = False
+                    result["message"] = f"Key decryption failed: {key_err}"
+                    return result
                 
                 print(f"[EXECUTION] Submitting transaction as authorized signer: {agent_address}...")
                 tx_hash = await submit_near_transaction(

@@ -16,6 +16,7 @@ import {
 
 type Props = {
   accountId: string | null;
+  onConnectWallet?: () => void;
 };
 
 interface Report {
@@ -33,7 +34,7 @@ interface Report {
   };
 }
 
-export default function ResearchSection({ accountId }: Props) {
+export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const [topic, setTopic] = useState("NEAR Liquid Staking Yields & DEX Liquidity");
   const [reports, setReports] = useState<Report[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +59,7 @@ export default function ResearchSection({ accountId }: Props) {
 
   const handleGenerate = async () => {
     if (!accountId) {
-      alert("Please connect wallet first");
+      if (onConnectWallet) onConnectWallet(); else alert("Please connect wallet first to generate and sign research reports");
       return;
     }
     setIsLoading(true);
@@ -82,7 +83,7 @@ export default function ResearchSection({ accountId }: Props) {
   // Demo Track 7 Agent-to-Agent Hire
   const handleA2AHire = async () => {
     if (!accountId) {
-      alert("Please connect wallet first");
+      if (onConnectWallet) onConnectWallet(); else alert("Please connect wallet first to execute agent-to-agent hire");
       return;
     }
     setIsHiringA2A(true);

@@ -12,6 +12,8 @@ import RebalancerSection from "@/components/agent-sections/rebalancer-section";
 import ResearchSection from "@/components/agent-sections/research-section";
 import ModeratorSection from "@/components/agent-sections/moderator-section";
 import AgentMarketplace from "@/components/agent-marketplace";
+import NeptuneAgentSuite from "@/components/agent-suite";
+import AgentFleetModal from "@/components/agent-fleet-modal";
 
 type Message = {
   id: string;
@@ -86,7 +88,7 @@ function DraggableAboutButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-export default function ChatInterface() {
+export default function ChatInterface({ initialTab }: { initialTab?: string }) {
   const {
     accountId,
     walletAddresses,
@@ -100,7 +102,51 @@ export default function ChatInterface() {
     signAndSendGenericTransaction,
   } = useWallet();
 
-  const [activeTab, setActiveTab] = useState<string>("chat");
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (initialTab) return initialTab;
+    if (typeof window !== "undefined") {
+      const p = window.location.pathname;
+      if (p.startsWith("/agent-suite")) return "agent-suite";
+      if (p.startsWith("/marketplace")) return "marketplace";
+    }
+    return "chat";
+  });
+
+  const navigateTab = useCallback((tab: string, subView: string | null = null) => {
+    setActiveTab(tab);
+    setAgentSuiteSubView(subView);
+    if (typeof window !== "undefined") {
+      let targetPath = "/";
+      if (tab === "agent-suite") {
+        targetPath = subView ? `/agent-suite?agent=${subView}` : "/agent-suite";
+      } else if (tab === "marketplace") {
+        targetPath = "/marketplace";
+      }
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, "", targetPath);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const p = window.location.pathname;
+      if (p.startsWith("/agent-suite")) {
+        setActiveTab("agent-suite");
+        const params = new URLSearchParams(window.location.search);
+        setAgentSuiteSubView(params.get("agent") || null);
+      } else if (p.startsWith("/marketplace")) {
+        setActiveTab("marketplace");
+      } else {
+        setActiveTab("chat");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+  const [agentSuiteSubView, setAgentSuiteSubView] = useState<string | null>(null);
+  const [isFleetModalOpen, setIsFleetModalOpen] = useState(false);
+  const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState("");
@@ -312,6 +358,10 @@ export default function ChatInterface() {
         connectedChains={connectedChains}
         balances={balances}
         onReset={resetChat}
+        onConnectWallet={connectWallet}
+        onOpenFleetModal={() => setIsFleetModalOpen(true)}
+        onOpenAgentSuite={() => navigateTab("agent-suite", null)}
+        onSelectAgent={(agentId) => navigateTab("agent-suite", agentId)}
       />
 
       <div className="flex flex-1 flex-col min-w-0">
@@ -324,19 +374,22 @@ export default function ChatInterface() {
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           sidebarOpen={sidebarOpen}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={(tab) => navigateTab(tab, null)}
+          onSelectAgent={(agentId) => navigateTab("agent-suite", agentId as any)}
         />
 
-        {activeTab === "trader" ? (
-          <TraderSection accountId={accountId} />
+        {activeTab === "agent-suite" ? (
+          <NeptuneAgentSuite
+            accountId={accountId}
+            activeAgentSubView={agentSuiteSubView}
+            onSelectAgentSubView={(sub) => navigateTab("agent-suite", sub)}
+            onConnectWallet={connectWallet}
+          />
         ) : activeTab === "marketplace" ? (
-          <AgentMarketplace accountId={accountId} onSelectAgentTab={setActiveTab} />
-        ) : activeTab === "rebalancer" ? (
-          <RebalancerSection accountId={accountId} />
-        ) : activeTab === "research" ? (
-          <ResearchSection accountId={accountId} />
-        ) : activeTab === "moderator" ? (
-          <ModeratorSection accountId={accountId} />
+          <AgentMarketplace
+            accountId={accountId}
+            onSelectAgentTab={(agentId) => navigateTab("agent-suite", agentId)}
+          />
         ) : (
           <>
         {/* Chat Area */}
@@ -503,6 +556,16 @@ export default function ChatInterface() {
           </div>
         </div>
       )}
+
+      {/* Fleet & Autonomy Modal */}
+      <AgentFleetModal
+        isOpen={isFleetModalOpen}
+        onClose={() => setIsFleetModalOpen(false)}
+        accountId={accountId}
+        onConnect={connectWallet}
+        network={network}
+        onToggleNetwork={setNetwork}
+      />
 
       {/* Transaction Modal */}
       <TransactionModal

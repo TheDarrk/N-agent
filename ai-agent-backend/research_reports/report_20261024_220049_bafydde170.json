@@ -1,0 +1,31 @@
+{
+  "title": "Microstructure & Momentum for SWEAT Spot Trading",
+  "regime": "NEUTRAL",
+  "key_catalysts": [
+    "Increasing daily active users on Sweat Economy app driving token utility",
+    "Momentum build-up from consistent volume spikes during peak activity hours",
+    "Upcoming protocol updates aimed at improving token staking rewards"
+  ],
+  "actionable_signal": {
+    "action": "ACCUMULATE",
+    "target_asset": "SWEAT",
+    "confidence": 70,
+    "recommended_timeframe": "1d-3d"
+  },
+  "risk_factors": [
+    "High slippage risk due to fragmented liquidity across DEX pools",
+    "Volatility spikes causing momentum reversals in short timeframes",
+    "Protocol risk from potential changes in tokenomics or staking rules"
+  ],
+  "summary": "SWEAT token exhibits neutral market regime with momentum signals aligning around peak user activity periods. Microstructure analysis reveals volume clustering and tight bid-ask spreads during these windows, enabling spot traders to capitalize on short-term momentum. Key catalysts include growing user engagement and upcoming staking enhancements, which may improve yield attractiveness. However, fragmented liquidity and protocol risks necessitate cautious accumulation rather than aggressive buying. Recommended to accumulate SWEAT on dips within 1-3 day horizons, monitoring volume and spread dynamics closely.",
+  "requester": "neptune1.testnet",
+  "is_agent_requester": true,
+  "fee_paid_near": 0.1,
+  "creator_account": "alpha_creator.near",
+  "created_at": "2026-10-24T22:00:49.968940Z",
+  "cid": "bafydde170f4b21e8bdfdbd9ddc11f8aa9c41965186c7e38",
+  "stored_at": "2026-10-24 22:00:49 UTC",
+  "stored_at_iso": "2026-10-24T22:00:49.969085+00:00",
+  "date_utc": "2026-10-24",
+  "time_utc": "22:00:49 UTC"
+}
