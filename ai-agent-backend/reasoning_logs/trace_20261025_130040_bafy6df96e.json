@@ -1,0 +1,29 @@
+{
+  "agent": "trader",
+  "user_wallet": "neptune1.testnet",
+  "symbol": "MARKET",
+  "timeframe": "1h",
+  "verdict": "STAND_ASIDE",
+  "stage": "SCREENER_NO_CANDIDATE",
+  "confidence_score": 0,
+  "min_required": 70,
+  "expected_roi_pct": 0.0,
+  "reasoning": "Screener: Screener output format invalid. Autonomous safety mandate: stand aside.",
+  "screener_result": {
+    "market_regime": "VOLATILE_UNCLEAR",
+    "market_regime_evidence": "Screener model output could not be parsed as valid JSON.",
+    "candidate_found": false,
+    "no_candidate_reason": "Screener output format invalid. Autonomous safety mandate: stand aside.",
+    "chosen_symbol": null,
+    "chosen_bias": "NONE",
+    "setup_hypothesis": "",
+    "shortlist": [],
+    "selected_book_sections": [],
+    "suggested_rag_queries": []
+  },
+  "cid": "bafy6df96e36759ddce3223f00ada16a1fcd61bfdffb57b1",
+  "stored_at": "2026-10-25 13:00:40 UTC",
+  "stored_at_iso": "2026-10-25T13:00:40.436632+00:00",
+  "date_utc": "2026-10-25",
+  "time_utc": "13:00:40 UTC"
+}

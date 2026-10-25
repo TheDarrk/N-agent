@@ -1,0 +1,29 @@
+{
+  "agent": "trader",
+  "user_wallet": "neptune1.testnet",
+  "symbol": "MARKET",
+  "timeframe": "1h",
+  "verdict": "STAND_ASIDE",
+  "stage": "SCREENER_NO_CANDIDATE",
+  "confidence_score": 0,
+  "min_required": 75,
+  "expected_roi_pct": 0.0,
+  "reasoning": "Screener: Screener call failed ([WinError 10054] An existing connection was forcibly closed by the remote host). Standing aside safely.",
+  "screener_result": {
+    "market_regime": "VOLATILE_UNCLEAR",
+    "market_regime_evidence": "Screener call error: [WinError 10054] An existing connection was forcibly closed by the remote host",
+    "candidate_found": false,
+    "no_candidate_reason": "Screener call failed ([WinError 10054] An existing connection was forcibly closed by the remote host). Standing aside safely.",
+    "chosen_symbol": null,
+    "chosen_bias": "NONE",
+    "setup_hypothesis": "",
+    "shortlist": [],
+    "selected_book_sections": [],
+    "suggested_rag_queries": []
+  },
+  "cid": "bafyb7525d33bb29edecd25fac16e0aa342a9cf9e12c496f",
+  "stored_at": "2026-10-25 12:25:45 UTC",
+  "stored_at_iso": "2026-10-25T12:25:45.528358+00:00",
+  "date_utc": "2026-10-25",
+  "time_utc": "12:25:45 UTC"
+}

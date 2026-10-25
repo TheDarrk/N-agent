@@ -359,17 +359,26 @@ async def analyze_multiframe_market_tool(symbol: str = "NEAR", timeframes: Optio
     total_valid = 0
     for tf, res in zip(timeframes, results):
         if isinstance(res, dict) and not isinstance(res, Exception):
+            ind = res.get("indicators", {})
             tf_data[tf] = {
-                "rsi": res["indicators"].get("rsi"),
-                "trend": res["indicators"].get("ema_trend"),
-                "cross": res["indicators"].get("ema_cross"),
-                "volume_surge": res["indicators"].get("volume_surge"),
+                "current_price": ind.get("current_price"),
+                "rsi": ind.get("rsi"),
+                "ema20": ind.get("ema20"),
+                "ema50": ind.get("ema50"),
+                "ema200": ind.get("ema200"),
+                "trend": ind.get("ema_trend"),
+                "cross": ind.get("ema_cross"),
+                "atr": ind.get("atr"),
+                "recent_support": ind.get("recent_support"),
+                "recent_resistance": ind.get("recent_resistance"),
+                "volume_surge": ind.get("volume_surge"),
+                "volume_ratio": ind.get("volume_ratio"),
                 "pattern": res.get("pattern_name"),
                 "target": res.get("measured_target"),
                 "stop_loss": res.get("stop_loss"),
                 "risk_reward": res.get("risk_reward_ratio")
             }
-            if res["indicators"].get("ema_trend") == "BULLISH":
+            if ind.get("ema_trend") == "BULLISH":
                 bullish_count += 1
             total_valid += 1
 

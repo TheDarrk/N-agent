@@ -45,15 +45,20 @@ from key_manager import (
 # Initialize Limiter
 limiter = Limiter(key_func=get_remote_address)
 
-# Suppress noisy polling logs (GET requests from 10s frontend polling)
+# Suppress noisy polling logs (GET requests from periodic frontend polling)
 class _PollFilter(logging.Filter):
-    _QUIET = ["/api/settings/", "/api/strategies/", "/api/logs/",
-              "/api/agent-wallet/keys/", "/api/agent-wallet/balance/"]
+    _QUIET = [
+        "/api/settings", "/api/strategies", "/api/logs",
+        "/api/agent-wallet", "/api/fleet", "/api/trader",
+        "/health", "/api/health"
+    ]
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
         return not ("GET" in msg and any(p in msg for p in self._QUIET))
 
 logging.getLogger("uvicorn.access").addFilter(_PollFilter())
+logging.getLogger("apscheduler").setLevel(logging.ERROR)
+logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 
 # -- App Lifespan (init DB + autonomy scheduler) ------------------
 @asynccontextmanager
@@ -81,6 +86,8 @@ async def lifespan(app):
             'interval',
             seconds=30,
             id='strategy_check',
+            misfire_grace_time=3600,
+            coalesce=True,
             replace_existing=True
         )
         # Register 60-second active trade & TP/SL poller
@@ -91,6 +98,8 @@ async def lifespan(app):
                 'interval',
                 seconds=60,
                 id='trade_poller',
+                misfire_grace_time=3600,
+                coalesce=True,
                 replace_existing=True
             )
             print("[STARTUP] Trade TP/SL poller registered (every 60 sec)")
@@ -137,7 +146,14 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    print(f"DEBUG: {request.method} {request.url.path}")
+    # Silence noisy periodic polling GET endpoints from frontend
+    _QUIET = [
+        "/api/fleet", "/api/trader", "/api/agent-wallet",
+        "/api/settings", "/api/strategies", "/api/logs",
+        "/health", "/api/health"
+    ]
+    if not (request.method == "GET" and any(p in request.url.path for p in _QUIET)):
+        print(f"DEBUG: {request.method} {request.url.path}")
     response = await call_next(request)
     return response
 

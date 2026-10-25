@@ -349,32 +349,35 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                     console.log(`[Wallet] Initializing HOT Kit with connectors:`, safeConnectors);
 
                     const rawApiKey = process.env.NEXT_PUBLIC_HOT_API_KEY || process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
-                    const hasValidWcProject = Boolean(
-                        rawApiKey &&
-                        rawApiKey.trim() !== "" &&
-                        rawApiKey !== "neptune-ai-dev" &&
-                        rawApiKey.length >= 24
-                    );
+                    const effectiveProjectId = (rawApiKey && rawApiKey.trim() !== "" && rawApiKey !== "neptune-ai-dev")
+                        ? rawApiKey
+                        : "3a8170812b534d0ff9d794f19a901d64";
 
                     const kitOptions: any = {
+                        projectId: effectiveProjectId,
+                        apiKey: effectiveProjectId,
                         connectors: safeConnectors,
-                    };
-
-                    if (hasValidWcProject && rawApiKey) {
-                        kitOptions.apiKey = rawApiKey;
-                        kitOptions.walletConnect = {
-                            projectId: rawApiKey,
+                        walletConnect: {
+                            projectId: effectiveProjectId,
                             metadata: {
                                 name: "Neptune AI",
                                 description: "Autonomous AI Agents on NEAR Protocol",
                                 url: typeof window !== "undefined" ? window.location.origin : "https://neptune.ai",
                                 icons: ["https://storage.herewallet.app/upload/73a44e583769f11112b0eff1f2dd2a560c05eed5f6d92f0c03484fa047c31668.png"],
                             },
-                        };
-                    }
+                        },
+                    };
 
-                    const kit = new HotKitClass(kitOptions);
-                    hotKitRef.current = kit;
+                    let kit: any;
+                    try {
+                        kit = new HotKitClass(kitOptions);
+                        hotKitRef.current = kit;
+                    } catch (kitErr) {
+                        console.warn("[HOT Kit] Exception initializing HotKitClass:", kitErr);
+                        setIsTestnetModalOpen(true);
+                        setState((s) => ({ ...s, isConnecting: false }));
+                        return;
+                    }
 
                     const unsubConnect = kit.onConnect?.((payload: any) => {
                         console.log("[HOT Kit] Wallet connected:", payload?.wallet?.address);

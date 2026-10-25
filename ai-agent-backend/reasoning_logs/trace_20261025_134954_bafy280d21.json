@@ -1,0 +1,32 @@
+{
+  "agent": "trader",
+  "user_wallet": "neptune1.testnet",
+  "symbol": "MARKET",
+  "timeframe": "1h",
+  "verdict": "STAND_ASIDE",
+  "stage": "SCREENER_NO_CANDIDATE",
+  "confidence_score": 0,
+  "min_required": 70,
+  "expected_roi_pct": 0.0,
+  "reasoning": "Screener: Screener determined market regime is hostile or no candidate matches the trading book.",
+  "screener_result": {
+    "market_regime": "TRENDING_DOWN",
+    "market_regime_evidence": "BTC trades below EMA20/50/200 (80395 vs 80831 EMA200) with RSI 41.8-43.4 and negative MACD histogram (-113 to -115) on below-average volume (0.66-0.78x). Nearly every independently-priced coin (ETH, SOL, AAVE, SUI, XLM, OKB, XBTC) is also below EMA20/50 with RSI in the 36-44 band, confirming broad weak breadth. Note: ~60 rows share identical indicator snapshots (+2.57%, RSI 52.9), which reads as stale data and was not used for breadth.",
+    "candidate_found": true,
+    "no_candidate_reason": "",
+    "eliminated_summary": "",
+    "shortlist": [],
+    "chosen_symbol": null,
+    "chosen_bias": "NONE",
+    "setup_hypothesis": "",
+    "selection_reason": "",
+    "runner_ups": [],
+    "selected_book_sections": [],
+    "suggested_rag_queries": []
+  },
+  "cid": "bafy280d21f1f8aa6694087d6211034b7150762b8b8c916d",
+  "stored_at": "2026-10-25 13:49:54 UTC",
+  "stored_at_iso": "2026-10-25T13:49:54.260543+00:00",
+  "date_utc": "2026-10-25",
+  "time_utc": "13:49:54 UTC"
+}

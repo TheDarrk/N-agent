@@ -85,7 +85,7 @@ CRITICAL QUALITY MANDATE:
                     {"role": "user", "content": user_prompt}
                 ],
                 "temperature": 0.3,
-                "max_tokens": 1800,
+                "max_tokens": 8192,
                 "stream": True
             }
             import asyncio

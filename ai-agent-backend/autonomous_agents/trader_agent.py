@@ -1,28 +1,29 @@
 """
 Neptune AI — Autonomous Quantitative Trader Agent
 Pipeline Architecture:
-  - Node 1: Research & Multimodal Data Aggregator
-      * Multi-Asset Universe Scanner (Dynamic Daily Trending 20 Coins vs Custom Watchlist)
-      * Multi-Timeframe Technical Indicators Engine (RSI 14, EMA 20/50/200, ATR 14, Volume Surge)
-      * Algorithmic Geometric Chart Pattern Recognition (Double Bottom/Top, H&S, Flags, Triangles, Candlesticks)
-      * Chart Vision Engine: Generates High-Resolution Dark-Mode Candlestick PNG & ASCII Visual Grid
-      * XML Crypto Trading Book RAG Retrieval (31 sections from NCFE, Fidelity/Kirkpatrick, Bulkowski)
-      * Live Twitter / X Sentiment Engine (#NEAR, #BTC, #ETH, viral velocity, bullish %)
-      * Research Agent Plugin: Trader Agent hires Research Agent (0.1 NEAR fee) for deep alpha intel
-  - Node 2: LLM-as-a-Judge (shimo4228/llm-as-judge pattern, model: z-ai/glm-5.3-flash)
-      * Evaluates full XML Prompt: <market_data>, <chart_visual_representation>, <chart_pattern_recognition>,
-        <retrieved_book_knowledge>, <social_sentiment>, <research_agent_deep_intel>
-      * Binary Evidence Checks (Trend, Volume, Chart Pattern, Sentiment, Risk/Reward)
-      * Calculates Objective Confidence Score (0-100%), Expected ROI %, and Dynamic TP/SL
-      * Issues Named Verdict: ENTER_LONG | ENTER_SHORT | STAND_ASIDE | REJECT_RISK_BREACH
-  - Programmatic Hard-Cap Execution Engine (Deterministic Python - No Node 3 LLM needed):
-      * Kill Switch verification
-      * Daily & Weekly trade frequency limits
-      * User-configured Minimum Confidence threshold
-      * Position sizing capped at user max_tx_amount
-      * Submits order via NEAR Intents / Defuse
-      * Registers active trade in SQLite for 60s TP/SL price poller
-      * Uploads audit trace to Decentralized Storage (recent 10 preserved)
+  - Pre-Scanner: Multi-Asset Universe Pre-Scanner (DEX 1-Click / NEAR Intents Universe)
+      * Excludes stablecoins, test tokens, dead markets (<10 candles or 0 volume)
+      * Compiles standardized COIN TABLE with BTC backdrop at Row 1
+  - Node 1: LLM Market Screener (SCREENER_SYSTEM)
+      * 7-step discipline: regime classification, elimination, shortlist, book match, selection
+      * Zero hardcoding: if candidate_found is False, stands aside safely with symbol MARKET
+  - Bridge:
+      * Loads the 5 book sections selected by Screener
+      * Runs the 3 targeted RAG queries suggested by Screener
+      * Computes multi-timeframe candle confluence (1h, 2h, 4h, 1d, 1w)
+      * Vision Engine: Candlestick PNG & ASCII chart
+      * Twitter/X sentiment & optional Track 7 Research Agent hire
+  - Node 2: 4-Specialist Council + Senior Reviewer + Chairman
+      * Technical Analyst, Playbook Strategist, Risk Manager, Skeptic with live tools
+      * Senior Reviewer numerical & logic audit
+      * Chairman synthesis, exact price levels, position size arithmetic, calibrated confidence
+  - Node 3: Independent Auditor
+      * Automated programmatic checks + 5 audit steps (numeric, grounding, logic, risk, calibration)
+  - Programmatic Hard-Cap Execution Engine:
+      * Kill switch, daily/weekly frequency limits, capital hard cap
+      * Order execution via NEAR Intents / Defuse
+      * Persistence in SQLite for quiet 60s poller
+      * Preserves decentralized audit traces
 """
 
 import os
@@ -68,15 +69,15 @@ class TraderAgent:
         enable_researcher_plugin: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
-        Executes the 2-Node + Deterministic Hard-Cap Execution Pipeline.
+        Executes the 3-Node + Deterministic Hard-Cap Execution Pipeline.
         """
         user = get_user(user_wallet) or {}
         timeframe = force_timeframe or user.get("trader_timeframe", "1h")
         min_confidence = force_min_confidence if force_min_confidence is not None else int(user.get("trader_min_confidence", 75))
         risk_profile = user.get("trader_risk_profile", "moderate")
-        max_tx_amount = float(user.get("max_tx_amount", 50.0))
-        max_trades_day = int(user.get("trader_max_trades_per_day", 3))
-        max_trades_week = int(user.get("trader_max_trades_per_week", 12))
+        max_tx_amount = float(user.get("max_tx_amount") or 1_000_000.0)
+        max_trades_day = int(user.get("trader_max_trades_per_day", 100))
+        max_trades_week = int(user.get("trader_max_trades_per_week", 500))
         active_coin_mode = coin_mode or user.get("trader_coin_mode", "auto")
         
         # Check researcher plugin setting (user toggle)
@@ -117,7 +118,7 @@ class TraderAgent:
                 "message": f"Weekly frequency limit reached ({week_trades}/{max_trades_week} trades this week)."
             }
 
-        # ─── NODE 1: MULTIMODAL RESEARCH & DATA GATHERING ────────
+        # ─── NODE 1: PRE-SCANNER & LLM MARKET SCREENER ─────────────
         print(f"[NODE 1: RESEARCH] Scanning universe ({active_coin_mode} mode)...")
         node1_data = await self._node1_gather_data(
             user_wallet=user_wallet,
@@ -127,6 +128,41 @@ class TraderAgent:
             timeframe=timeframe,
             enable_researcher=researcher_active
         )
+
+        screener_res = node1_data.get("screener_result")
+        # If the LLM Screener found no setup matching the book or hostile regime, halt immediately without hardcoded fallback
+        if node1_data.get("symbol") == "NONE" or (screener_res and not screener_res.get("candidate_found")):
+            no_cand_reason = (screener_res.get("no_candidate_reason") if screener_res else "") or "Screener determined market regime is hostile or no candidate matches the trading book."
+            print(f"[NODE 1: STAND_ASIDE] Screener mandate: candidate_found = False. Reason: {no_cand_reason}")
+            trace = {
+                "agent": "trader",
+                "user_wallet": user_wallet,
+                "symbol": "MARKET",
+                "timeframe": timeframe,
+                "verdict": "STAND_ASIDE",
+                "stage": "SCREENER_NO_CANDIDATE",
+                "confidence_score": 0,
+                "min_required": min_confidence,
+                "expected_roi_pct": 0.0,
+                "reasoning": f"Screener: {no_cand_reason}",
+                "screener_result": screener_res
+            }
+            print(f"[STORAGE] Uploading stand-aside audit trace to decentralized storage...")
+            cid = await upload_trade_trace(trace)
+            print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent 10 preserved)")
+            return {
+                "success": False,
+                "status": "STAND_ASIDE",
+                "verdict": "STAND_ASIDE",
+                "symbol": "MARKET",
+                "timeframe": timeframe,
+                "confidence_score": 0,
+                "min_confidence": min_confidence,
+                "expected_roi_pct": 0.0,
+                "reasoning": no_cand_reason,
+                "screener_result": screener_res,
+                "cid": cid
+            }
 
         target_symbol = node1_data["symbol"]
         indicators = node1_data["indicators"]
@@ -145,7 +181,7 @@ class TraderAgent:
         agent_exec_wallet = wallet_val_pre.get("agent_wallet", user_wallet)
         agent_bal_near = float(wallet_val_pre.get("balance", 0.0))
 
-        # ─── NODE 2: LLM-AS-A-JUDGE (EVALUATION & VERDICT) ────────
+        # ─── NODE 2: LLM COUNCIL SPECIALISTS & CHAIRMAN ────────────
         print(f"[NODE 2: LLM JUDGE] Evaluating evidence confluence with capital awareness (Wallet: {agent_exec_wallet}, Balance: {agent_bal_near:.4f} NEAR, Hard Cap: ${max_tx_amount:.2f})...")
         node2_data = await self._node2_llm_judge(
             symbol=target_symbol,
@@ -161,7 +197,8 @@ class TraderAgent:
             agent_wallet=agent_exec_wallet,
             agent_balance=agent_bal_near,
             hard_cap_usd=max_tx_amount,
-            multiframe_analysis=node1_data.get("multiframe_chart")
+            multiframe_analysis=node1_data.get("multiframe_chart"),
+            screener_result=node1_data.get("screener_result")
         )
         print(f"[NODE 2: VERDICT] Verdict: {node2_data.get('verdict')} | Confidence: {node2_data.get('confidence_score')}% (Threshold: {min_confidence}%) | Expected ROI: {node2_data.get('expected_roi_pct')}%")
 
@@ -190,27 +227,52 @@ class TraderAgent:
         enable_researcher: bool
     ) -> Dict[str, Any]:
         """
-        Node 1: Scans universe, computes indicators, recognizes geometric chart patterns,
-        renders candlestick vision chart, retrieves XML trading book RAG rules,
-        searches Twitter sentiment, and optionally hires Research Agent.
+        Node 1: Scans universe, compiles COIN TABLE, runs LLM Screener,
+        loads selected book sections + suggested RAG queries, recognizes geometric chart patterns,
+        renders candlestick vision chart, searches Twitter sentiment, and optionally hires Research Agent.
         """
         scan_results = None
         selected_symbol = symbol
+        screener_res = None
 
-        # 1. 20-Coin Universe Scanner (Dynamic Daily Trending vs Custom Watchlist)
+        # 1. Full Universe Scanner & Node 1 LLM Screener
         if not selected_symbol:
             scan_results = await scan_coin_universe(
                 mode=coin_mode,
                 custom_coins=custom_coins,
                 timeframe=timeframe
             )
-            top_cand = scan_results.get("top_candidate")
-            if top_cand and "symbol" in top_cand and top_cand.get("opportunity_score", 0) >= 40:
-                selected_symbol = top_cand["symbol"]
-            elif scan_results.get("ranked_coins"):
-                selected_symbol = scan_results["ranked_coins"][0]["symbol"]
-            else:
-                selected_symbol = "NEAR"
+            
+            # Execute Node 1 LLM Screener over COIN TABLE and BOOK INDEX
+            if scan_results.get("coin_table"):
+                book_index = trading_book_rag.get_book_index()
+                table_input = scan_results.get("coin_table_markdown") or scan_results["coin_table"]
+                screener_res = await self.council_judge.screen_universe(
+                    coin_table=table_input,
+                    book_index=book_index
+                )
+                if screener_res and screener_res.get("candidate_found") and screener_res.get("chosen_symbol"):
+                    selected_symbol = screener_res["chosen_symbol"]
+                else:
+                    # Screener explicitly determined no candidate exists. Zero hardcoded fallback.
+                    print(f"[NODE 1: SCREENER] Screener found no qualifying candidate: {screener_res.get('no_candidate_reason') if screener_res else 'Regime hostile'}")
+                    return {
+                        "symbol": "NONE",
+                        "coin_mode": coin_mode,
+                        "scan_results": scan_results,
+                        "screener_result": screener_res,
+                        "candles": [],
+                        "indicators": {"current_price": 0.0, "ema_trend": "NEUTRAL", "rsi": 50.0, "atr": 0.0, "volume_surge": False},
+                        "pattern_data": {"dominant_pattern": "No Candidate Found", "measured_target": 0.0, "stop_loss": 0.0, "risk_reward_ratio": 0.0},
+                        "ascii_chart": "",
+                        "chart_image_info": None,
+                        "retrieved_knowledge": [],
+                        "rag_xml_block": "",
+                        "twitter_sentiment": {"sentiment": "NEUTRAL", "bullish_pct": 50},
+                        "researcher_intel": None,
+                        "multiframe_chart": None
+                    }
+            top_cand = None
         else:
             top_cand = None
 
@@ -254,19 +316,43 @@ class TraderAgent:
         )
 
         # 5. Local XML Crypto Trading Book RAG Retrieval (31 sections)
-        rag_context = {
-            "symbol": selected_symbol,
-            "ema_trend": indicators["ema_trend"],
-            "rsi": indicators["rsi"],
-            "volume_surge": indicators["volume_surge"],
-            "pattern_name": pattern_data["dominant_pattern"]
-        }
-        matched_sections = trading_book_rag.retrieve(rag_context, top_k=5)
+        print(f"\n{'='*70}\n[NODE 1 -> NODE 2 BRIDGE] Loading Trading Book Rules & Technical Context for {selected_symbol}\n{'='*70}")
+        if screener_res and screener_res.get("selected_book_sections"):
+            matched_sections = trading_book_rag.get_sections_by_ids(screener_res["selected_book_sections"])
+            print(f"[BRIDGE: 5 BOOK SECTIONS LOADED] Screener selected 5 sections from 31-section book: {[s.get('section_id') for s in matched_sections]}")
+        else:
+            rag_context = {
+                "symbol": selected_symbol,
+                "ema_trend": indicators["ema_trend"],
+                "rsi": indicators["rsi"],
+                "volume_surge": indicators["volume_surge"],
+                "pattern_name": pattern_data["dominant_pattern"]
+            }
+            matched_sections = trading_book_rag.retrieve(rag_context, top_k=5)
+            print(f"[BRIDGE: HEURISTIC RAG] Retrieved {len(matched_sections)} sections for {selected_symbol}: {[s.get('section_title') for s in matched_sections]}")
+
+        # Also incorporate the 3 suggested RAG queries from the screener if available
+        suggested_queries = screener_res.get("suggested_rag_queries", []) if screener_res else []
+        targeted_rules = []
+        for q in suggested_queries:
+            q_secs = trading_book_rag.search_by_query(q, top_k=1)
+            for qs in q_secs:
+                for r in qs.get("rules", []):
+                    targeted_rules.append(f"Targeted Rule for '{q}': {r.get('text')}")
+
+        if targeted_rules:
+            print(f"[BRIDGE: 3 RAG QUERIES RUN] Targeted book queries executed: {suggested_queries}")
+            for tr in targeted_rules:
+                print(f"  * {tr}")
+
         rag_xml_block = trading_book_rag.format_for_xml_prompt(matched_sections)
-        print(f"[NODE 1: RAG] Retrieved {len(matched_sections)} trading book sections for {selected_symbol}: {[s.get('section_title') for s in matched_sections]}")
+        if targeted_rules:
+            rag_xml_block += "\n<targeted_screener_query_rules>\n  " + "\n  ".join(targeted_rules[:4]) + "\n</targeted_screener_query_rules>"
 
         # 6. Live Twitter / X Sentiment Engine
+        print(f"[BRIDGE: SENTIMENT] Querying live Twitter / X sentiment for #{selected_symbol}...")
         twitter_data = await search_twitter_sentiment(symbol=selected_symbol)
+        print(f"[BRIDGE: SENTIMENT RESULT] {twitter_data.get('sentiment')} ({twitter_data.get('bullish_pct')}% Bullish, Velocity: {twitter_data.get('viral_velocity_score')}/100)")
 
         # 7. Research Agent Plugin (Track 7 Agent-to-Agent Hire Demo)
         researcher_intel = None
@@ -291,15 +377,19 @@ class TraderAgent:
                 print(f"[TRADER-PLUGIN] Research agent hire notice: {e}")
 
         # 8. Multi-Timeframe Candlestick & Pattern Analysis Tool (1h, 2h, 4h, 1d, 1w)
+        print(f"[BRIDGE: MULTI-TIMEFRAME ENGINE] Inspecting 1h, 2h, 4h, 1d, 1w timeframes for structural alignment...")
         multiframe_chart = await analyze_multiframe_market_tool(
             symbol=selected_symbol,
             timeframes=["1h", "2h", "4h", "1d", "1w"]
         )
+        print(f"[BRIDGE: MULTI-TIMEFRAME RESULT] Macro Alignment: {multiframe_chart.get('macro_alignment')}")
+        print(f"[BRIDGE: VISION CHART] Generated dark-mode candlestick PNG & ASCII structure grid for {selected_symbol}")
 
         return {
             "symbol": selected_symbol,
             "coin_mode": coin_mode,
             "scan_results": scan_results,
+            "screener_result": screener_res,
             "candles": candles,
             "indicators": indicators,
             "pattern_data": pattern_data,
@@ -328,13 +418,13 @@ class TraderAgent:
         min_confidence: int,
         agent_wallet: str = "",
         agent_balance: float = 0.0,
-        hard_cap_usd: float = 50.0,
-        multiframe_analysis: Optional[Dict[str, Any]] = None
+        hard_cap_usd: float = 1_000_000.0,
+        multiframe_analysis: Optional[Dict[str, Any]] = None,
+        screener_result: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Node 2: Institutional LLM Council Judge implementing Karpathy's 5-advisor deliberation
-        (Contrarian, First Principles, Expansionist, Outsider, Executor).
-        Follows strict zero-fallback policy: if deliberation fails, execution safely halts.
+        Node 2 & 3: Multi-persona Council Specialists, Senior Reviewer, Chairman Synthesis,
+        and Independent Post-Deliberation Auditor.
         """
         return await self.council_judge.deliberate_and_judge(
             symbol=symbol,
@@ -350,7 +440,8 @@ class TraderAgent:
             agent_wallet=agent_wallet,
             agent_balance=agent_balance,
             hard_cap_usd=hard_cap_usd,
-            multiframe_analysis=multiframe_analysis
+            multiframe_analysis=multiframe_analysis,
+            screener_result=screener_result
         )
 
     # ─── DETERMINISTIC EXECUTION FUNCTION (NO NODE 3 LLM) ────────
@@ -374,8 +465,10 @@ class TraderAgent:
         confidence_score = int(node2_data.get("confidence_score", 0))
         expected_roi_pct = float(node2_data.get("expected_roi_pct", 0.0))
         entry_price = float(node2_data.get("entry_price", indicators["current_price"]))
-        tp_price = float(node2_data.get("take_profit_price", round(entry_price * 1.06, 4)))
-        sl_price = float(node2_data.get("stop_loss_price", round(entry_price * 0.96, 4)))
+        raw_tp = node2_data.get("take_profit_price")
+        tp_price = float(raw_tp) if raw_tp is not None else None
+        raw_sl = node2_data.get("stop_loss_price")
+        sl_price = float(raw_sl) if raw_sl is not None else None
         risk_reward_ratio = float(node2_data.get("risk_reward_ratio", 2.0))
         reasoning = node2_data.get("reasoning", "")
         pattern = node2_data.get("pattern_detected", "")
@@ -387,11 +480,29 @@ class TraderAgent:
         one_thing_first = node2_data.get("one_thing_first", "")
         advisors = node2_data.get("advisors", {})
 
-        # Ensure sensible TP/SL defaults
-        if tp_price <= entry_price:
-            tp_price = round(entry_price * (1 + max(0.04, expected_roi_pct / 100)), 4)
-        if sl_price >= entry_price or sl_price <= 0:
-            sl_price = round(entry_price - max(indicators["atr"] * 1.2, entry_price * 0.03), 4)
+        is_warranted = (
+            verdict in ["ENTER_LONG", "ENTER_SHORT"] and
+            confidence_score >= min_confidence
+        )
+
+        # TP / SL are strictly execution parameters decided by the Council.
+        # If the trade is rejected / STAND_ASIDE, zero out TP/SL and expected ROI (no fake execution targets).
+        if not is_warranted:
+            tp_price = None
+            sl_price = None
+            expected_roi_pct = 0.0
+        else:
+            # Trade is approved: ensure sensible TP/SL levels for LONG or SHORT
+            if verdict == "ENTER_SHORT":
+                if tp_price is None or tp_price >= entry_price:
+                    tp_price = round(entry_price * (1 - max(0.04, expected_roi_pct / 100)), 4)
+                if sl_price is None or sl_price <= entry_price or sl_price <= 0:
+                    sl_price = round(entry_price + max(indicators["atr"] * 1.2, entry_price * 0.03), 4)
+            else:
+                if tp_price is None or tp_price <= entry_price:
+                    tp_price = round(entry_price * (1 + max(0.04, expected_roi_pct / 100)), 4)
+                if sl_price is None or sl_price >= entry_price or sl_price <= 0:
+                    sl_price = round(entry_price - max(indicators["atr"] * 1.2, entry_price * 0.03), 4)
 
         # Re-render definitive visual chart with Council's final consensus verdict, ROI, and forward prediction path
         try:
@@ -400,8 +511,8 @@ class TraderAgent:
                 symbol=symbol,
                 timeframe=timeframe,
                 pattern_name=pattern or node1_data.get("pattern_data", {}).get("dominant_pattern", "Structure Regime"),
-                tp_price=tp_price,
-                sl_price=sl_price,
+                tp_price=tp_price or 0.0,
+                sl_price=sl_price or 0.0,
                 entry_price=entry_price,
                 verdict=verdict,
                 expected_roi_pct=expected_roi_pct,
@@ -414,12 +525,11 @@ class TraderAgent:
             print(f"[TRADER-CHART] Notice re-rendering definitive chart: {chart_err}")
 
         # ─── HARD CAP CHECK: Confidence & Verdict Validation ──────
-        is_warranted = (
-            verdict in ["ENTER_LONG", "ENTER_SHORT"] and
-            confidence_score >= min_confidence
-        )
-
         if not is_warranted:
+            print(f"\n{'='*70}\n[PROGRAMMATIC EXECUTION: STAND ASIDE] Capital Preservation Gate\n{'='*70}")
+            print(f"[EXECUTION: STAND ASIDE] Verdict: {verdict} | Confidence: {confidence_score}% (Min Required: {min_confidence}%)")
+            print(f"[EXECUTION: STAND ASIDE] Trade NOT warranted. Protecting user balance.")
+            
             # Build trace for decentralized audit log (recent 10 preserved)
             trace = {
                 "agent": "trader",
@@ -430,10 +540,10 @@ class TraderAgent:
                 "stage": "STAND_ASIDE_EVALUATION",
                 "confidence_score": confidence_score,
                 "min_required": min_confidence,
-                "expected_roi_pct": expected_roi_pct,
+                "expected_roi_pct": 0.0,
                 "entry_price": entry_price,
-                "take_profit_price": tp_price,
-                "stop_loss_price": sl_price,
+                "take_profit_price": None,
+                "stop_loss_price": None,
                 "chart_image": node1_data.get("chart_image_info"),
                 "binary_evidence_checks": binary_checks,
                 "pattern_detected": pattern,
@@ -448,7 +558,9 @@ class TraderAgent:
                 "twitter_sentiment": node1_data["twitter_sentiment"],
                 "researcher_intel": node1_data.get("researcher_intel")
             }
+            print(f"[STORAGE] Uploading stand-aside audit trace to decentralized storage...")
             cid = await upload_trade_trace(trace)
+            print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent 10 preserved)")
 
             return {
                 "success": False,
@@ -516,10 +628,10 @@ class TraderAgent:
                 "drop_reason": drop_reason,
                 "confidence_score": confidence_score,
                 "min_required": min_confidence,
-                "expected_roi_pct": expected_roi_pct,
+                "expected_roi_pct": 0.0,
                 "entry_price": entry_price,
-                "take_profit_price": tp_price,
-                "stop_loss_price": sl_price,
+                "take_profit_price": None,
+                "stop_loss_price": None,
                 "chart_image": node1_data.get("chart_image_info"),
                 "binary_evidence_checks": binary_checks,
                 "pattern_detected": pattern,
@@ -636,10 +748,10 @@ class TraderAgent:
                 "drop_reason": f"NEAR Intents Quote Error: {quote_err}",
                 "confidence_score": confidence_score,
                 "min_required": min_confidence,
-                "expected_roi_pct": expected_roi_pct,
+                "expected_roi_pct": 0.0,
                 "entry_price": entry_price,
-                "take_profit_price": tp_price,
-                "stop_loss_price": sl_price,
+                "take_profit_price": None,
+                "stop_loss_price": None,
                 "chart_image": node1_data.get("chart_image_info"),
                 "binary_evidence_checks": binary_checks,
                 "pattern_detected": pattern,
@@ -756,7 +868,9 @@ class TraderAgent:
             "twitter_sentiment": node1_data["twitter_sentiment"],
             "researcher_intel": node1_data.get("researcher_intel")
         }
+        print(f"[STORAGE] Uploading trade execution trace to decentralized storage...")
         cid = await upload_trade_trace(trace)
+        print(f"[STORAGE] Trade execution trace saved: {cid} (recent 10 preserved)")
 
         # Log action to general agent log
         log_agent_action(

@@ -282,19 +282,37 @@ def render_chart_image(
             ax_main.plot(tx, ty_res, color="#F59E0B", linewidth=2.0, linestyle=":", label="Pattern Resistance Line", alpha=0.85)
 
     # 5. Key Trade Execution Levels (Entry, Target TP, Stop Loss)
-    roi_label = f" (+{expected_roi_pct:.1f}%)" if expected_roi_pct > 0 else ""
-    sl_pct = abs((entry_price - sl_price) / max(0.0001, entry_price) * 100)
+    # Only draw active TP/SL and execution levels when a trade was actually approved!
+    is_active_trade = verdict in ["ENTER_LONG", "ENTER_SHORT"] and tp_price > 0 and sl_price > 0
 
-    ax_main.axhline(entry_price, color="#3B82F6", linestyle="-.", linewidth=1.4, label=f"Entry: ${entry_price:.4f}", alpha=0.85)
-    ax_main.axhline(tp_price, color="#10B981", linestyle="--", linewidth=2.0, label=f"Target TP: ${tp_price:.4f}{roi_label}")
-    ax_main.axhline(sl_price, color="#EF4444", linestyle="--", linewidth=2.0, label=f"Stop Loss: ${sl_price:.4f} (-{sl_pct:.1f}%)")
+    if is_active_trade:
+        roi_label = f" (+{expected_roi_pct:.1f}%)" if expected_roi_pct > 0 else ""
+        sl_pct = abs((entry_price - sl_price) / max(0.0001, entry_price) * 100)
+        ax_main.axhline(entry_price, color="#3B82F6", linestyle="-.", linewidth=1.4, label=f"Entry: ${entry_price:.4f}", alpha=0.85)
+        ax_main.axhline(tp_price, color="#10B981", linestyle="--", linewidth=2.0, label=f"Target TP: ${tp_price:.4f}{roi_label}")
+        ax_main.axhline(sl_price, color="#EF4444", linestyle="--", linewidth=2.0, label=f"Stop Loss: ${sl_price:.4f} (-{sl_pct:.1f}%)")
+    else:
+        # Trade rejected by Council / Stand-Aside: show current price only, no active TP/SL
+        ax_main.axhline(current_price, color="#94A3B8", linestyle="-.", linewidth=1.4, label=f"Spot Price: ${current_price:.4f}", alpha=0.85)
+        # Show rejection / stand-aside banner
+        rejection_label = "COUNCIL: STAND ASIDE" if verdict in ["STAND_ASIDE", "NO_TRADE"] else "COUNCIL: RISK REJECTED"
+        ax_main.text(
+            1.5,
+            res_level * 0.995,
+            f" [ {rejection_label} — ZERO CAPITAL AT RISK ] ",
+            fontsize=8.5,
+            fontweight="bold",
+            color="#F59E0B",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#1E1B4B", edgecolor="#F59E0B", alpha=0.9)
+        )
 
-    # 6. AGENT PREDICTION / PROJECTED TRAJECTORY PATH ("draw the preduction")
+    # 6. AGENT PREDICTION / PROJECTED TRAJECTORY PATH
     # Extend timeline into future bars
     proj_x = [n - 1, n + 1, n + 3, n + 5, n + future_steps - 1]
 
-    if verdict == "ENTER_LONG" or (verdict != "ENTER_SHORT" and tp_price > entry_price):
+    if verdict == "ENTER_LONG" and tp_price > entry_price:
         # Bullish Trajectory Path: slight pullback/consolidation -> explosive impulse -> TP
+        roi_label = f" (+{expected_roi_pct:.1f}%)" if expected_roi_pct > 0 else ""
         dy = tp_price - current_price
         proj_y = [
             current_price,
@@ -324,8 +342,9 @@ def render_chart_image(
             bbox=dict(boxstyle="round,pad=0.35", facecolor="#064E3B", edgecolor="#10B981", alpha=0.88)
         )
 
-    elif verdict == "ENTER_SHORT" or tp_price < entry_price:
+    elif verdict == "ENTER_SHORT" and tp_price < entry_price:
         # Bearish Trajectory Path
+        roi_label = f" (+{expected_roi_pct:.1f}%)" if expected_roi_pct > 0 else ""
         dy = current_price - tp_price
         proj_y = [
             current_price,
@@ -352,9 +371,17 @@ def render_chart_image(
         )
 
     else:
-        # Neutral / Range Consolidation
+        # Neutral / Stand-Aside / Capital Preservation: flat projected path
         proj_y = [current_price] * len(proj_x)
-        ax_main.plot(proj_x, proj_y, color="#94A3B8", linewidth=2.0, linestyle=":", label="Consolidation Forecast", alpha=0.85)
+        ax_main.plot(proj_x, proj_y, color="#F59E0B", linewidth=2.0, linestyle=":", label="Stand-Aside Path (No Execution)", alpha=0.85)
+        ax_main.annotate(
+            "STAND ASIDE\nCapital Preserved",
+            xy=(proj_x[-1], current_price),
+            xytext=(proj_x[-1] - 3.2, current_price * 1.015),
+            arrowprops=dict(facecolor="#F59E0B", edgecolor="#78350F", shrink=0.08, width=1.5, headwidth=5),
+            fontsize=8.0, fontweight="bold", color="#F59E0B",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="#78350F", edgecolor="#F59E0B", alpha=0.88)
+        )
 
     # Vertical Forecast Separation Line
     ax_main.axvline(n - 1, color="#64748B", linestyle=":", linewidth=1.2, alpha=0.7)

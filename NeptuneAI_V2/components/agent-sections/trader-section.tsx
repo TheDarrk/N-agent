@@ -99,6 +99,7 @@ interface TradeTrace {
   } | null;
   ascii_chart?: string;
   multiframe_chart?: any;
+  screener_result?: any;
   advisors?: {
     contrarian?: string;
     first_principles?: string;
@@ -781,6 +782,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               multiframe_chart: latestTrace.multiframe_chart,
               researcher_intel: latestTrace.researcher_intel,
               twitter_sentiment: latestTrace.twitter_sentiment,
+              screener_result: latestTrace.screener_result,
               reasoning: latestTrace.reasoning,
               cid: latestTrace.cid,
               isAutonomousFeed: true
@@ -823,6 +825,11 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                     {activeRun.isAutonomousFeed && (
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 flex items-center gap-1">
                         <Activity size={10} /> Live Autonomous Run
+                      </span>
+                    )}
+                    {activeRun.screener_result?.market_regime && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/25 flex items-center gap-1">
+                        <Brain size={10} /> Regime: {activeRun.screener_result.market_regime}
                       </span>
                     )}
                   </div>
@@ -897,15 +904,23 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                       <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-mono">
                         S/R Zones
                       </span>
-                      <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono">
-                        SL &amp; TP Lines
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
-                        Pattern Overlay
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono font-semibold flex items-center gap-1">
-                        <Sparkles size={10} /> Forward Prediction Path
-                      </span>
+                      {activeRun.success ? (
+                        <>
+                          <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono">
+                            SL &amp; TP Lines
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
+                            Pattern Overlay
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono font-semibold flex items-center gap-1">
+                            <Sparkles size={10} /> Forward Prediction Path
+                          </span>
+                        </>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono font-semibold flex items-center gap-1">
+                          <Shield size={10} /> Stand Aside Level (Capital Preserved • Zero Risk)
+                        </span>
+                      )}
                     </div>
 
                     {showAsciiChart && activeRun.ascii_chart && (
@@ -1049,7 +1064,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   </div>
                 )}
 
-                {/* Order Parameters (if warrant) */}
+                {/* Order Parameters (if warrant) or Stand Aside Notice */}
                 {activeRun.success ? (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                     <div className="p-3 rounded-xl bg-secondary/50 border border-[hsl(225,18%,14%)]">
@@ -1075,7 +1090,31 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                       <p className="text-sm font-mono font-bold text-rose-400">${activeRun.stop_loss_price}</p>
                     </div>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          Council Verdict: {activeRun.verdict || "STAND_ASIDE"}
+                        </span>
+                        <span className="text-xs font-bold text-foreground">Zero Capital at Risk (Capital Preserved)</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Order generation cancelled. Take Profit (TP) and Stop Loss (SL) are disarmed because the Council determined market conditions do not satisfy execution criteria.
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-3 font-mono text-xs">
+                      <div className="text-right">
+                        <span className="text-[10px] text-muted-foreground block uppercase">Action</span>
+                        <span className="font-bold text-amber-400">{activeRun.verdict || "NO_TRADE"}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-muted-foreground block uppercase">Execution</span>
+                        <span className="text-muted-foreground font-semibold">DISARMED</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Research Agent Intel & Twitter Sentiment Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
@@ -1412,26 +1451,33 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                               {/* Step 1: Market Scan */}
                               <div className="p-3 rounded-xl bg-background/50 border border-[hsl(225,18%,14%)] space-y-1">
-                                <span className="text-[10px] font-bold text-primary block">
-                                  Step 1: Market Scan &amp; Indicators
-                                </span>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-primary block">
+                                    Step 1: Market Scan &amp; Screener
+                                  </span>
+                                  {tr.screener_result?.market_regime && (
+                                    <span className="text-[9px] font-mono text-purple-400 bg-purple-500/10 px-1.5 py-0.2 rounded border border-purple-500/20">
+                                      {tr.screener_result.market_regime}
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="grid grid-cols-3 gap-1.5 text-[10px] pt-1">
                                   <div>
                                     <span className="text-muted-foreground block text-[9px]">Price</span>
                                     <span className="font-mono font-bold text-foreground">
-                                      ${tr.indicators?.current_price ? tr.indicators.current_price.toFixed(4) : tr.entry_price || "—"}
+                                      {tr.symbol === "MARKET" ? "Universe" : (tr.indicators?.current_price ? `$${tr.indicators.current_price.toFixed(4)}` : (tr.entry_price ? `$${tr.entry_price}` : "—"))}
                                     </span>
                                   </div>
                                   <div>
                                     <span className="text-muted-foreground block text-[9px]">RSI (14)</span>
                                     <span className="font-mono font-bold text-primary">
-                                      {tr.indicators?.rsi ? tr.indicators.rsi.toFixed(1) : "54.2"}
+                                      {tr.indicators?.rsi ? tr.indicators.rsi.toFixed(1) : "—"}
                                     </span>
                                   </div>
                                   <div>
                                     <span className="text-muted-foreground block text-[9px]">EMA Trend</span>
-                                    <span className="font-mono font-bold text-emerald-400">
-                                      {tr.indicators?.ema_trend || "BULLISH"}
+                                    <span className="font-mono font-bold text-foreground">
+                                      {tr.indicators?.ema_trend || tr.screener_result?.market_regime || "EVALUATED"}
                                     </span>
                                   </div>
                                 </div>
@@ -1452,10 +1498,17 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                                 <p className="font-semibold text-foreground text-[11px] truncate">
                                   {tr.pattern_detected || "Dynamic EMA Trend Support"}
                                 </p>
-                                <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
-                                  <span className="text-emerald-400">TP: ${tr.take_profit_price ? tr.take_profit_price.toFixed(4) : "—"}</span>
-                                  <span className="text-rose-400">SL: ${tr.stop_loss_price ? tr.stop_loss_price.toFixed(4) : "—"}</span>
-                                </div>
+                                {(tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT") && tr.take_profit_price && tr.stop_loss_price ? (
+                                  <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                                    <span className="text-emerald-400">TP: ${tr.take_profit_price.toFixed(4)}</span>
+                                    <span className="text-rose-400">SL: ${tr.stop_loss_price.toFixed(4)}</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
+                                    <span className="text-amber-400 font-semibold">Council: {tr.verdict || "STAND_ASIDE"}</span>
+                                    <span className="text-muted-foreground text-[9px]">SL/TP: Disarmed (Trade Stood Aside)</span>
+                                  </div>
+                                )}
                                 {tr.chart_image?.data_uri && (
                                   <div 
                                     className="mt-2 rounded-lg overflow-hidden border border-[hsl(225,18%,18%)] cursor-pointer group relative bg-[#0B0F19]"
@@ -1505,73 +1558,178 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                               </div>
 
                               {/* Step 5: LLM Council Deliberation & Confluence */}
-                              <div className="p-3 rounded-xl bg-background/50 border border-[hsl(225,18%,14%)] space-y-2 sm:col-span-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-bold text-primary flex items-center gap-1.5">
-                                    <Users size={12} />
-                                    Step 5: LLM Council Deliberation &amp; Confluence (5 Advisors)
+                              <div className="p-3.5 rounded-xl bg-background/50 border border-[hsl(225,18%,14%)] space-y-3 sm:col-span-2">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                  <span className="text-[11px] font-bold text-primary flex items-center gap-1.5">
+                                    <Users size={13} />
+                                    Step 5: LLM Council Deliberation, Confluence &amp; Judge Verdict
                                   </span>
-                                  <span className="font-mono font-bold text-foreground text-[10px]">
-                                    Score: {tr.confidence_score || 77}% • Verdict: {tr.verdict || "ENTER_LONG"}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono font-bold text-foreground text-[10px]">
+                                      Score: {tr.confidence_score || 0}%
+                                    </span>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                                      tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT"
+                                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                        : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                    }`}>
+                                      Verdict: {tr.verdict || "STAND_ASIDE"}
+                                    </span>
+                                  </div>
                                 </div>
 
-                                {/* 5 Advisors Deliberation if available */}
+                                {/* Council Judge Synthesis & Reason for Rejection / Execution */}
+                                <div className={`p-3 rounded-lg border text-xs ${
+                                  tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT"
+                                    ? "bg-emerald-950/20 border-emerald-500/30 text-emerald-200"
+                                    : "bg-amber-950/25 border-amber-500/40 text-amber-200"
+                                }`}>
+                                  <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                                    <span className={`font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5 ${
+                                      tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT" ? "text-emerald-400" : "text-amber-400"
+                                    }`}>
+                                      {tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT" ? (
+                                        <>
+                                          <CheckCircle2 size={13} className="text-emerald-400" />
+                                          LLM Judge Verdict: Approved for Execution
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Shield size={13} className="text-amber-400" />
+                                          Why Council Rejects Trade (Capital Preserved)
+                                        </>
+                                      )}
+                                    </span>
+                                    <span className="text-[9px] font-mono text-muted-foreground">
+                                      {tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT" ? "Execution Authorized" : "SL & TP Disarmed ($0 At Risk)"}
+                                    </span>
+                                  </div>
+                                  <p className="leading-relaxed whitespace-pre-wrap text-foreground/90 font-sans text-[11px]">
+                                    {tr.reasoning || "Council deliberation completed. Market evaluated against 31-section book rules."}
+                                  </p>
+                                </div>
+
+                                {/* Technical Chart Projection Directly on the Judge Verdict */}
+                                {tr.chart_image?.data_uri && (
+                                  <div className="rounded-xl overflow-hidden border border-[hsl(225,18%,18%)] bg-[#0B0F19] p-2 space-y-2">
+                                    <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                                      <span className="font-bold text-foreground flex items-center gap-1.5 text-[11px]">
+                                        <LineChart size={13} className="text-primary" />
+                                        Technical Chart Projection: {tr.symbol} ({tr.pattern_detected || "Market Structure"})
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                                          tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT"
+                                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                            : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                        }`}>
+                                          {tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT" ? "Active Entry Cone" : "Stand Aside / Flat Line"}
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setModalChartUri(tr.chart_image?.data_uri || null);
+                                            setModalChartTitle(`${tr.symbol} Technical Projection (${tr.verdict || "STAND_ASIDE"})`);
+                                            setIsChartExpanded(true);
+                                          }}
+                                          className="text-[10px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 flex items-center gap-1 transition-colors"
+                                        >
+                                          <Maximize2 size={11} /> Fullscreen Chart
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div
+                                      className="cursor-pointer group relative bg-[#0B0F19] rounded flex justify-center"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setModalChartUri(tr.chart_image?.data_uri || null);
+                                        setModalChartTitle(`${tr.symbol} Technical Projection (${tr.verdict || "STAND_ASIDE"})`);
+                                        setIsChartExpanded(true);
+                                      }}
+                                    >
+                                      <img
+                                        src={tr.chart_image.data_uri}
+                                        alt="Technical Chart Projection"
+                                        className="w-full h-auto max-h-[280px] object-contain rounded"
+                                      />
+                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-xs text-white font-medium">
+                                        <Maximize2 size={13} /> Click to expand projection chart
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1 font-mono flex-wrap gap-1">
+                                      <span>
+                                        Status: {tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT" ? "Trade Execution Validated" : "Capital Preserved — No Trade Executed"}
+                                      </span>
+                                      <span>
+                                        {tr.verdict === "ENTER_LONG" || tr.verdict === "ENTER_SHORT"
+                                          ? `Target TP: $${tr.take_profit_price?.toFixed(4)} | Stop Loss: $${tr.stop_loss_price?.toFixed(4)}`
+                                          : "SL & TP Disarmed ($0 At Risk)"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* 5 Advisors Deliberation (Full reasoning, NO word truncation) */}
                                 {tr.advisors && (
-                                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 text-[9px] pt-1">
-                                    {tr.advisors.contrarian && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-rose-500/20">
-                                        <span className="font-bold text-rose-400 block text-[8px] uppercase">Contrarian</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.contrarian}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.first_principles && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-blue-500/20">
-                                        <span className="font-bold text-blue-400 block text-[8px] uppercase">First Principles</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.first_principles}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.expansionist && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-emerald-500/20">
-                                        <span className="font-bold text-emerald-400 block text-[8px] uppercase">Expansionist</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.expansionist}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.outsider && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-purple-500/20">
-                                        <span className="font-bold text-purple-400 block text-[8px] uppercase">Outsider</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.outsider}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.executor && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-amber-500/20">
-                                        <span className="font-bold text-amber-400 block text-[8px] uppercase">Executor</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.executor}</p>
-                                      </div>
-                                    )}
+                                  <div className="space-y-1.5 pt-1">
+                                    <span className="text-[10px] font-semibold text-muted-foreground block uppercase tracking-wider">
+                                      5 Specialist Council Deliberations &amp; Evidence Audit
+                                    </span>
+                                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 text-[10px]">
+                                      {tr.advisors.contrarian && (
+                                        <div className="p-2 rounded-lg bg-background/70 border border-rose-500/20 space-y-1">
+                                          <span className="font-bold text-rose-400 block text-[9px] uppercase tracking-wide">The Contrarian</span>
+                                          <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap text-[10px]">{tr.advisors.contrarian}</p>
+                                        </div>
+                                      )}
+                                      {tr.advisors.first_principles && (
+                                        <div className="p-2 rounded-lg bg-background/70 border border-blue-500/20 space-y-1">
+                                          <span className="font-bold text-blue-400 block text-[9px] uppercase tracking-wide">First Principles</span>
+                                          <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap text-[10px]">{tr.advisors.first_principles}</p>
+                                        </div>
+                                      )}
+                                      {tr.advisors.expansionist && (
+                                        <div className="p-2 rounded-lg bg-background/70 border border-emerald-500/20 space-y-1">
+                                          <span className="font-bold text-emerald-400 block text-[9px] uppercase tracking-wide">The Expansionist</span>
+                                          <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap text-[10px]">{tr.advisors.expansionist}</p>
+                                        </div>
+                                      )}
+                                      {tr.advisors.outsider && (
+                                        <div className="p-2 rounded-lg bg-background/70 border border-purple-500/20 space-y-1">
+                                          <span className="font-bold text-purple-400 block text-[9px] uppercase tracking-wide">The Outsider</span>
+                                          <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap text-[10px]">{tr.advisors.outsider}</p>
+                                        </div>
+                                      )}
+                                      {tr.advisors.executor && (
+                                        <div className="p-2 rounded-lg bg-background/70 border border-amber-500/20 space-y-1">
+                                          <span className="font-bold text-amber-400 block text-[9px] uppercase tracking-wide">The Executor</span>
+                                          <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap text-[10px]">{tr.advisors.executor}</p>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
 
                                 {/* Council Agreement & Clash */}
                                 {(tr.council_agreement || tr.council_clash) && (
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[9px] pt-1">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] pt-1">
                                     {tr.council_agreement && (
-                                      <div className="p-1.5 rounded bg-emerald-950/20 border border-emerald-500/20">
-                                        <span className="font-bold text-emerald-400 block">Where Council Agrees:</span>
-                                        <p className="text-emerald-200/80">{tr.council_agreement}</p>
+                                      <div className="p-2 rounded-lg bg-emerald-950/20 border border-emerald-500/20">
+                                        <span className="font-bold text-emerald-400 block mb-0.5">Where Council Agrees:</span>
+                                        <p className="text-emerald-200/90 whitespace-pre-wrap leading-relaxed">{tr.council_agreement}</p>
                                       </div>
                                     )}
                                     {tr.council_clash && (
-                                      <div className="p-1.5 rounded bg-amber-950/20 border border-amber-500/20">
-                                        <span className="font-bold text-amber-400 block">Where Council Clashes:</span>
-                                        <p className="text-amber-200/80">{tr.council_clash}</p>
+                                      <div className="p-2 rounded-lg bg-amber-950/20 border border-amber-500/20">
+                                        <span className="font-bold text-amber-400 block mb-0.5">Where Council Clashes:</span>
+                                        <p className="text-amber-200/90 whitespace-pre-wrap leading-relaxed">{tr.council_clash}</p>
                                       </div>
                                     )}
                                   </div>
                                 )}
 
                                 {tr.one_thing_first && (
-                                  <div className="p-1.5 rounded bg-secondary/40 border border-[hsl(225,18%,14%)] text-[9px] flex items-center justify-between">
+                                  <div className="p-2 rounded bg-secondary/40 border border-[hsl(225,18%,14%)] text-[10px] flex items-center justify-between">
                                     <span className="text-muted-foreground"><strong className="text-primary">Action Directive:</strong> {tr.one_thing_first}</span>
                                   </div>
                                 )}

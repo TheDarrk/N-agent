@@ -168,6 +168,53 @@ class TradingBookRAG:
         scored_sections.sort(key=lambda x: x[0], reverse=True)
         return [sec for score, sec in scored_sections[:top_k]]
 
+    def get_book_index(self) -> str:
+        """Returns one line per book section: id | title | summary."""
+        lines = []
+        for sec in self.sections:
+            summary = sec.get("content", "").replace("\n", " ").strip()
+            if len(summary) > 130:
+                summary = summary[:127] + "..."
+            lines.append(f"{sec['section_id']} | {sec['section_title']} | {summary}")
+        return "\n".join(lines)
+
+    def get_sections_by_ids(self, section_ids: List[str]) -> List[Dict[str, Any]]:
+        """Retrieves exact sections matching the given list of section IDs."""
+        lookup = {s["section_id"]: s for s in self.sections}
+        results = []
+        for sid in section_ids:
+            clean_id = sid.strip().replace("[", "").replace("]", "").replace("book:", "")
+            if clean_id in lookup:
+                results.append(lookup[clean_id])
+        # If fewer than 5, fill with core risk sections
+        if len(results) < 5:
+            fallback_ids = ["sec_risk_management", "sec_hard_caps", "sec_expectancy", "sec_ema_ribbon", "sec_candlestick_anatomy"]
+            for fid in fallback_ids:
+                if fid in lookup and lookup[fid] not in results:
+                    results.append(lookup[fid])
+                if len(results) >= 5:
+                    break
+        return results[:5]
+
+    def search_by_query(self, query: str, top_k: int = 1) -> List[Dict[str, Any]]:
+        """Searches sections for a targeted natural language query (e.g. 'stop placement')."""
+        q_words = set(query.lower().split())
+        scored = []
+        for sec in self.sections:
+            score = 0
+            text = (sec["section_title"] + " " + sec["content"] + " " + " ".join(sec["keywords"])).lower()
+            for w in q_words:
+                if len(w) > 3 and w in text:
+                    score += 1
+            for r in sec.get("rules", []):
+                for w in q_words:
+                    if len(w) > 3 and w in r.get("text", "").lower():
+                        score += 2
+            if score > 0:
+                scored.append((score, sec))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [s[1] for s in scored[:top_k]]
+
     def format_for_xml_prompt(self, matched_sections: List[Dict[str, Any]]) -> str:
         """Formats the retrieved book chunks with full conceptual depth and tactical execution rules for prompt injection."""
         lines = ["<retrieved_trading_book_knowledge>"]
