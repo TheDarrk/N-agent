@@ -19,12 +19,25 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 
 # Matplotlib headless backend
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import matplotlib.ticker as ticker
-import numpy as np
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    import matplotlib.ticker as ticker
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+    plt = None
+    patches = None
+    ticker = None
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+    np = None
 
 CHARTS_DIR = os.path.join(os.path.dirname(__file__), "knowledge_base", "charts")
 
@@ -115,7 +128,7 @@ def render_chart_image(
 
     display_candles = candles[-38:] if len(candles) >= 38 else candles
     n = len(display_candles)
-    if n == 0:
+    if n == 0 or not HAS_MATPLOTLIB or plt is None:
         return {"file_path": chart_path, "filename": chart_filename, "data_uri": ""}
 
     future_steps = 8

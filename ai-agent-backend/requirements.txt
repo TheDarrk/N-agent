@@ -20,3 +20,7 @@ aiosqlite
 cryptography
 PyNaCl
 base58
+matplotlib
+numpy
+py-near
+requests
