@@ -11,7 +11,9 @@ import hashlib
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
-MAX_RECENT_ITEMS = 10
+MAX_TRADER_TRACES = 24
+MAX_RESEARCH_REPORTS = 5
+MAX_RECENT_ITEMS = 24
 LOGS_DIR = os.path.join(os.path.dirname(__file__), "reasoning_logs")
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "research_reports")
 
@@ -52,7 +54,8 @@ def _prune_directory(directory: str, max_items: int = MAX_RECENT_ITEMS):
 async def upload_trade_trace(trace: Dict[str, Any]) -> str:
     """
     Store a trade reasoning trace.
-    Returns the CID (IPFS/local) and keeps only the recent 10.
+    Returns the CID (IPFS/local) and strictly preserves the most recent 24 traces.
+    Includes explicit UTC date, time, and ISO timestamp.
     """
     cid = _generate_cid(trace)
     trace["cid"] = cid
@@ -61,22 +64,24 @@ async def upload_trade_trace(trace: Dict[str, Any]) -> str:
     trace["stored_at_iso"] = now_utc.isoformat()
     trace["date_utc"] = now_utc.strftime("%Y-%m-%d")
     trace["time_utc"] = now_utc.strftime("%H:%M:%S UTC")
+    trace["timestamp_utc"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    trace["created_at_utc"] = now_utc.isoformat()
 
-    # Save to local recent 10
+    # Save to local recent 24
     timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
     filepath = os.path.join(LOGS_DIR, f"trace_{timestamp}_{cid[:10]}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(trace, f, indent=2)
 
-    _prune_directory(LOGS_DIR, MAX_RECENT_ITEMS)
-    print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent 10 preserved)")
+    _prune_directory(LOGS_DIR, MAX_TRADER_TRACES)
+    print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent {MAX_TRADER_TRACES} preserved)")
     return cid
 
 
 async def upload_research_report(report: Dict[str, Any]) -> str:
     """
     Store a Research Agent market report.
-    Returns the CID (IPFS/local) and keeps only the recent 10.
+    Returns the CID (IPFS/local) and strictly preserves the most recent 5 reports.
     """
     cid = _generate_cid(report)
     report["cid"] = cid
@@ -85,20 +90,22 @@ async def upload_research_report(report: Dict[str, Any]) -> str:
     report["stored_at_iso"] = now_utc.isoformat()
     report["date_utc"] = now_utc.strftime("%Y-%m-%d")
     report["time_utc"] = now_utc.strftime("%H:%M:%S UTC")
+    report["timestamp_utc"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    report["created_at_utc"] = now_utc.isoformat()
 
-    # Save to local recent 10
+    # Save to local recent 5
     timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
     filepath = os.path.join(REPORTS_DIR, f"report_{timestamp}_{cid[:10]}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
-    _prune_directory(REPORTS_DIR, MAX_RECENT_ITEMS)
-    print(f"[STORAGE] Research report saved: {cid} (recent 10 preserved)")
+    _prune_directory(REPORTS_DIR, MAX_RESEARCH_REPORTS)
+    print(f"[STORAGE] Research report saved: {cid} (recent {MAX_RESEARCH_REPORTS} preserved)")
     return cid
 
 
-def get_recent_trade_traces(limit: int = 10) -> List[Dict[str, Any]]:
-    """Retrieve up to the recent 10 trade traces."""
+def get_recent_trade_traces(limit: int = 24) -> List[Dict[str, Any]]:
+    """Retrieve up to the recent 24 trade traces."""
     items = []
     try:
         files = [

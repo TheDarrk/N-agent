@@ -151,9 +151,7 @@ interface TradeTrace {
 export default function TraderSection({ accountId, onConnectWallet }: Props) {
   // Coin Selection Mode: "auto" (Dynamic Daily Trending) vs "custom" (User Watchlist up to 20)
   const [coinMode, setCoinMode] = useState<"auto" | "custom">("auto");
-  const [customCoins, setCustomCoins] = useState<string[]>([
-    "NEAR", "WETH", "WBTC", "SOL", "REF", "SWEAT", "PEPE"
-  ]);
+  const [customCoins, setCustomCoins] = useState<string[]>([]);
   const [newCoinInput, setNewCoinInput] = useState("");
 
   // Trader Parameters & Hard Caps
@@ -207,6 +205,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   // Execution & Live Data State
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [showAsciiChart, setShowAsciiChart] = useState(false);
   const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [modalChartUri, setModalChartUri] = useState<string | null>(null);
@@ -292,6 +291,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
     }
     setIsScanning(true);
     setScanResult(null);
+    setScanError(null);
     try {
       const res = await fetch("/api/trader/analyze", {
         method: "POST",
@@ -305,11 +305,24 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           enable_researcher_plugin: enableResearcher,
         }),
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        let errMsg = `Analysis failed (HTTP ${res.status})`;
+        try {
+          const parsed = JSON.parse(errText);
+          errMsg = parsed.detail || parsed.message || errMsg;
+        } catch {
+          if (errText) errMsg += `: ${errText.slice(0, 160)}`;
+        }
+        setScanError(errMsg);
+        return;
+      }
       const data = await res.json();
       setScanResult(data);
       await fetchTrades();
-    } catch (e) {
+    } catch (e: any) {
       console.error("Scan error:", e);
+      setScanError(e?.message || "Network error occurred while connecting to trading engine.");
     } finally {
       setIsScanning(false);
     }
@@ -385,9 +398,17 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
             <h1 className="text-xl font-bold tracking-tight text-foreground">
               Autonomous Trader Agent
             </h1>
-            <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              2-Node + Vision Pattern AI
-            </span>
+            {isScanning ? (
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-primary/20 text-primary border border-primary/30 animate-pulse">
+                <RotateCw size={12} className="animate-spin" />
+                Scanning Universe &amp; Deliberating...
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                2-Node + Vision Pattern AI Active
+              </span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed max-w-2xl">
             Powered by <strong>shimo4228/llm-as-judge</strong> pattern with <strong>z-ai/glm-5.3-flash</strong>. Node 1 gathers dynamic daily trending coins, algorithmic chart patterns, vision candlestick charts, local XML Trading Book RAG rules (31 sections), and Twitter/X sentiment. Node 2 renders an uncompromising binary verdict and ATR targets with zero manual intervention.
@@ -422,6 +443,26 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Analysis Error / Notification Alert */}
+      {scanError && (
+        <div className="p-4 rounded-2xl bg-destructive/10 border border-destructive/30 text-destructive flex items-center justify-between text-xs animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle size={18} className="shrink-0 text-destructive" />
+            <div>
+              <span className="font-bold">Market Analysis Error: </span>
+              <span className="opacity-90">{scanError}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setScanError(null)}
+            className="p-1.5 rounded-lg hover:bg-destructive/20 text-destructive transition-colors text-sm font-bold"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Grid: Configurations & Hard Caps vs Live Status */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -498,22 +539,28 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                     <Plus size={12} /> Add
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-1">
-                  {customCoins.map((coin) => (
-                    <span
-                      key={coin}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono bg-secondary border border-[hsl(225,18%,18%)] text-foreground"
-                    >
-                      {coin}
-                      <button
-                        onClick={() => handleRemoveCustomCoin(coin)}
-                        className="text-muted-foreground hover:text-rose-400"
+                {customCoins.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground italic py-1">
+                    No custom coins added yet. Enter symbol above (e.g. SOL, BTC) and click Add.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-1">
+                    {customCoins.map((coin) => (
+                      <span
+                        key={coin}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono bg-secondary border border-[hsl(225,18%,18%)] text-foreground"
                       >
-                        &times;
-                      </button>
-                    </span>
-                  ))}
-                </div>
+                        {coin}
+                        <button
+                          onClick={() => handleRemoveCustomCoin(coin)}
+                          className="text-muted-foreground hover:text-rose-400"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <p className="text-[10px] text-muted-foreground">
                   {customCoins.length}/20 coins configured for multi-asset scan.
                 </p>
@@ -760,7 +807,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           {(() => {
             const latestTrace = traces.length > 0 ? traces[0] : null;
             const activeRun = scanResult || (latestTrace ? {
-              success: latestTrace.verdict === "ENTER_LONG",
+              success: latestTrace.verdict === "ENTER_LONG" || latestTrace.verdict === "ENTER_SHORT",
               verdict: latestTrace.verdict,
               symbol: latestTrace.symbol,
               timeframe: latestTrace.timeframe || timeframe || "1h",
@@ -1379,6 +1426,11 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
                                 <CheckCircle2 size={10} />
                                 <span>ENTER LONG</span>
+                              </span>
+                            ) : tr.verdict === "ENTER_SHORT" ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 shrink-0">
+                                <TrendingUp size={10} className="rotate-180" />
+                                <span>ENTER SHORT</span>
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-[hsl(225,18%,16%)] shrink-0">

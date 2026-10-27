@@ -1,0 +1,29 @@
+{
+  "agent": "trader",
+  "user_wallet": "test_trader_1793127505.near",
+  "symbol": "MARKET",
+  "timeframe": "4h",
+  "verdict": "STAND_ASIDE",
+  "stage": "REFACTORED_PIPELINE_STAND_ASIDE",
+  "confidence_score": 0,
+  "min_required": 70,
+  "expected_roi_pct": 0.0,
+  "reasoning": "Screener found no qualifying setups scoring >= 70 against selection rubric.",
+  "pipeline": {
+    "screener": {
+      "selections": [],
+      "reasoning_scratchpad": "{\"reasoning_scratchpad\":\"NEAR ~57 SKIP/LONG-lean: confirmed inverse H&S off the 4.2 low with a strong 74% body reclaiming the 4h ema20 and 17.7% of room above, but the 12h is flat with price below all its EMAs, MACD hist is still negative on both timeframes, rel_vol is only 1.2 (no real participation in the breakout), and funding/OI are neutral. Early reversal attempt, not yet a >=70 setup.\",\"selections\":[]}"
+    },
+    "council": null,
+    "judge": null,
+    "execution": null,
+    "status": "no_candidates"
+  },
+  "cid": "bafy4334aeb51e4cb704b298267231768f33441d7c11baf9",
+  "stored_at": "2026-10-27 19:00:11 UTC",
+  "stored_at_iso": "2026-10-27T19:00:11.917643+00:00",
+  "date_utc": "2026-10-27",
+  "time_utc": "19:00:11 UTC",
+  "timestamp_utc": "2026-10-27 19:00:11 UTC",
+  "created_at_utc": "2026-10-27T19:00:11.917643+00:00"
+}

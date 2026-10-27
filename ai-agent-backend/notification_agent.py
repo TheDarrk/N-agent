@@ -5,27 +5,14 @@ Each email is uniquely crafted based on the strategy type, action taken,
 market conditions, and execution details.
 """
 
-import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+from glm_transport import invoke_glm
 
 from email_service import send_email, is_email_configured
 from database import get_user
-
-
-#   Notification Agent LLM (separate client)  
-
-api_key = os.getenv("NEAR_AI_API_KEY")
-
-notification_llm = ChatOpenAI(
-    model=os.getenv("NEAR_AI_MODEL", "z-ai/glm-5.3-flash"),
-    temperature=0.4,
-    openai_api_key=api_key or "sk-missing-key",
-    openai_api_base="https://cloud-api.near.ai/v1"
-)
 
 
 #   System Prompt for Email Drafting  
@@ -136,10 +123,10 @@ Market Context:
     try:
         print(f"[NOTIFY] Drafting email for {user_wallet} ({strategy_type})")
 
-        response = await notification_llm.ainvoke([
+        response = await invoke_glm([
             SystemMessage(content=NOTIFICATION_PROMPT),
             HumanMessage(content=context)
-        ])
+        ], temperature=0.4)
 
         raw = response.content.strip()
         # Strip markdown code fences if present

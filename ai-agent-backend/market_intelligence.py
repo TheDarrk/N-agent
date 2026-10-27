@@ -86,22 +86,53 @@ def _calc_atr(highs: List[float], lows: List[float], closes: List[float], period
     return round(atr, 4)
 
 
-async def fetch_klines(symbol: str = "NEAR", timeframe: str = "1h", limit: int = 50) -> List[Dict[str, Any]]:
-    """
-    Fetches real candlestick Kline data.
-    Primary: Bybit Public API (open globally, zero geo-blocking).
-    Secondary: Gate.io Public API.
-    Tertiary: Binance Public API.
-    Fallback: Synthesizes high-resolution realistic oscillating candles around live spot price.
-    Supports intervals: 1h, 2h, 4h, 6h, 12h, 1d.
-    """
-    bybit_interval = "60" if timeframe == "1h" else ("120" if timeframe == "2h" else ("240" if timeframe == "4h" else ("D" if timeframe == "1d" else ("W" if timeframe in ["1w", "weekly"] else "60"))))
-    pair = f"{symbol.upper()}USDT"
+SYMBOL_ALIASES = {
+    "WBTC": "BTC",
+    "WETH": "ETH",
+    "WNEAR": "NEAR",
+    "CBBTC": "BTC",
+    "HEMIBTC": "BTC",
+    "WSTETH": "ETH",
+    "XBTC": "BTC",
+    "STNEAR": "NEAR",
+    "CNEAR": "NEAR",
+    "WNEARKAT": "NEAR",
+}
 
-    # 1. Primary: Bybit Public Spot Klines (fast, reliable, global)
-    try:
-        bybit_url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={pair}&interval={bybit_interval}&limit={limit}"
-        async with httpx.AsyncClient(timeout=0.8) as client:
+_SHARED_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+
+
+def get_market_http_client() -> httpx.AsyncClient:
+    """Returns a shared, connection-pooled AsyncClient to prevent handshake latency & timeouts."""
+    global _SHARED_HTTP_CLIENT
+    if _SHARED_HTTP_CLIENT is None or _SHARED_HTTP_CLIENT.is_closed:
+        _SHARED_HTTP_CLIENT = httpx.AsyncClient(
+            limits=httpx.Limits(max_connections=80, max_keepalive_connections=30),
+            timeout=httpx.Timeout(connect=2.5, read=3.5, write=2.5, pool=5.0)
+        )
+    return _SHARED_HTTP_CLIENT
+
+
+async def fetch_klines(symbol: str, timeframe: str = "1h", limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Fetches real candlestick Kline data with multi-endpoint load balancing and failover:
+    1. Bybit Public Spot (Rotates between api.bytick.com and api.bybit.com).
+    2. Gate.io Public Spot.
+    3. Binance Public Spot (failover with fast timeout).
+    4. GeckoTerminal DEX OHLCV (On-chain candles).
+    Returns empty list if no real exchange data is available (never fabricates synthetic candles).
+    """
+    clean_sym = symbol.strip().upper()
+    lookup_sym = SYMBOL_ALIASES.get(clean_sym, clean_sym)
+
+    bybit_interval = "60" if timeframe == "1h" else ("120" if timeframe == "2h" else ("240" if timeframe == "4h" else ("720" if timeframe == "12h" else ("D" if timeframe == "1d" else ("W" if timeframe in ["1w", "weekly"] else "60")))))
+    pair = f"{lookup_sym}USDT"
+    client = get_market_http_client()
+
+    # 1. Primary: Bybit Public Spot Klines with Dual Domain Load Balancing (bytick CDN + bybit primary)
+    for bybit_host in ("https://api.bytick.com", "https://api.bybit.com"):
+        try:
+            bybit_url = f"{bybit_host}/v5/market/kline?category=spot&symbol={pair}&interval={bybit_interval}&limit={limit}"
             resp = await client.get(bybit_url)
             if resp.status_code == 200:
                 raw = resp.json().get("result", {}).get("list", [])
@@ -117,40 +148,39 @@ async def fetch_klines(symbol: str = "NEAR", timeframe: str = "1h", limit: int =
                             "volume": float(k[5]),
                         })
                     return candles
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     # 2. Secondary: Gate.io Public Spot Klines
     try:
-        gate_tf = "1h" if timeframe == "1h" else ("2h" if timeframe == "2h" else ("4h" if timeframe == "4h" else ("1d" if timeframe == "1d" else ("7d" if timeframe in ["1w", "weekly"] else "1h"))))
-        gate_url = f"https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair={symbol.upper()}_USDT&interval={gate_tf}&limit={limit}"
-        async with httpx.AsyncClient(timeout=0.8) as client:
-            resp = await client.get(gate_url)
-            if resp.status_code == 200:
-                raw = resp.json()
-                if isinstance(raw, list) and len(raw) >= 10:
-                    candles = []
-                    for k in raw:
-                        candles.append({
-                            "open_time": int(k[0]) * 1000,
-                            "open": float(k[5]),
-                            "high": float(k[3]),
-                            "low": float(k[4]),
-                            "close": float(k[2]),
-                            "volume": float(k[1]),
-                        })
-                    return candles
+        gate_tf = "1h" if timeframe == "1h" else ("2h" if timeframe == "2h" else ("4h" if timeframe == "4h" else ("12h" if timeframe == "12h" else ("1d" if timeframe == "1d" else ("7d" if timeframe in ["1w", "weekly"] else "1h")))))
+        gate_url = f"https://api.gateio.ws/api/v4/spot/candlesticks?currency_pair={lookup_sym}_USDT&interval={gate_tf}&limit={limit}"
+        resp = await client.get(gate_url)
+        if resp.status_code == 200:
+            raw = resp.json()
+            if isinstance(raw, list) and len(raw) >= 10:
+                candles = []
+                for k in raw:
+                    candles.append({
+                        "open_time": int(k[0]) * 1000,
+                        "open": float(k[5]),
+                        "high": float(k[3]),
+                        "low": float(k[4]),
+                        "close": float(k[2]),
+                        "volume": float(k[1]),
+                    })
+                return candles
     except Exception:
         pass
 
-    # 3. Tertiary: Binance Public API
+    # 3. Tertiary: Binance Public API (Fast fail-safe timeout)
     try:
         interval = timeframe if timeframe in ["1h", "2h", "4h", "6h", "12h", "1d", "1w"] else "1h"
         binance_url = f"https://api.binance.com/api/v3/klines?symbol={pair}&interval={interval}&limit={limit}"
-        async with httpx.AsyncClient(timeout=0.4) as client:
-            resp = await client.get(binance_url)
-            if resp.status_code == 200:
-                raw = resp.json()
+        resp = await client.get(binance_url)
+        if resp.status_code == 200:
+            raw = resp.json()
+            if isinstance(raw, list) and len(raw) >= 10:
                 candles = []
                 for k in raw:
                     candles.append({
@@ -178,95 +208,132 @@ async def fetch_klines(symbol: str = "NEAR", timeframe: str = "1h", limit: int =
         elif timeframe in ["1w", "weekly"]:
             gt_tf, gt_agg = "day", 7
 
-        pool_id = _GECKO_POOL_CACHE.get(symbol.upper())
+        pool_id = _GECKO_POOL_CACHE.get(lookup_sym)
         headers = {"Accept": "application/json;version=20230302"}
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            if not pool_id:
-                # Search pool dynamically on GeckoTerminal
-                sr = await client.get(f"https://api.geckoterminal.com/api/v2/search/pools?query={symbol}", headers=headers)
-                if sr.status_code == 200:
-                    pools = sr.json().get("data", [])
-                    if pools:
-                        best_pool = pools[0]
-                        for p in pools:
-                            p_name = p.get("attributes", {}).get("name", "").upper()
-                            if symbol.upper() in p_name:
-                                best_pool = p
-                                break
-                        cand_id = best_pool.get("id")
-                        if cand_id and "_" in cand_id:
-                            pool_id = cand_id
-                            _GECKO_POOL_CACHE[symbol.upper()] = pool_id
+        if not pool_id:
+            sr = await client.get(f"https://api.geckoterminal.com/api/v2/search/pools?query={lookup_sym}", headers=headers)
+            if sr.status_code == 200:
+                pools = sr.json().get("data", [])
+                if pools:
+                    best_pool = pools[0]
+                    for p in pools:
+                        p_name = p.get("attributes", {}).get("name", "").upper()
+                        if lookup_sym in p_name:
+                            best_pool = p
+                            break
+                    cand_id = best_pool.get("id")
+                    if cand_id and "_" in cand_id:
+                        pool_id = cand_id
+                        _GECKO_POOL_CACHE[lookup_sym] = pool_id
 
-            if pool_id and "_" in pool_id:
-                network, pool_addr = pool_id.split("_", 1)
-                ohlcv_url = f"https://api.geckoterminal.com/api/v2/networks/{network}/pools/{pool_addr}/ohlcv/{gt_tf}?aggregate={gt_agg}&limit={limit}"
-                or_resp = await client.get(ohlcv_url, headers=headers)
-                if or_resp.status_code == 200:
-                    raw_list = or_resp.json().get("data", {}).get("attributes", {}).get("ohlcv_list", [])
-                    if raw_list and len(raw_list) >= 5:
-                        candles = []
-                        for k in reversed(raw_list):
-                            candles.append({
-                                "open_time": int(k[0]) * 1000,
-                                "open": float(k[1]),
-                                "high": float(k[2]),
-                                "low": float(k[3]),
-                                "close": float(k[4]),
-                                "volume": float(k[5]),
-                            })
-                        return candles
+        if pool_id and "_" in pool_id:
+            network, pool_addr = pool_id.split("_", 1)
+            ohlcv_url = f"https://api.geckoterminal.com/api/v2/networks/{network}/pools/{pool_addr}/ohlcv/{gt_tf}?aggregate={gt_agg}&limit={limit}"
+            or_resp = await client.get(ohlcv_url, headers=headers)
+            if or_resp.status_code == 200:
+                raw_list = or_resp.json().get("data", {}).get("attributes", {}).get("ohlcv_list", [])
+                if raw_list and len(raw_list) >= 5:
+                    candles = []
+                    for k in reversed(raw_list):
+                        candles.append({
+                            "open_time": int(k[0]) * 1000,
+                            "open": float(k[1]),
+                            "high": float(k[2]),
+                            "low": float(k[3]),
+                            "close": float(k[4]),
+                            "volume": float(k[5]),
+                        })
+                    return candles
     except Exception:
         pass
 
-    # 5. Realistic Fallback Synthetic Candlesticks with Stochastic Wave
-    import math
-    from knowledge_base import get_1click_token_price, get_available_tokens_from_api
-    spot = get_1click_token_price(symbol)
-    if not spot or spot <= 0:
-        try:
-            await get_available_tokens_from_api()
-            spot = get_1click_token_price(symbol)
-        except Exception:
-            pass
-    if not spot or spot <= 0:
-        current_prices = await get_token_prices([symbol.lower()])
-        spot = current_prices.get(symbol.lower(), 0.0)
-    if not spot or spot <= 0:
-        mock_map = {
-            "NEAR": 4.50, "WETH": 2650.0, "WBTC": 68500.0, "SOL": 175.0,
-            "AURORA": 0.18, "SWEAT": 0.0085, "REF": 0.14, "PEPE": 0.0000105,
-            "DOGE": 0.14, "ARB": 0.58, "OP": 1.62, "AVAX": 28.5,
-            "BNB": 590.0, "LINK": 12.4, "SUI": 2.15, "APT": 10.2
+    # Real Data Integrity Guard: Never generate synthetic, fabricated, or cloned candles.
+    # If exchanges and DEXes do not have real candles, return empty list to drop the asset.
+    return []
+
+def summarize_lookback(candles: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Summarize raw candles from the requested lookback without aggregation loss."""
+    if not candles:
+        return {
+            "candles_count": 0,
+            "open": 0.0,
+            "close": 0.0,
+            "high": 0.0,
+            "low": 0.0,
+            "average_open": 0.0,
+            "average_close": 0.0,
+            "average_high": 0.0,
+            "average_low": 0.0,
+            "average_volume": 0.0,
+            "total_volume": 0.0,
+            "range_pct": 0.0,
+            "average_candle_range_pct": 0.0,
+            "average_body_pct": 0.0,
+            "ema20": 0.0,
+            "ema50": 0.0,
+            "ema200": 0.0,
+            "ema_trend": "NEUTRAL",
+            "ema_spread_pct": 0.0,
         }
-        spot = mock_map.get(symbol.upper(), 4.5)
 
-    synthetic = []
-    base = spot * 0.98
-    for i in range(limit):
-        oscillation = math.sin(i * 0.45) * 0.015
-        trend = (i / limit) * 0.025
-        val = base * (1.0 + trend + oscillation)
-        high = val * 1.008
-        low = val * 0.992
-        open_p = val * (1.0 - 0.004 * math.cos(i * 0.5))
-        vol = 85000.0 * (1.0 + 0.35 * math.sin(i * 0.7))
-        synthetic.append({
-            "open_time": i * 3600000,
-            "open": round(open_p, 4),
-            "high": round(high, 4),
-            "low": round(low, 4),
-            "close": round(val, 4),
-            "volume": round(vol, 2),
-        })
-    return synthetic
+    opens = [float(c.get("open") or 0.0) for c in candles]
+    closes = [float(c.get("close") or 0.0) for c in candles]
+    highs = [float(c.get("high") or 0.0) for c in candles]
+    lows = [float(c.get("low") or 0.0) for c in candles]
+    volumes = [float(c.get("volume") or 0.0) for c in candles]
+    valid_opens = [value for value in opens if value > 0]
+    first_open = valid_opens[0] if valid_opens else 0.0
+    last_close = closes[-1] if closes else 0.0
+    avg_close = sum(closes) / len(closes) if closes else 0.0
+    candle_ranges = [
+        (high - low) / open_price * 100.0
+        for open_price, high, low in zip(opens, highs, lows)
+        if open_price > 0
+    ]
+    body_ranges = [
+        abs(close - open_price) / open_price * 100.0
+        for open_price, close in zip(opens, closes)
+        if open_price > 0
+    ]
+    closes_for_ema = closes
+    ema20 = _calc_ema(closes_for_ema, 20) if closes_for_ema else 0.0
+    ema50 = _calc_ema(closes_for_ema, 50) if closes_for_ema else 0.0
+    ema200 = _calc_ema(closes_for_ema, 200) if closes_for_ema else 0.0
+    return {
+        "candles_count": len(candles),
+        "open": first_open,
+        "close": last_close,
+        "high": max(highs) if highs else 0.0,
+        "low": min(lows) if lows else 0.0,
+        "average_open": sum(opens) / len(opens) if opens else 0.0,
+        "average_close": avg_close,
+        "average_high": sum(highs) / len(highs) if highs else 0.0,
+        "average_low": sum(lows) / len(lows) if lows else 0.0,
+        "average_volume": sum(volumes) / len(volumes) if volumes else 0.0,
+        "total_volume": sum(volumes),
+        "range_pct": ((max(highs) - min(lows)) / first_open * 100.0) if first_open > 0 else 0.0,
+        "move_pct": ((last_close - first_open) / first_open * 100.0) if first_open > 0 else 0.0,
+        "average_candle_range_pct": sum(candle_ranges) / len(candle_ranges) if candle_ranges else 0.0,
+        "average_body_pct": sum(body_ranges) / len(body_ranges) if body_ranges else 0.0,
+        "ema20": ema20,
+        "ema50": ema50,
+        "ema200": ema200,
+        "ema_trend": "BULLISH" if ema20 > ema50 else "BEARISH" if ema20 < ema50 else "NEUTRAL",
+        "ema_spread_pct": abs(ema20 - ema50) / ema50 * 100.0 if ema50 > 0 else 0.0,
+    }
 
-async def analyze_token_indicators(symbol: str = "NEAR", timeframe: str = "1h") -> Dict[str, Any]:
+
+async def analyze_token_indicators(
+    symbol: str = "NEAR",
+    timeframe: str = "1h",
+    limit: int = 50,
+    include_lookback_summary: bool = False,
+) -> Dict[str, Any]:
     """
     Computes a full technical indicator snapshot for a token:
     RSI, EMA 20/50/200, ATR, volume delta, trend regime.
     """
-    candles = await fetch_klines(symbol=symbol, timeframe=timeframe, limit=50)
+    candles = await fetch_klines(symbol=symbol, timeframe=timeframe, limit=limit)
     closes = [c["close"] for c in candles]
     highs = [c["high"] for c in candles]
     lows = [c["low"] for c in candles]
@@ -293,7 +360,7 @@ async def analyze_token_indicators(symbol: str = "NEAR", timeframe: str = "1h") 
 
     atr_pct = (atr / current_price) * 100 if current_price > 0 else 2.5
 
-    return {
+    result = {
         "symbol": symbol.upper(),
         "timeframe": timeframe,
         "current_price": current_price,
@@ -313,9 +380,14 @@ async def analyze_token_indicators(symbol: str = "NEAR", timeframe: str = "1h") 
         "candles_count": len(candles),
         "candles": candles
     }
+    if include_lookback_summary:
+        result["lookback_summary"] = summarize_lookback(candles)
+        if timeframe == "1h":
+            result["one_week_1h"] = result["lookback_summary"]
+    return result
 
 
-async def fetch_chart_tool(symbol: str = "NEAR", timeframe: str = "1h", limit: int = 50) -> Dict[str, Any]:
+async def fetch_chart_tool(symbol: str, timeframe: str = "1h", limit: int = 50) -> Dict[str, Any]:
     """
     Dedicated Chart & Pattern Analysis Tool.
     Can be called by Node 1 or LLM Council for any symbol & timeframe (1h, 2h, 4h, 1d, 1w).
@@ -333,6 +405,8 @@ async def fetch_chart_tool(symbol: str = "NEAR", timeframe: str = "1h", limit: i
         "timeframe": timeframe,
         "current_price": current_price,
         "indicators": indicators,
+        "candles": candles,
+        "pattern_data": pattern_data,
         "pattern_name": pattern_data.get("dominant_pattern"),
         "pattern_type": pattern_data.get("pattern_type"),
         "measured_target": pattern_data.get("measured_target"),
@@ -343,56 +417,114 @@ async def fetch_chart_tool(symbol: str = "NEAR", timeframe: str = "1h", limit: i
     }
 
 
-async def analyze_multiframe_market_tool(symbol: str = "NEAR", timeframes: Optional[List[str]] = None) -> Dict[str, Any]:
-    """
-    Multi-timeframe Candlestick & Pattern Confluence Analysis Tool.
-    Evaluates market structure across 1h, 2h, 4h, 1d, 1w for Node 1 and LLM Council.
+async def get_chart_data_bundle(
+    symbol: str = "NEAR",
+    timeframes: Optional[List[str]] = None,
+    prefetched: Optional[Dict[str, Any]] = None,
+    days: int = 1,
+) -> Dict[str, Any]:
+    """Return one complete, de-duplicated chart data bundle for an asset.
+
+    The functional scanner can pass its already computed timeframe snapshot as
+    ``prefetched``. The council then receives the same candles, indicators, and
+    patterns instead of fetching the selected asset a second time.
     """
     if timeframes is None:
         timeframes = ["1h", "2h", "4h", "1d", "1w"]
 
-    tasks = [fetch_chart_tool(symbol=symbol, timeframe=tf) for tf in timeframes]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    ordered_timeframes = []
+    for tf in timeframes:
+        clean_tf = str(tf).strip().lower()
+        if clean_tf and clean_tf not in ordered_timeframes:
+            ordered_timeframes.append(clean_tf)
 
-    tf_data = {}
+    async def _prefetched_or_fetch(tf: str) -> Dict[str, Any]:
+        if prefetched and str(prefetched.get("timeframe", "")).lower() == tf:
+            indicators = prefetched.get("indicators", prefetched)
+            pattern = prefetched.get("pattern_data", {})
+            return {
+                "symbol": symbol.upper(),
+                "timeframe": tf,
+                "current_price": indicators.get("current_price"),
+                "indicators": indicators,
+                "candles": indicators.get("candles", []),
+                "pattern_data": pattern,
+                "pattern_name": pattern.get("dominant_pattern"),
+                "pattern_type": pattern.get("pattern_type"),
+                "measured_target": pattern.get("measured_target"),
+                "stop_loss": pattern.get("stop_loss"),
+                "risk_reward_ratio": pattern.get("risk_reward_ratio", 2.0),
+                "candles_count": len(indicators.get("candles", [])),
+            }
+        hours = {"1h": 1, "2h": 2, "4h": 4, "12h": 12, "1d": 24}.get(tf, 24)
+        limit = max(50, min(500, int((max(1, days) * 24) / hours) + 10))
+        return await fetch_chart_tool(symbol=symbol, timeframe=tf, limit=limit)
+
+    results = await asyncio.gather(
+        *[_prefetched_or_fetch(tf) for tf in ordered_timeframes],
+        return_exceptions=True,
+    )
+
+    timeframe_details: Dict[str, Dict[str, Any]] = {}
+    full_data: Dict[str, Dict[str, Any]] = {}
     bullish_count = 0
     total_valid = 0
-    for tf, res in zip(timeframes, results):
-        if isinstance(res, dict) and not isinstance(res, Exception):
-            ind = res.get("indicators", {})
-            tf_data[tf] = {
-                "current_price": ind.get("current_price"),
-                "rsi": ind.get("rsi"),
-                "ema20": ind.get("ema20"),
-                "ema50": ind.get("ema50"),
-                "ema200": ind.get("ema200"),
-                "trend": ind.get("ema_trend"),
-                "cross": ind.get("ema_cross"),
-                "atr": ind.get("atr"),
-                "recent_support": ind.get("recent_support"),
-                "recent_resistance": ind.get("recent_resistance"),
-                "volume_surge": ind.get("volume_surge"),
-                "volume_ratio": ind.get("volume_ratio"),
-                "pattern": res.get("pattern_name"),
-                "target": res.get("measured_target"),
-                "stop_loss": res.get("stop_loss"),
-                "risk_reward": res.get("risk_reward_ratio")
-            }
-            if ind.get("ema_trend") == "BULLISH":
-                bullish_count += 1
-            total_valid += 1
+    for tf, res in zip(ordered_timeframes, results):
+        if not isinstance(res, dict):
+            continue
+        ind = res.get("indicators", {})
+        pattern = res.get("pattern_data", {})
+        timeframe_details[tf] = {
+            "current_price": ind.get("current_price"),
+            "rsi": ind.get("rsi"),
+            "ema20": ind.get("ema20"),
+            "ema50": ind.get("ema50"),
+            "ema200": ind.get("ema200"),
+            "trend": ind.get("ema_trend"),
+            "cross": ind.get("ema_cross"),
+            "atr": ind.get("atr"),
+            "recent_support": ind.get("recent_support"),
+            "recent_resistance": ind.get("recent_resistance"),
+            "volume_surge": ind.get("volume_surge"),
+            "volume_ratio": ind.get("volume_ratio"),
+            "pattern": res.get("pattern_name") or pattern.get("dominant_pattern"),
+            "target": res.get("measured_target") or pattern.get("measured_target"),
+            "stop_loss": res.get("stop_loss") or pattern.get("stop_loss"),
+            "risk_reward": res.get("risk_reward_ratio") or pattern.get("risk_reward_ratio"),
+        }
+        indicator_context = {
+            key: value for key, value in ind.items()
+            if key != "candles"
+        }
+        full_data[tf] = {
+            "timeframe": tf,
+            "indicators": indicator_context,
+            "pattern_data": pattern,
+            "candles": res.get("candles") or ind.get("candles", []),
+        }
+        if ind.get("ema_trend") == "BULLISH":
+            bullish_count += 1
+        total_valid += 1
 
     macro_alignment = (
         "STRONG_BULLISH" if bullish_count >= 4
         else ("MODERATE_BULLISH" if bullish_count >= 3
-        else ("MIXED" if bullish_count == 2
-        else "BEARISH"))
+        else ("MIXED" if bullish_count == 2 else "BEARISH"))
     )
-
     return {
         "symbol": symbol.upper(),
-        "timeframes_analyzed": timeframes,
+        "timeframes_analyzed": ordered_timeframes,
         "macro_alignment": macro_alignment,
         "bullish_timeframes_count": f"{bullish_count}/{total_valid}",
-        "timeframe_details": tf_data
+        "timeframe_details": timeframe_details,
+        "full_data": full_data,
+        "requested_days": days,
     }
+
+
+async def analyze_multiframe_market_tool(symbol: str, timeframes: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Multi-timeframe Candlestick & Pattern Confluence Analysis Tool.
+    Evaluates market structure across 1h, 2h, 4h, 1d, 1w for Node 1 and LLM Council.
+    """
+    return await get_chart_data_bundle(symbol=symbol, timeframes=timeframes)

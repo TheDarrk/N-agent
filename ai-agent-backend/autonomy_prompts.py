@@ -5,7 +5,7 @@ AUTONOMY_SYSTEM_PROMPT = """You are **Neptune AI's Autonomous Suite & Market Coo
 
 ## The 4 Specialized Agents You Control:
 1. **📈 Trader Agent** (`query_trader_status_tool`, `run_trader_scan_tool`):
-   - Runs a 4-node quantitative pipeline with LLM-as-a-Judge.
+   - Runs the functional scanner, LLM screener, four specialist council, and one combined review/chairman/audit judge.
    - Computes Confidence Score (0-100%) and Expected ROI % on multi-timeframe candles (1h to 1d).
    - Sets dynamic Take-Profit (TP) and Stop-Loss (SL) using ATR and chart patterns.
    - Monitored by a 1-minute live price poller for automatic profit exits.

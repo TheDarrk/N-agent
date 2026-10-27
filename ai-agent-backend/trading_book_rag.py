@@ -5,6 +5,7 @@ and retrieves targeted knowledge chunks based on live chart setups.
 """
 
 import os
+import re
 import xml.etree.ElementTree as ET
 from typing import Dict, Any, List, Optional
 
@@ -178,6 +179,16 @@ class TradingBookRAG:
             lines.append(f"{sec['section_id']} | {sec['section_title']} | {summary}")
         return "\n".join(lines)
 
+    def get_screener_catalog(self) -> str:
+        """Return only the routing catalog; never expose book content to the screener."""
+        lines = []
+        for sec in self.sections:
+            keywords = ", ".join(sec.get("keywords", [])[:8])
+            lines.append(
+                f"{sec['section_id']} | {sec['section_title']} | topics: {keywords}"
+            )
+        return "\n".join(lines)
+
     def get_sections_by_ids(self, section_ids: List[str]) -> List[Dict[str, Any]]:
         """Retrieves exact sections matching the given list of section IDs."""
         lookup = {s["section_id"]: s for s in self.sections}
@@ -197,19 +208,34 @@ class TradingBookRAG:
         return results[:5]
 
     def search_by_query(self, query: str, top_k: int = 1) -> List[Dict[str, Any]]:
-        """Searches sections for a targeted natural language query (e.g. 'stop placement')."""
-        q_words = set(query.lower().split())
+        """Return relevant sections using title, keywords, theory, and rules."""
+        stop_words = {
+            "about", "after", "before", "call", "from", "into", "that", "their",
+            "these", "this", "what", "when", "where", "which", "with", "would",
+        }
+        raw_words = re.findall(r"[a-z0-9]+", query.lower())
+        q_words = {
+            word[:-1] if word.endswith("s") and len(word) > 4 else word
+            for word in raw_words
+            if len(word) > 3 and word not in stop_words
+        }
         scored = []
         for sec in self.sections:
+            title = sec["section_title"].lower()
+            keywords = " ".join(sec["keywords"]).lower()
+            content = sec["content"].lower()
             score = 0
-            text = (sec["section_title"] + " " + sec["content"] + " " + " ".join(sec["keywords"])).lower()
             for w in q_words:
-                if len(w) > 3 and w in text:
+                if w in title:
+                    score += 5
+                if w in keywords:
+                    score += 4
+                if w in content:
                     score += 1
             for r in sec.get("rules", []):
                 for w in q_words:
-                    if len(w) > 3 and w in r.get("text", "").lower():
-                        score += 2
+                    if w in r.get("text", "").lower():
+                        score += 3
             if score > 0:
                 scored.append((score, sec))
         scored.sort(key=lambda x: x[0], reverse=True)

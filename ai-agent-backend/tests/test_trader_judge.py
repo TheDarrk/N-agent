@@ -29,7 +29,10 @@ def test_coin_scanner_auto_and_custom():
     custom_list = ["NEAR", "WETH", "PEPE", "SOL"]
     custom_res = asyncio.run(scan_coin_universe(mode="custom", custom_coins=custom_list, timeframe="1h"))
     assert custom_res["mode"] == "custom"
-    assert custom_res["scanned_count"] == 4
+    assert 0 < custom_res["scanned_count"] <= 4
+    assert custom_res["prescan_input_count"] == 4
+    assert custom_res["prescan_eligible_count"] == custom_res["scanned_count"]
+    assert custom_res["prescan_rejected_count"] + custom_res["scanned_count"] <= 4
     assert custom_res["top_candidate"] is not None
 
 
@@ -45,8 +48,8 @@ def test_trading_book_rag():
     chunks = trading_book_rag.retrieve(indicators, top_k=2)
     assert len(chunks) > 0
     xml_block = trading_book_rag.format_for_xml_prompt(chunks)
-    assert "<retrieved_book_knowledge>" in xml_block
-    assert "</retrieved_book_knowledge>" in xml_block
+    assert "<retrieved_trading_book_knowledge>" in xml_block
+    assert "</retrieved_trading_book_knowledge>" in xml_block
 
 
 def test_twitter_sentiment():

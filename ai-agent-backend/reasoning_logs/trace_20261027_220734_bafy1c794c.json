@@ -1,0 +1,16 @@
+{
+  "event": "STOP_LOSS_TRIGGERED",
+  "trade_id": 163,
+  "symbol": "ZEC",
+  "entry_price": 1307.45,
+  "exit_price": 0.0,
+  "loss_pct": 100.0,
+  "timestamp": "2026-10-27T22:07:34.390233Z",
+  "cid": "bafy1c794cf09b2cbe6609b98df4358d9496c3ea259de2fa",
+  "stored_at": "2026-10-27 22:07:34 UTC",
+  "stored_at_iso": "2026-10-27T22:07:34.390497+00:00",
+  "date_utc": "2026-10-27",
+  "time_utc": "22:07:34 UTC",
+  "timestamp_utc": "2026-10-27 22:07:34 UTC",
+  "created_at_utc": "2026-10-27T22:07:34.390497+00:00"
+}

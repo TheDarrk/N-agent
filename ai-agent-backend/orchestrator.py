@@ -8,25 +8,12 @@ Example: "Set alert for BTC at 5%, rebalance my portfolio, and quote 0.1 NEAR to
 -> Splits into 3 intents, routes to Autonomy + Swap agents, merges results.
 """
 
-import os
 import json
 import asyncio
 from typing import Dict, Any, List
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-
-
-# -- Orchestrator LLM (lightweight, fast) -------------------------
-
-api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
-
-orchestrator_llm = ChatOpenAI(
-    model=os.getenv("NEAR_AI_MODEL", "z-ai/glm-5.3-flash"),
-    temperature=0,
-    openai_api_key=api_key,
-    openai_api_base="https://cloud-api.near.ai/v1"
-)
+from glm_transport import invoke_glm
 
 
 # -- Intent Splitter Prompt ---------------------------------------
@@ -63,10 +50,10 @@ async def split_intents(user_msg: str) -> List[Dict[str, Any]]:
     Returns list of intent dicts with type, has_enough_info, extracted_query.
     """
     try:
-        response = await orchestrator_llm.ainvoke([
+        response = await invoke_glm([
             SystemMessage(content=SPLIT_PROMPT),
             HumanMessage(content=user_msg)
-        ])
+        ], temperature=0)
 
         raw = response.content.strip()
         # Strip markdown code fences if present

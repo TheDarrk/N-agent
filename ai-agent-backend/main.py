@@ -150,7 +150,7 @@ async def log_requests(request: Request, call_next):
     _QUIET = [
         "/api/fleet", "/api/trader", "/api/agent-wallet",
         "/api/settings", "/api/strategies", "/api/logs",
-        "/health", "/api/health"
+        "/health", "/api/health", "/v1/models"
     ]
     if not (request.method == "GET" and any(p in request.url.path for p in _QUIET)):
         print(f"DEBUG: {request.method} {request.url.path}")
@@ -193,16 +193,42 @@ class ChatResponse(BaseModel):
     payload: Optional[Union[Dict[str, Any], List[Any]]] = None
 
 # ==================================================================
+# OPENAI-COMPATIBLE ENDPOINTS
+# ==================================================================
+
+@app.get("/v1/models")
+async def list_models():
+    """
+    OpenAI-compatible models endpoint for GLM 5.3 Flash.
+    """
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "z-ai/glm-5.3-flash",
+                "object": "model",
+                "created": 1700000000,
+                "owned_by": "near-ai",
+                "permission": [],
+                "root": "z-ai/glm-5.3-flash",
+                "parent": None,
+            }
+        ]
+    }
+
+
+# ==================================================================
 # EXISTING ENDPOINTS (unchanged)
 # ==================================================================
 
 @app.get("/api/health")
-async def health_check():
+async def api_health_check():
     """
-    Lightweight keep-alive endpoint for external ping services (like UptimeRobot)
-    to prevent free-tier hosting services (like Render) from sleeping the background engine.
+    Returns real-time system and persistence metrics:
+    SQLite database spacing, unique wallets count, log breakdown, open trades, and keep-alive status.
     """
-    return {"status": "ok", "engine": "running"}
+    from database import get_database_health
+    return get_database_health()
 
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
@@ -250,8 +276,9 @@ async def chat_endpoint(body: ChatRequest, request: Request):
     )
 
 @app.get("/health")
-def health_check():
-    return {"status": "ok"}
+def root_health_check():
+    from database import get_database_health
+    return get_database_health()
 
 @app.get("/tokens")
 async def get_tokens():
@@ -350,18 +377,8 @@ async def parse_strategy(body: StrategyParseRequest):
     """Parse NLP text into a strategy using LLM."""
     import json as _json
     try:
-        from langchain_openai import ChatOpenAI
         from langchain_core.messages import SystemMessage, HumanMessage
-
-        import os
-        api_key = os.getenv("NEAR_AI_API_KEY")
-
-        llm = ChatOpenAI(
-            model=os.getenv("NEAR_AI_MODEL", "z-ai/glm-5.3-flash"),
-            temperature=0,
-            openai_api_key=api_key,
-            openai_api_base="https://cloud-api.near.ai/v1"
-        )
+        from glm_transport import invoke_glm
 
         parse_prompt = f"""Extract strategy parameters from this natural language description.
 Strategy type: {body.strategy_type}
@@ -381,10 +398,10 @@ IMPORTANT RULES:
 
 Return ONLY the JSON object, no markdown or explanation."""
 
-        response = llm.invoke([
+        response = await invoke_glm([
             SystemMessage(content="You extract strategy parameters from natural language. Return only valid JSON. Use ONLY the tokens the user explicitly mentions."),
             HumanMessage(content=parse_prompt)
-        ])
+        ], temperature=0)
 
         raw = response.content.strip()
         # Strip markdown code fences if present
@@ -615,9 +632,9 @@ async def get_trading_knowledge():
 
 @app.get("/api/trader/traces")
 async def get_trade_traces():
-    """Get recent 10 decentralized trade reasoning traces."""
+    """Get recent 24 decentralized trade reasoning traces."""
     from decentralized_storage import get_recent_trade_traces
-    traces = get_recent_trade_traces(limit=10)
+    traces = get_recent_trade_traces(limit=24)
     return {"traces": traces, "count": len(traces)}
 
 

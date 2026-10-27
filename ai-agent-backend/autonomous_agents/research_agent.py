@@ -27,12 +27,12 @@ class ResearchAgent:
         self.report_fee_near = 0.1  # 0.1 NEAR fee per research request
         self.api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
         self.base_url = os.getenv("NEAR_AI_BASE_URL", "https://cloud-api.near.ai/v1").rstrip("/")
-        self.model = os.getenv("NEAR_AI_COUNCIL_MODEL") or os.getenv("NEAR_AI_MODEL") or "z-ai/glm-5.3-flash"
-        raw_timeout = str(os.getenv("NEAR_AI_TIMEOUT", "0")).strip().lower()
+        self.model = "z-ai/glm-5.3-flash"
+        raw_timeout = str(os.getenv("NEAR_AI_TIMEOUT", "300")).strip().lower()
         if raw_timeout in ["0", "none", "null", "", "-1"]:
-            self.request_timeout = None
+            self.request_timeout = 300.0
         else:
-            self.request_timeout = float(raw_timeout)
+            self.request_timeout = max(180.0, float(raw_timeout))
 
     async def generate_research_report(
         self,
@@ -90,11 +90,7 @@ CRITICAL QUALITY MANDATE:
             }
             import asyncio
             def _stream_post():
-                timeout_config = (
-                    httpx.Timeout(None, connect=60.0)
-                    if self.request_timeout is None
-                    else httpx.Timeout(self.request_timeout, connect=60.0)
-                )
+                timeout_config = httpx.Timeout(None, connect=30.0)
                 content_chunks = []
                 reasoning_chunks = []
                 with httpx.Client(timeout=timeout_config) as client:

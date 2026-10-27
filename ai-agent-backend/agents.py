@@ -4,10 +4,8 @@ LLM decides which tools to call based on user query.
 Dual-agent routing: HOT Kit users -> NEAR Intents, Flow Wallet users -> Flow agent.
 """
 import json
-import os
 from typing import Dict, Any
 
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -17,28 +15,11 @@ from flow_agent_tools import FLOW_TOOL_LIST
 from flow_prompts import FLOW_SYSTEM_PROMPT
 from autonomy_prompts import AUTONOMY_SYSTEM_PROMPT
 from orchestrator import orchestrate_compound_query
+from glm_transport import invoke_glm
 
 
-# Initialize LLM with NEAR AI endpoint
-api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
-
-llm = ChatOpenAI(
-    model=os.getenv("NEAR_AI_MODEL", "z-ai/glm-5.3-flash"),
-    temperature=0.3,
-    openai_api_key=api_key,
-    openai_api_base="https://cloud-api.near.ai/v1"
-)
-
-# -- Per-Agent LLM Bindings (each gets ONLY its own tools) ------
-
-# Swap Agent: token swaps, quotes, discovery
-llm_with_tools = llm.bind_tools(SWAP_TOOL_LIST)
-
-# Flow Agent: Flow blockchain operations
-llm_with_flow_tools = llm.bind_tools(FLOW_TOOL_LIST)
-
-# Autonomy Agent: strategies, guardrails, settings
-llm_with_autonomy_tools = llm.bind_tools(AUTONOMY_TOOL_LIST)
+async def _invoke(messages, tools=None):
+    return await invoke_glm(messages, tools=tools, temperature=0.3)
 
 # System message for the SWAP agent (lean   no autonomy instructions)
 SYSTEM_MESSAGE = MASTER_SYSTEM_PROMPT + """
@@ -252,7 +233,7 @@ async def _process_swap_message(
         
         # Call LLM
         try:
-            response = await llm_with_tools.ainvoke(messages)
+            response = await _invoke(messages, SWAP_TOOL_LIST)
         except Exception as e:
             print(f"[AGENT] Error: {str(e).encode('ascii', 'ignore').decode('ascii')}")
             error_msg = str(e).lower()
@@ -388,7 +369,7 @@ async def _process_swap_message(
             print(f"[AGENT] Sending {len(tool_response_messages)} messages to LLM for final response")
             
             # Enable tools for this response too, to allow multi-step flows (Check Chains -> Get Quote)
-            final_response = await llm_with_tools.ainvoke(tool_response_messages)
+            final_response = await _invoke(tool_response_messages, SWAP_TOOL_LIST)
             
             # Handle multi-step tool chains (e.g. Get Chains -> Get Quote -> Confirm)
             # Loop up to 3 more passes so tools can chain together in one user message
@@ -459,10 +440,10 @@ async def _process_swap_message(
                 # Get next response   allow tools on intermediate passes, no tools on final pass
                 if pass_count < MAX_TOOL_PASSES:
                     print(f"[AGENT] Getting response after Pass {pass_count} (tools enabled)")
-                    final_response = await llm_with_tools.ainvoke(tool_response_messages)
+                    final_response = await _invoke(tool_response_messages, SWAP_TOOL_LIST)
                 else:
                     print(f"[AGENT] Getting final response after Pass {pass_count} (no tools, prevent loops)")
-                    final_response = await llm.ainvoke(tool_response_messages)
+                    final_response = await _invoke(tool_response_messages)
 
             print(f"[AGENT] LLM raw response type: {type(final_response)}")
             print(f"[AGENT] LLM response content: {final_response.content if hasattr(final_response, 'content') else final_response}")
@@ -594,7 +575,7 @@ async def _process_autonomy_message(
         print(f"[AUTONOMY AGENT] Sending {len(messages)} messages to LLM")
 
         # Call LLM with ONLY autonomy tools
-        response = await llm_with_autonomy_tools.ainvoke(messages)
+        response = await _invoke(messages, AUTONOMY_TOOL_LIST)
 
         # No tool calls   direct response
         if not response.tool_calls:
@@ -659,7 +640,7 @@ async def _process_autonomy_message(
         )))
 
         # Allow one more tool pass, then text-only response
-        final_response = await llm_with_autonomy_tools.ainvoke(final_messages)
+        final_response = await _invoke(final_messages, AUTONOMY_TOOL_LIST)
 
         if final_response.tool_calls:
             for tool_call in final_response.tool_calls:
@@ -680,7 +661,7 @@ async def _process_autonomy_message(
                     content=f"Tool '{tool_name}' returned:\n{tool_result}"
                 ))
 
-            final_response = await llm.ainvoke(final_messages)
+            final_response = await _invoke(final_messages)
 
         response_text = final_response.content if hasattr(final_response, 'content') else str(final_response)
 
@@ -756,7 +737,7 @@ async def _process_flow_message(
         print(f"[FLOW AGENT] Sending {len(messages)} messages to LLM")
 
         # Call LLM with Flow tools
-        response = await llm_with_flow_tools.ainvoke(messages)
+        response = await _invoke(messages, FLOW_TOOL_LIST)
 
         # No tool calls   direct response
         if not response.tool_calls:
@@ -822,7 +803,7 @@ async def _process_flow_message(
         )))
 
         # Get final response (allow 1 more tool pass)
-        final_response = await llm_with_flow_tools.ainvoke(tool_response_messages)
+        final_response = await _invoke(tool_response_messages, FLOW_TOOL_LIST)
 
         # Handle second-pass tool calls
         if final_response.tool_calls:
@@ -844,7 +825,7 @@ async def _process_flow_message(
                 tool_response_messages.append(tool_msg)
                 tool_messages.append(tool_msg)
 
-            final_response = await llm.ainvoke(tool_response_messages)
+            final_response = await _invoke(tool_response_messages)
 
         response_text = final_response.content if hasattr(final_response, 'content') else str(final_response)
 

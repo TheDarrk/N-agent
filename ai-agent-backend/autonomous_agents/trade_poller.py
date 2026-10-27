@@ -59,15 +59,94 @@ async def poll_active_trades() -> List[Dict[str, Any]]:
                     results.append({"trade_id": trade_id, "status": "REVOKED_KILL_SWITCH"})
                     continue
 
-                current_price = float(live_prices.get(symbol.lower(), entry_price))
+                raw_price = live_prices.get(symbol.lower(), 0.0)
+                if not raw_price or float(raw_price) <= 0:
+                    try:
+                        from knowledge_base import get_1click_token_price
+                        oneclick_p = get_1click_token_price(symbol)
+                        if oneclick_p and float(oneclick_p) > 0:
+                            raw_price = float(oneclick_p)
+                    except Exception:
+                        pass
+
+                if not raw_price or float(raw_price) <= 0:
+                    print(f"[POLLER: WARNING] Live price for {symbol} returned {raw_price}. Skipping TP/SL check (market data unavailable).")
+                    continue
+
+                current_price = float(raw_price)
 
                 # Update current price in DB
                 trade["current_price"] = current_price
 
                 # Check TP / SL Conditions
-                if action == "BUY":
+                is_short = action in ["SELL", "SHORT"]
+                if is_short:
+                    # ─── SHORT TRADE TP/SL EVALUATION ───
+                    # For short: entry > tp (target lower) and sl > entry (stop higher)
+                    if current_price <= tp_price:
+                        # SHORT TAKE PROFIT HIT
+                        gain_pct = round(((entry_price - current_price) / entry_price) * 100, 2)
+                        print(f"[POLLER: SHORT_TP_HIT] Trade #{trade_id} ({symbol})! Current: ${current_price} <= TP: ${tp_price} (+{gain_pct}%)")
+                        update_trade_status(trade_id, "CLOSED_TP", current_price)
+
+                        log_agent_action(
+                            user_wallet=wallet,
+                            agent_name="trader_poller",
+                            trigger_type="take_profit_exit",
+                            reasoning_text=f"Live price ${current_price} crossed Short TP target ${tp_price} (+{gain_pct}% profit)",
+                            action_taken=f"CLOSED_SHORT_TP {symbol} @ ${current_price}",
+                            status="completed"
+                        )
+
+                        await upload_trade_trace({
+                            "event": "SHORT_TAKE_PROFIT_TRIGGERED",
+                            "trade_id": trade_id,
+                            "symbol": symbol,
+                            "entry_price": entry_price,
+                            "exit_price": current_price,
+                            "gain_pct": gain_pct,
+                            "timestamp": datetime.utcnow().isoformat() + "Z"
+                        })
+                        results.append({"trade_id": trade_id, "status": "CLOSED_TP", "gain_pct": gain_pct})
+
+                    elif current_price >= sl_price:
+                        # SHORT STOP LOSS HIT
+                        loss_pct = round(((current_price - entry_price) / entry_price) * 100, 2)
+                        print(f"[POLLER: SHORT_SL_HIT] Trade #{trade_id} ({symbol})! Current: ${current_price} >= SL: ${sl_price} (-{loss_pct}%)")
+                        update_trade_status(trade_id, "CLOSED_SL", current_price)
+
+                        log_agent_action(
+                            user_wallet=wallet,
+                            agent_name="trader_poller",
+                            trigger_type="stop_loss_exit",
+                            reasoning_text=f"Live price ${current_price} hit Short SL threshold ${sl_price} (-{loss_pct}% loss prevented)",
+                            action_taken=f"CLOSED_SHORT_SL {symbol} @ ${current_price}",
+                            status="completed"
+                        )
+
+                        await upload_trade_trace({
+                            "event": "SHORT_STOP_LOSS_TRIGGERED",
+                            "trade_id": trade_id,
+                            "symbol": symbol,
+                            "entry_price": entry_price,
+                            "exit_price": current_price,
+                            "loss_pct": loss_pct,
+                            "timestamp": datetime.utcnow().isoformat() + "Z"
+                        })
+                        results.append({"trade_id": trade_id, "status": "CLOSED_SL", "loss_pct": loss_pct})
+
+                    else:
+                        results.append({
+                            "trade_id": trade_id,
+                            "status": "OPEN",
+                            "current_price": current_price,
+                            "dist_to_tp": round(current_price - tp_price, 4),
+                            "dist_to_sl": round(sl_price - current_price, 4)
+                        })
+                else:
+                    # ─── LONG (BUY) TRADE TP/SL EVALUATION ───
                     if current_price >= tp_price:
-                        # ─── TAKE PROFIT HIT ───
+                        # TAKE PROFIT HIT
                         gain_pct = round(((current_price - entry_price) / entry_price) * 100, 2)
                         print(f"[POLLER: TAKE_PROFIT_HIT] Trade #{trade_id} ({symbol})! Current: ${current_price} >= TP: ${tp_price} (+{gain_pct}%)")
                         update_trade_status(trade_id, "CLOSED_TP", current_price)
@@ -95,7 +174,7 @@ async def poll_active_trades() -> List[Dict[str, Any]]:
                         results.append({"trade_id": trade_id, "status": "CLOSED_TP", "gain_pct": gain_pct})
 
                     elif current_price <= sl_price:
-                        # ─── STOP LOSS HIT ───
+                        # STOP LOSS HIT
                         loss_pct = round(((entry_price - current_price) / entry_price) * 100, 2)
                         print(f"[POLLER: STOP_LOSS_HIT] Trade #{trade_id} ({symbol})! Current: ${current_price} <= SL: ${sl_price} (-{loss_pct}%)")
                         update_trade_status(trade_id, "CLOSED_SL", current_price)

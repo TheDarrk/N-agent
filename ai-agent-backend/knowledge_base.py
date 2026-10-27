@@ -2,6 +2,8 @@
 Functions to fetch and manage token information from NEAR Intents API.
 LLM will handle answering questions naturally - no hardcoded FAQs.
 """
+import os
+import json
 from typing import Dict, List, Optional
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -122,26 +124,40 @@ async def get_available_tokens_from_api() -> List[Dict]:
         
         sorted_tokens = sorted(tokens, key=sort_key)
         
-        # Update cache
+        # Update in-memory and persistent disk cache
         _token_cache = sorted_tokens
         _cache_timestamp = datetime.now()
         
+        try:
+            cache_file = os.path.join(os.path.dirname(__file__), "knowledge_base", "tokens_cache.json")
+            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(sorted_tokens, f)
+        except Exception:
+            pass
+
         print(f"[KNOWLEDGE] Loaded {len(sorted_tokens)} tokens from API (all chains)")
         return sorted_tokens
         
-    except httpx.HTTPError as e:
-        print(f"[KNOWLEDGE] HTTP error fetching tokens from API: {e}")
-        # If we have cache, return it even if expired
-        if _token_cache:
-            print(f"[KNOWLEDGE] Using expired cache as fallback")
-            return _token_cache
-        raise Exception("Can't get supported tokens for now - API unavailable")
     except Exception as e:
         print(f"[KNOWLEDGE] Error fetching tokens from API: {e}")
-        # If we have cache, return it even if expired
+        # 1. Fall back to in-memory cache
         if _token_cache:
-            print(f"[KNOWLEDGE] Using expired cache as fallback")
+            print(f"[KNOWLEDGE] Using in-memory cache as fallback")
             return _token_cache
+        # 2. Fall back to persistent disk cache
+        cache_file = os.path.join(os.path.dirname(__file__), "knowledge_base", "tokens_cache.json")
+        if os.path.isfile(cache_file):
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    disk_tokens = json.load(f)
+                if disk_tokens:
+                    print(f"[KNOWLEDGE] Loaded {len(disk_tokens)} tokens from persistent disk cache fallback.")
+                    _token_cache = disk_tokens
+                    _cache_timestamp = datetime.now()
+                    return disk_tokens
+            except Exception:
+                pass
         raise Exception(f"Can't get supported tokens for now - {str(e)}")
 
 

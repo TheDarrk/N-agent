@@ -325,6 +325,72 @@ def update_strategy_triggered(strategy_id: int):
 
 # -- Agent Logs ----------------------------------------------------
 
+# Strict per-user log retention caps to prevent database bloat on free hosting instances
+AGENT_LOG_CAPS = {
+    "trader": 24,
+    "trader_agent": 24,
+    "trader_poller": 24,
+    "researcher": 5,
+    "research": 5,
+    "research_agent": 5,
+    "moderator": 2,
+    "watchdog": 2,
+    "all_agent_checker": 2,
+    "all_agent_audit": 2,
+    "rebalancer": 10,
+    "rebalancer_agent": 10,
+}
+DEFAULT_LOG_CAP = 10
+
+
+def prune_user_agent_logs(user_wallet: str, agent_name: str, conn: Optional[sqlite3.Connection] = None):
+    """
+    Strictly caps the logs for a specific user and agent to prevent SQLite disk overflow.
+    Per user limits:
+      - trader: max 24
+      - researcher: max 5
+      - all agent checker / moderator: max 2
+      - rebalancer: max 10
+    """
+    close_conn = False
+    if conn is None:
+        conn = get_connection()
+        close_conn = True
+    try:
+        norm_name = agent_name.lower().strip()
+        cap = AGENT_LOG_CAPS.get(norm_name, DEFAULT_LOG_CAP)
+        conn.execute("""
+            DELETE FROM agent_logs 
+            WHERE user_wallet = ? AND agent_name = ?
+            AND id NOT IN (
+                SELECT id FROM agent_logs 
+                WHERE user_wallet = ? AND agent_name = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+            )
+        """, (user_wallet, agent_name, user_wallet, agent_name, cap))
+        conn.commit()
+    except Exception as e:
+        print(f"[DB: PRUNE ERROR] Failed pruning logs for {user_wallet}/{agent_name}: {e}")
+    finally:
+        if close_conn:
+            conn.close()
+
+
+def prune_all_users_logs():
+    """Prunes logs across all users and agents down to their defined caps."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT DISTINCT user_wallet, agent_name FROM agent_logs").fetchall()
+        for r in rows:
+            prune_user_agent_logs(r["user_wallet"], r["agent_name"], conn=conn)
+        print(f"[DB: PRUNE] Evaluated log caps across {len(rows)} user-agent pairs.")
+    except Exception as e:
+        print(f"[DB: PRUNE ERROR] Failed global log pruning: {e}")
+    finally:
+        conn.close()
+
+
 def log_agent_action(
     user_wallet: str,
     agent_name: str,
@@ -335,7 +401,7 @@ def log_agent_action(
     cid_reference: str = None,
     status: str = "completed"
 ) -> int:
-    """Log an autonomous agent action. Returns the log ID."""
+    """Log an autonomous agent action. Returns the log ID and prunes logs to per-user caps."""
     conn = get_connection()
     cursor = conn.execute(
         "INSERT INTO agent_logs "
@@ -347,6 +413,7 @@ def log_agent_action(
     )
     conn.commit()
     log_id = cursor.lastrowid
+    prune_user_agent_logs(user_wallet, agent_name, conn=conn)
     conn.close()
     return log_id
 
@@ -1323,6 +1390,65 @@ def prune_logs_older_than_7_days():
     except Exception as e:
         print(f"[DB] Prune error: {e}")
 
+
+def get_database_health() -> Dict[str, Any]:
+    """
+    Computes real-time persistence metrics:
+      - DB file size (bytes, KB, MB)
+      - Unique user wallets count
+      - Log breakdown across agent types
+      - Active agents count
+      - Open & total trades count
+    """
+    conn = get_connection()
+    try:
+        db_size_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+        unique_wallets = conn.execute("SELECT COUNT(DISTINCT wallet_address) FROM users").fetchone()[0]
+        total_logs = conn.execute("SELECT COUNT(*) FROM agent_logs").fetchone()[0]
+        
+        log_rows = conn.execute("SELECT agent_name, COUNT(*) as cnt FROM agent_logs GROUP BY agent_name").fetchall()
+        logs_by_agent = {r["agent_name"]: r["cnt"] for r in log_rows}
+
+        open_trades = conn.execute("SELECT COUNT(*) FROM active_trades WHERE status = 'OPEN'").fetchone()[0]
+        total_trades = conn.execute("SELECT COUNT(*) FROM active_trades").fetchone()[0]
+        active_traders = conn.execute("SELECT COUNT(*) FROM users WHERE trader_active = 1").fetchone()[0]
+        
+        now_utc = datetime.now(timezone.utc)
+
+        return {
+            "status": "healthy",
+            "engine": "running",
+            "timestamp_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "timestamp_iso": now_utc.isoformat(),
+            "database": {
+                "file_path": DB_PATH,
+                "file_size_bytes": db_size_bytes,
+                "file_size_kb": round(db_size_bytes / 1024.0, 2),
+                "file_size_mb": round(db_size_bytes / (1024.0 * 1024.0), 3),
+                "unique_wallets_count": unique_wallets,
+                "total_agent_logs": total_logs,
+                "logs_by_agent": logs_by_agent,
+                "open_trades_count": open_trades,
+                "total_trades_count": total_trades,
+                "active_traders_count": active_traders,
+                "free_tier_enforcement": {
+                    "trader_logs_max_per_user": AGENT_LOG_CAPS.get("trader", 24),
+                    "researcher_logs_max_per_user": AGENT_LOG_CAPS.get("researcher", 5),
+                    "moderator_logs_max_per_user": AGENT_LOG_CAPS.get("moderator", 2),
+                    "rebalancer_logs_max_per_user": AGENT_LOG_CAPS.get("rebalancer", 10),
+                    "per_user_config_policy": "Single latest configuration row per wallet address"
+                }
+            }
+        }
+    except Exception as e:
+        return {
+            "status": "degraded",
+            "error": str(e),
+            "timestamp_utc": datetime.now(timezone.utc).isoformat()
+        }
+    finally:
+        conn.close()
+
 def get_fleet_activity(user_wallet: str) -> Dict[str, Any]:
     """
     Returns aggregated stats and live status for all 4 specialized agents:
@@ -1577,7 +1703,7 @@ def publish_marketplace_agent(
                 "min_confidence": user.get("trader_min_confidence", 75),
                 "risk_profile": user.get("trader_risk_profile", "moderate"),
                 "coin_mode": user.get("trader_coin_mode", "auto"),
-                "custom_coins": user.get("trader_custom_coins", "NEAR,BTC,ETH"),
+                "custom_coins": user.get("trader_custom_coins", ""),
                 "max_trades_per_week": user.get("trader_max_trades_per_week", 12),
                 "enable_researcher": bool(user.get("trader_enable_researcher", 1))
             }
