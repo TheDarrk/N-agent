@@ -112,16 +112,16 @@ export default function ChatSidebar({
     <>
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
           onClick={onClose}
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-[hsl(225,18%,14%)] bg-[hsl(225,28%,5%)] transition-transform duration-200 ease-out md:relative md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 flex w-[min(280px,85vw)] flex-col border-r border-border bg-sidebar-background transition-transform duration-200 ease-out lg:relative lg:w-[280px] lg:shrink-0 lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"
           }`}
       >
         {/* Sidebar Header */}
-        <div className="flex items-center justify-between px-4 py-4 border-b border-[hsl(225,18%,14%)]">
+        <div className="flex items-center justify-between px-4 py-4 border-b border-border">
           <div className="flex items-center gap-2.5">
             <img
               src="/neptune-logo.png"
@@ -134,7 +134,7 @@ export default function ChatSidebar({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground md:hidden"
+            className="p-2 rounded-md text-muted-foreground hover:text-foreground lg:hidden"
             aria-label="Close sidebar"
           >
             <X size={16} />
@@ -148,7 +148,7 @@ export default function ChatSidebar({
               onReset();
               onClose();
             }}
-            className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-[13px] font-medium border border-dashed border-[hsl(225,18%,14%)] text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-all"
+            className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-[13px] font-medium border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-all"
           >
             <RefreshCw size={14} />
             New Conversation
@@ -166,7 +166,7 @@ export default function ChatSidebar({
           </div>
 
           {!accountId ? (
-            <div className="mx-1 mt-2 rounded-xl border border-dashed border-[hsl(225,18%,14%)] bg-secondary/30 p-8 text-center">
+            <div className="mx-1 mt-2 rounded-xl border border-dashed border-border bg-secondary/30 p-8 text-center">
               <div className="mx-auto mb-3 w-10 h-10 rounded-full bg-secondary flex items-center justify-center">
                 <Wallet size={18} className="text-muted-foreground" />
               </div>
@@ -182,8 +182,8 @@ export default function ChatSidebar({
               {chains.map((chain) => {
                 const addr = walletAddresses[chain] || accountId;
                 return (
-                  <div key={chain} className="rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
-                    <div className="flex items-center gap-2 mb-2 pb-2 border-b border-[hsl(225,18%,14%)]/50">
+                  <div key={chain} className="rounded-xl border border-border bg-secondary/30 p-3">
+                    <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border/50">
                       <TokenIconItem symbol={chain} logoUrl={CHAIN_ICONS[chain]} size={16} />
                       <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
                         {CHAIN_LABELS[chain] || chain.toUpperCase()}
@@ -207,8 +207,8 @@ export default function ChatSidebar({
 
               {/* Token Balances */}
               {Object.keys(balances).length > 0 ? (
-                <div className="rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
-                  <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-[hsl(225,18%,14%)]/50">
+                <div className="rounded-xl border border-border bg-secondary/30 p-3">
+                  <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-border/50">
                     <BarChart3 size={10} className="text-muted-foreground" />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Balances</span>
                   </div>
@@ -238,8 +238,8 @@ export default function ChatSidebar({
           )}
 
           {/* ═══ Agent Execution Wallets Section (Track 7: Give AI a Wallet) ═══ */}
-          <div className="mx-1 mt-4 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
-            <div className="flex items-center justify-between mb-2 pb-2 border-b border-[hsl(225,18%,14%)]/50">
+          <div className="mx-1 mt-4 rounded-xl border border-border bg-secondary/30 p-3">
+            <div className="flex items-center justify-between mb-2 pb-2 border-b border-border/50">
               <div className="flex items-center gap-1.5">
                 <Key size={11} className="text-primary" />
                 <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
@@ -275,7 +275,7 @@ export default function ChatSidebar({
           <div className="mx-1 mt-3">
             <button
               onClick={() => setIsFullScreenHistoryOpen(true)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-secondary/60 hover:bg-secondary border border-[hsl(225,18%,15%)] hover:border-primary/40 text-xs font-semibold text-foreground transition-all group active:scale-95 shadow-sm"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-secondary/60 hover:bg-secondary border border-border hover:border-primary/40 text-xs font-semibold text-foreground transition-all group active:scale-95 shadow-sm"
             >
               <div className="flex items-center gap-2">
                 <History size={13} className="text-primary group-hover:rotate-12 transition-transform" />
@@ -295,7 +295,7 @@ export default function ChatSidebar({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-[hsl(225,18%,14%)]">
+        <div className="px-4 py-3 border-t border-border">
           <p className="text-[10px] text-muted-foreground/50 text-center">
             Powered by NEAR Protocol & HOT
           </p>

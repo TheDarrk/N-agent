@@ -23,7 +23,10 @@ import {
   Check,
   Copy,
   Scale,
-  FileText
+  FileText,
+  Sparkles,
+  FilterX,
+  Rocket
 } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
 
@@ -135,6 +138,69 @@ interface FleetLog {
   tx_hash?: string | null;
   status: string;
   created_at: string;
+}
+
+function EmptyState({
+  icon,
+  title,
+  description,
+  onClear,
+  onClose,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onClear?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="hist-in hist-grid relative overflow-hidden rounded-[2rem] border border-border bg-card/60 px-6 py-12 text-center md:py-16">
+      <div className="relative mx-auto mb-6 h-24 w-24">
+        <div className="hist-tile hist-bob flex h-24 w-24 items-center justify-center rounded-3xl text-primary">
+          {icon}
+        </div>
+        <Sparkles
+          size={20}
+          className="hist-bob absolute -right-3 -top-2 text-primary"
+          style={{ animationDelay: "-1.2s" }}
+        />
+      </div>
+      <h3 className="text-xl font-extrabold text-foreground text-balance md:text-2xl">{title}</h3>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground text-pretty md:text-base">
+        {description}
+      </p>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        {onClear && (
+          <button
+            onClick={onClear}
+            className="hist-btn flex h-11 items-center gap-2 rounded-2xl px-5 text-sm font-semibold text-foreground"
+          >
+            <FilterX size={16} />
+            <span>Clear filters</span>
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          className="hist-btn hist-btn-primary flex h-11 items-center gap-2 rounded-2xl px-5 text-sm font-bold"
+        >
+          <Rocket size={16} />
+          <span>Back to Agent Suite</span>
+        </button>
+      </div>
+      <div className="mt-8 flex items-center justify-center gap-4">
+        {["trader", "rebalancer", "research", "moderator"].map((ag, i) => (
+          <div
+            key={ag}
+            className="hist-tile hist-bob flex h-14 w-14 items-center justify-center rounded-2xl"
+            style={{ animationDelay: `${i * -0.7}s` }}
+          >
+            <AgentAvatar agentId={ag} size={34} />
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 text-xs font-medium text-muted-foreground">Your fleet is standing by</p>
+    </div>
+  );
 }
 
 export default function FullScreenHistoryModal({
@@ -325,244 +391,242 @@ export default function FullScreenHistoryModal({
   const droppedCount = droppedTrades.length;
   const openCount = openTrades.length;
   const completedCount = trades.length;
+  const hasActiveFilters = searchQuery !== "" || statusFilter !== "all" || agentFilter !== "all";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("all");
+    setAgentFilter("all");
+  };
+
+  const statCards = [
+    { key: "open", label: "Active Positions", value: openCount, unit: "Open", icon: <TrendingUp size={22} />, tone: "var(--color-primary)", text: "text-primary" },
+    { key: "done", label: "Completed Trades", value: completedCount, unit: "Verified", icon: <CheckCircle2 size={22} />, tone: "var(--color-emerald-500)", text: "text-emerald-400" },
+    { key: "drop", label: "Dropped / Failed", value: droppedCount, unit: "Dropped", icon: <AlertTriangle size={22} />, tone: "var(--color-rose-500)", text: "text-rose-400" },
+    { key: "ipfs", label: "Decentralized Traces", value: traces.length, unit: "on IPFS", icon: <Shield size={22} />, tone: "var(--color-cyan-500)", text: "text-cyan-400" },
+  ];
+
+  const statusOptions = [
+    { key: "all", label: "All", count: allCombinedTrades.length },
+    { key: "open", label: "Open", count: openCount },
+    { key: "completed", label: "Completed", count: completedCount },
+    { key: "dropped", label: "Dropped / Failed", count: droppedCount },
+  ];
+
+  const tabs = [
+    { key: "trades" as const, label: "Trade History & Positions", icon: Clock, count: allCombinedTrades.length },
+    { key: "traces" as const, label: "Agent Reasoning Traces", icon: Brain, count: traces.length },
+    { key: "logs" as const, label: "Suite Audit Logs", icon: Activity, count: fleetLogs.length },
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-[hsl(225,28%,4%)]/95 backdrop-blur-2xl flex flex-col overflow-hidden animate-in fade-in duration-200">
-      {/* ── Top Header Navigation ── */}
-      <div className="px-6 py-4 border-b border-[hsl(225,18%,14%)] bg-card/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center text-primary shadow-lg shadow-primary/10">
-            <Layers size={20} />
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Fleet operational history"
+      className="fixed inset-0 z-50 bg-sidebar-background/95 backdrop-blur-2xl flex flex-col overflow-hidden animate-in fade-in duration-200"
+    >
+      {/* ── Top Header ── */}
+      <div className="px-4 md:px-8 py-4 border-b border-border bg-card/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="hist-tile flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-primary">
+            <Layers size={28} />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-foreground">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2 className="text-xl md:text-2xl font-extrabold tracking-tight text-foreground text-balance">
                 Fleet Operational History &amp; Decision Traces
               </h2>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-[hsl(225,18%,18%)]">
+              <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-secondary text-muted-foreground border border-border">
                 {accountId || "guest.near"}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground text-pretty">
               Full-screen inspection of active positions, historical trades, dropped executions &amp; IPFS reasoning runs.
             </p>
           </div>
         </div>
 
-        {/* Action Controls & Close */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <button
             onClick={fetchData}
             disabled={isLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold border border-[hsl(225,18%,16%)] transition-all active:scale-95"
+            className="hist-btn flex h-11 items-center gap-2 rounded-2xl px-4 text-sm font-semibold text-foreground disabled:opacity-70"
             title="Refresh All History"
           >
-            <RefreshCw size={12} className={isLoading ? "animate-spin text-primary" : ""} />
+            <RefreshCw size={16} className={isLoading ? "animate-spin text-primary" : ""} />
             <span>Refresh</span>
           </button>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-secondary/80 hover:bg-rose-500/20 hover:text-rose-400 text-muted-foreground flex items-center justify-center transition-all border border-[hsl(225,18%,16%)] hover:border-rose-500/30 active:scale-95"
+            className="hist-btn flex h-11 w-11 items-center justify-center rounded-2xl text-muted-foreground hover:text-rose-400"
+            aria-label="Close full screen"
             title="Close Full Screen (ESC)"
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
       </div>
 
-      {/* ── Summary Counters Strip ── */}
-      <div className="px-6 py-3 border-b border-[hsl(225,18%,12%)] bg-secondary/20 flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Active Positions:</span>
-            <span className="font-mono font-bold text-foreground bg-primary/15 text-primary px-2 py-0.5 rounded-lg border border-primary/25">
-              {openCount} Open
-            </span>
+      {/* ── Scrollable Body ── */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[1600px] px-4 md:px-8 pb-10 space-y-5">
+          {/* Summary tiles */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 pt-5">
+            {statCards.map((c, i) => (
+              <div
+                key={c.key}
+                className="hist-tile hist-in rounded-3xl p-4 md:p-5"
+                style={{ "--tone": c.tone, "--i": i } as React.CSSProperties}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs md:text-sm font-semibold text-muted-foreground">{c.label}</span>
+                  <span
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background/60 ${c.text} ${
+                      c.key === "drop" && c.value > 0 ? "animate-pulse" : ""
+                    }`}
+                  >
+                    {c.icon}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <span className="text-3xl md:text-4xl font-black font-mono tabular-nums text-foreground">{c.value}</span>
+                  <span className={`text-sm font-bold ${c.text}`}>{c.unit}</span>
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Completed Trades:</span>
-            <span className="font-mono font-bold text-foreground bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-lg border border-emerald-500/25">
-              {completedCount} Verified
-            </span>
+          {/* Agent shortcuts */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-semibold text-muted-foreground">Jump to agent</span>
+            {["trader", "rebalancer", "research", "moderator"].map((ag) => (
+              <button
+                key={ag}
+                onClick={() => {
+                  if (onSelectAgent) {
+                    onSelectAgent(ag);
+                    onClose();
+                  }
+                }}
+                className="hist-btn flex items-center gap-2 rounded-2xl py-1.5 pl-2 pr-3 text-sm font-semibold capitalize text-foreground"
+              >
+                <AgentAvatar agentId={ag} size={28} />
+                <span>{ag}</span>
+                <ArrowUpRight size={14} className="text-muted-foreground" />
+              </button>
+            ))}
           </div>
 
-          {/* FAILED / DROPPED COUNTER WITH RED EFFECTS */}
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Dropped / Failed Trades:</span>
-            <span className={`font-mono font-bold px-2 py-0.5 rounded-lg flex items-center gap-1 ${
-              droppedCount > 0
-                ? "bg-rose-950/60 text-rose-300 border border-rose-500/40 ring-1 ring-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.25)] animate-pulse"
-                : "bg-secondary text-muted-foreground border border-[hsl(225,18%,16%)]"
-            }`}>
-              <AlertTriangle size={11} className={droppedCount > 0 ? "text-rose-400" : "text-muted-foreground"} />
-              {droppedCount} Dropped
-            </span>
+          {/* Tabs & filters (sticky) */}
+          <div className="sticky top-0 z-20 -mx-4 md:-mx-8 px-4 md:px-8 py-3 bg-sidebar-background/85 backdrop-blur-xl border-y border-border flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+            <div role="tablist" className="flex flex-wrap items-center gap-2 rounded-3xl border border-border bg-secondary/50 p-1.5">
+              {tabs.map((t) => {
+                const Icon = t.icon;
+                const active = activeTab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setActiveTab(t.key)}
+                    className={`flex items-center gap-2.5 rounded-2xl px-4 py-2.5 text-sm font-bold transition-colors ${
+                      active
+                        ? "hist-btn hist-btn-primary"
+                        : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                    }`}
+                  >
+                    <Icon size={17} />
+                    <span>{t.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-mono ${active ? "bg-background/25" : "bg-secondary"}`}>
+                      {t.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-1.5 rounded-3xl border border-border bg-secondary/50 p-1.5">
+                {statusOptions.map((o) => {
+                  const active = statusFilter === o.key;
+                  const isDrop = o.key === "dropped";
+                  return (
+                    <button
+                      key={o.key}
+                      onClick={() => setStatusFilter(o.key)}
+                      aria-pressed={active}
+                      className={`flex items-center gap-1.5 rounded-2xl px-3.5 py-2 text-sm font-semibold transition-all ${
+                        active
+                          ? isDrop
+                            ? "border border-rose-500/40 bg-rose-500/15 text-rose-400 shadow-[0_0_10px_rgba(244,63,94,0.3)]"
+                            : "bg-background text-foreground shadow-md"
+                          : isDrop
+                          ? "text-rose-400/80 hover:text-rose-400"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {isDrop && <AlertTriangle size={14} />}
+                      <span>{o.label}</span>
+                      <span className="text-xs font-mono opacity-70">{o.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="relative min-w-[220px] flex-1 xl:w-72 xl:flex-none">
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  aria-label="Search history"
+                  placeholder="Search symbol, CID, reason..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-11 w-full rounded-2xl border border-border bg-background/70 pl-10 pr-10 text-sm text-foreground shadow-inner transition placeholder:text-muted-foreground/60 focus:border-primary/60 focus:outline-none focus:ring-4 focus:ring-primary/15"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Clear search"
+                    className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Decentralized Traces:</span>
-            <span className="font-mono font-bold text-foreground bg-cyan-500/15 text-cyan-300 px-2 py-0.5 rounded-lg border border-cyan-500/25">
-              {traces.length} on IPFS
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {["trader", "rebalancer", "research", "moderator"].map((ag) => (
-            <button
-              key={ag}
-              onClick={() => {
-                if (onSelectAgent) {
-                  onSelectAgent(ag);
-                  onClose();
-                }
-              }}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-secondary/50 hover:bg-secondary text-[11px] text-muted-foreground hover:text-foreground border border-[hsl(225,18%,14%)] transition-colors"
-            >
-              <AgentAvatar agentId={ag} size={14} />
-              <span className="capitalize">{ag}</span>
-              <ArrowUpRight size={10} className="text-muted-foreground" />
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Sub-Navigation Tabs & Filter Toolbar ── */}
-      <div className="px-6 py-3 border-b border-[hsl(225,18%,14%)] bg-card/40 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        {/* Tabs */}
-        <div className="flex items-center gap-1.5 bg-secondary/50 p-1 rounded-xl border border-[hsl(225,18%,16%)]">
-          <button
-            onClick={() => setActiveTab("trades")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "trades"
-                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Clock size={13} />
-            <span>Trade History &amp; Positions</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-background/20 font-mono">
-              {allCombinedTrades.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("traces")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "traces"
-                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Brain size={13} />
-            <span>Agent Reasoning Traces</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-background/20 font-mono">
-              {traces.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("logs")}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === "logs"
-                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Activity size={13} />
-            <span>Suite Audit Logs</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-background/20 font-mono">
-              {fleetLogs.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Filters */}
-        <div className="flex items-center gap-2">
-          {/* Status Filter */}
-          <div className="flex items-center gap-1 bg-secondary/50 p-1 rounded-xl border border-[hsl(225,18%,16%)] text-xs">
-            <button
-              onClick={() => setStatusFilter("all")}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-                statusFilter === "all" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setStatusFilter("open")}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-                statusFilter === "open" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Open
-            </button>
-            <button
-              onClick={() => setStatusFilter("completed")}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-                statusFilter === "completed" ? "bg-background text-emerald-400 shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Completed
-            </button>
-            <button
-              onClick={() => setStatusFilter("dropped")}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-colors ${
-                statusFilter === "dropped"
-                  ? "bg-rose-950/80 text-rose-300 border border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.3)]"
-                  : "text-rose-400/80 hover:text-rose-300"
-              }`}
-            >
-              <AlertTriangle size={10} className="text-rose-400" />
-              <span>Dropped / Failed</span>
-            </button>
-          </div>
-
-          {/* Search Box */}
-          <div className="relative min-w-[180px] md:min-w-[220px]">
-            <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search symbol, CID, reason..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-secondary/40 border border-[hsl(225,18%,16%)] rounded-xl pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* ── Main Content Viewport ── */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* ── Main Content ── */}
+          <div className="space-y-4">
         {/* TAB 1: ALL TRADE HISTORY & POSITIONS */}
         {activeTab === "trades" && (
           <div className="space-y-4">
             {filteredTrades.length === 0 ? (
-              <div className="py-16 text-center rounded-3xl border border-[hsl(225,18%,14%)] bg-card/30 p-8">
-                <Clock size={32} className="mx-auto mb-3 text-muted-foreground/40" />
-                <h3 className="text-sm font-bold text-foreground">No Trades Match Current Filter</h3>
-                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Autonomous agents execute trades via NEAR Intents. Adjust your search or trigger an analysis run from the Agent Suite.
-                </p>
-              </div>
+              <EmptyState
+                icon={<Clock size={40} />}
+                title={hasActiveFilters ? "No trades match those filters" : "No trades yet"}
+                description="Autonomous agents execute trades via NEAR Intents. Adjust your search or trigger an analysis run from the Agent Suite."
+                onClear={hasActiveFilters ? clearFilters : undefined}
+                onClose={onClose}
+              />
             ) : (
-              <div className="rounded-2xl border border-[hsl(225,18%,14%)] bg-card overflow-hidden shadow-xl">
+              <div className="hist-in overflow-hidden rounded-3xl border border-border bg-card shadow-[0_6px_0_var(--color-border),0_24px_40px_-24px_color-mix(in_srgb,var(--color-primary)_40%,transparent)]">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-sm">
                     <thead>
-                      <tr className="border-b border-[hsl(225,18%,14%)] bg-secondary/30 text-muted-foreground">
-                        <th className="py-3 px-4 font-semibold">Asset / Trade</th>
-                        <th className="py-3 px-4 font-semibold">Type &amp; Agent</th>
-                        <th className="py-3 px-4 font-semibold">Amount</th>
-                        <th className="py-3 px-4 font-semibold">Entry / Spot</th>
-                        <th className="py-3 px-4 font-semibold text-emerald-400">Target TP</th>
-                        <th className="py-3 px-4 font-semibold text-rose-400">Stop Loss</th>
-                        <th className="py-3 px-4 font-semibold">Status / Telemetry</th>
-                        <th className="py-3 px-4 font-semibold">Time (UTC)</th>
+                      <tr className="border-b border-border bg-secondary/40 text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-4 px-5 font-bold">Asset / Trade</th>
+                        <th className="py-4 px-5 font-bold">Type &amp; Agent</th>
+                        <th className="py-4 px-5 font-bold">Amount</th>
+                        <th className="py-4 px-5 font-bold">Entry / Spot</th>
+                        <th className="py-4 px-5 font-bold text-emerald-400">Target TP</th>
+                        <th className="py-4 px-5 font-bold text-rose-400">Stop Loss</th>
+                        <th className="py-4 px-5 font-bold">Status / Telemetry</th>
+                        <th className="py-4 px-5 font-bold">Time (UTC)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[hsl(225,18%,12%)]">
+                    <tbody className="divide-y divide-border">
                       {filteredTrades.map((t) => {
                         const isFailedOrDropped = t.status === "DROPPED" || t.status === "FAILED" || t.status === "REVOKED";
                         const isRebalance = (t.symbol || "").includes("->");
@@ -579,9 +643,9 @@ export default function FullScreenHistoryModal({
                             }`}
                           >
                             {/* Asset / Trade Symbol */}
-                            <td className="py-3 px-4 font-bold text-foreground">
+                            <td className="py-4 px-5 font-bold text-foreground">
                               <div className="flex items-center gap-2">
-                                <span className={isFailedOrDropped ? "text-rose-300" : ""}>{t.symbol}</span>
+                                <span className={`text-base ${isFailedOrDropped ? "text-rose-300" : ""}`}>{t.symbol}</span>
                                 {t.target_chain && t.target_chain !== "near" && (
                                   <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-secondary text-cyan-400 border border-cyan-500/20">
                                     {t.target_chain.toUpperCase()}
@@ -591,37 +655,38 @@ export default function FullScreenHistoryModal({
                             </td>
 
                             {/* Agent */}
-                            <td className="py-3 px-4 text-muted-foreground">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-secondary/80 border border-[hsl(225,18%,16%)] uppercase">
+                            <td className="py-4 px-5 text-muted-foreground">
+                              <span className="inline-flex items-center gap-2 rounded-full border border-border bg-secondary/80 py-1 pl-1 pr-3 text-xs font-bold uppercase">
+                                <AgentAvatar agentId={t.agent_id || (isRebalance ? "rebalancer" : "trader")} size={22} />
                                 {t.agent_id || (isRebalance ? "rebalancer" : "trader")}
                               </span>
                             </td>
 
                             {/* Amount */}
-                            <td className="py-3 px-4 font-mono font-semibold text-foreground">
+                            <td className="py-4 px-5 font-mono font-semibold text-foreground">
                               ${t.amount_usd ? t.amount_usd.toFixed(2) : "50.00"}
                             </td>
 
                             {/* Entry */}
-                            <td className="py-3 px-4 font-mono text-muted-foreground">
+                            <td className="py-4 px-5 font-mono text-muted-foreground">
                               ${t.entry_price ? t.entry_price.toFixed(4) : "—"}
                             </td>
 
                             {/* TP */}
-                            <td className="py-3 px-4 font-mono text-emerald-400">
+                            <td className="py-4 px-5 font-mono text-emerald-400">
                               {t.tp_price ? `$${t.tp_price.toFixed(4)}` : "—"}
                             </td>
 
                             {/* SL */}
-                            <td className="py-3 px-4 font-mono text-rose-400">
+                            <td className="py-4 px-5 font-mono text-rose-400">
                               {t.sl_price ? `$${t.sl_price.toFixed(4)}` : "—"}
                             </td>
 
                             {/* Status with RED EFFECTS on FAILED / DROPPED */}
-                            <td className="py-3 px-4">
+                            <td className="py-4 px-5">
                               {isFailedOrDropped ? (
                                 <div className="space-y-1">
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-950/80 text-rose-300 border border-rose-500/50 ring-1 ring-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.3)]">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950/80 text-rose-300 border border-rose-500/50 ring-1 ring-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.3)]">
                                     <AlertTriangle size={11} className="text-rose-400 shrink-0" />
                                     <span>{t.status}</span>
                                   </span>
@@ -632,12 +697,12 @@ export default function FullScreenHistoryModal({
                                   )}
                                 </div>
                               ) : t.status === "OPEN" ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-primary/20 text-primary border border-primary/40 ring-1 ring-primary/20">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-primary/20 text-primary border border-primary/40 ring-1 ring-primary/20">
                                   <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                                   <span>ACTIVE POSITION</span>
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                                   <CheckCircle2 size={10} />
                                   <span>{t.status}</span>
                                 </span>
@@ -645,7 +710,7 @@ export default function FullScreenHistoryModal({
                             </td>
 
                             {/* Timestamp */}
-                            <td className="py-3 px-4 font-mono text-[11px] text-muted-foreground whitespace-nowrap">
+                            <td className="py-4 px-5 font-mono text-[11px] text-muted-foreground whitespace-nowrap">
                               {t.created_at ? new Date(t.created_at).toLocaleString() : "Recently"}
                             </td>
                           </tr>
@@ -662,13 +727,13 @@ export default function FullScreenHistoryModal({
         {/* TAB 2: AGENT REASONING TRACES (STEP-BY-STEP EVALUATION RUNS) */}
         {activeTab === "traces" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-card border border-[hsl(225,18%,14%)] flex items-center justify-between">
+            <div className="hist-tile hist-in flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5">
               <div>
-                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2">
                   <Brain size={16} className="text-primary" />
                   Decentralized Reasoning Traces (Recent Verified Runs)
                 </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-sm text-muted-foreground mt-1">
                   Click any trace to expand the complete step-by-step pipeline of what the agent thought, evaluated, and executed.
                 </p>
               </div>
@@ -678,13 +743,13 @@ export default function FullScreenHistoryModal({
             </div>
 
             {filteredTraces.length === 0 ? (
-              <div className="py-16 text-center rounded-3xl border border-[hsl(225,18%,14%)] bg-card/30 p-8">
-                <Brain size={32} className="mx-auto mb-3 text-muted-foreground/40" />
-                <h3 className="text-sm font-bold text-foreground">No Reasoning Traces Available</h3>
-                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Traces are generated automatically on every evaluation cycle by the Quantitative Trader and Rebalancer agents.
-                </p>
-              </div>
+              <EmptyState
+                icon={<Brain size={40} />}
+                title={hasActiveFilters ? "No traces match those filters" : "No reasoning traces yet"}
+                description="Traces are generated automatically on every evaluation cycle by the Quantitative Trader and Rebalancer agents."
+                onClear={hasActiveFilters ? clearFilters : undefined}
+                onClose={onClose}
+              />
             ) : (
               <div className="space-y-3">
                 {filteredTraces.map((tr) => {
@@ -694,31 +759,31 @@ export default function FullScreenHistoryModal({
                   return (
                     <div
                       key={tr.cid}
-                      className={`rounded-2xl border transition-all ${
+                      className={`hist-lift hist-in rounded-3xl border ${
                         isDropped
                           ? "border-rose-500/50 bg-rose-950/15 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
-                          : "border-[hsl(225,18%,14%)] bg-card hover:border-primary/40"
+                          : "border-border bg-card hover:border-primary/40"
                       }`}
                     >
                       {/* Trace Summary Card Header */}
                       <div
                         onClick={() => setExpandedTraceCid(isExpanded ? null : tr.cid)}
-                        className="p-4.5 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer select-none"
+                        className="p-5 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer select-none"
                       >
                         <div className="flex items-center gap-3">
                           {/* Verdict / Status Badge */}
                           {isDropped ? (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-950/80 text-rose-300 border border-rose-500/50 ring-1 ring-rose-500/30 flex items-center gap-1.5 shadow-[0_0_10px_rgba(244,63,94,0.25)]">
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950/80 text-rose-300 border border-rose-500/50 ring-1 ring-rose-500/30 flex items-center gap-1.5 shadow-[0_0_10px_rgba(244,63,94,0.25)]">
                               <AlertTriangle size={11} className="text-rose-400" />
                               <span>DROPPED RUN</span>
                             </span>
                           ) : tr.verdict === "ENTER_LONG" ? (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
                               <CheckCircle2 size={11} />
                               <span>ENTER LONG</span>
                             </span>
                           ) : (
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-[hsl(225,18%,16%)]">
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-secondary text-muted-foreground border border-border">
                               {tr.verdict || tr.stage || "EVALUATION"}
                             </span>
                           )}
@@ -739,7 +804,7 @@ export default function FullScreenHistoryModal({
                                 </span>
                               )}
                             </div>
-                            <p className={`text-xs mt-0.5 line-clamp-1 ${isDropped ? "text-rose-300/90 font-medium" : "text-muted-foreground"}`}>
+                            <p className={`text-sm mt-1 line-clamp-1 ${isDropped ? "text-rose-300/90 font-medium" : "text-muted-foreground"}`}>
                               {tr.drop_reason ? `Drop Reason: ${tr.drop_reason}` : tr.reasoning || tr.pattern_detected || "Market analyzed against institutional RAG rules"}
                             </p>
                           </div>
@@ -764,8 +829,8 @@ export default function FullScreenHistoryModal({
 
                       {/* ── EXPANDED STEP-BY-STEP AGENT RUN BREAKDOWN ── */}
                       {isExpanded && (
-                        <div className="px-5 pb-5 pt-2 border-t border-[hsl(225,18%,14%)] space-y-4 animate-in fade-in-0 duration-150">
-                          <div className="flex items-center justify-between pb-2 border-b border-[hsl(225,18%,12%)]">
+                        <div className="px-5 pb-5 pt-2 border-t border-border space-y-4 animate-in fade-in-0 duration-150">
+                          <div className="flex items-center justify-between pb-2 border-b border-border">
                             <span className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
                               <Activity size={13} className="text-primary" />
                               Single Evaluation Run — Step-by-Step Breakdown
@@ -793,7 +858,7 @@ export default function FullScreenHistoryModal({
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                             {/* Step 1: Market Universe Scan & Opportunity */}
-                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-2">
+                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-bold text-primary flex items-center gap-1.5">
                                   <span>Step 1:</span> Market Scan &amp; Indicators
@@ -825,7 +890,7 @@ export default function FullScreenHistoryModal({
                             </div>
 
                             {/* Step 2: Geometric Chart Vision Pattern */}
-                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-2">
+                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-bold text-primary flex items-center gap-1.5">
                                   <span>Step 2:</span> Vision Pattern Recognition
@@ -848,7 +913,7 @@ export default function FullScreenHistoryModal({
                             </div>
 
                             {/* Step 3: Crypto Trading Book RAG Citation */}
-                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-1.5">
+                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-1.5">
                               <span className="text-[11px] font-bold text-primary flex items-center gap-1.5">
                                 <span>Step 3:</span> Crypto Trading Book RAG
                               </span>
@@ -861,7 +926,7 @@ export default function FullScreenHistoryModal({
                             </div>
 
                             {/* Step 4: Social Sentiment & Researcher A2A */}
-                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-1.5">
+                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-1.5">
                               <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-bold text-primary flex items-center gap-1.5">
                                   <span>Step 4:</span> Social Sentiment &amp; A2A Intel
@@ -879,7 +944,7 @@ export default function FullScreenHistoryModal({
                             </div>
 
                             {/* Step 5: LLM Judge Confluence Checks */}
-                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-2 md:col-span-2">
+                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-2 md:col-span-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-[11px] font-bold text-primary flex items-center gap-1.5">
                                   <span>Step 5:</span> LLM-as-a-Judge Evidence Confluence
@@ -929,7 +994,7 @@ export default function FullScreenHistoryModal({
                             <div className={`p-3.5 rounded-xl border md:col-span-2 ${
                               isDropped
                                 ? "bg-rose-950/40 border-rose-500/50 text-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.18)]"
-                                : "bg-secondary/30 border-[hsl(225,18%,14%)]"
+                                : "bg-secondary/30 border-border"
                             }`}>
                               <div className="flex items-center justify-between mb-1.5">
                                 <span className={`text-[11px] font-bold flex items-center gap-1.5 ${isDropped ? "text-rose-400" : "text-primary"}`}>
@@ -960,7 +1025,7 @@ export default function FullScreenHistoryModal({
                             </div>
 
                             {/* Step 7 & 8: Intents Routing & IPFS Trace */}
-                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-1 md:col-span-2 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                            <div className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-1 md:col-span-2 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                               <div>
                                 <span className="text-[11px] font-bold text-primary block">
                                   Steps 7 &amp; 8: NEAR Intents Protocol &amp; Decentralized Audit
@@ -988,13 +1053,13 @@ export default function FullScreenHistoryModal({
         {/* TAB 3: FLEET DECISION & AUDIT LOGS */}
         {activeTab === "logs" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-card border border-[hsl(225,18%,14%)] flex items-center justify-between">
+            <div className="hist-tile hist-in flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5">
               <div>
-                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2">
                   <Activity size={16} className="text-primary" />
                   Chronological Fleet Activity &amp; Decision Logs
                 </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-sm text-muted-foreground mt-1">
                   Real-time autonomous audit trail recorded across Trader, Rebalancer, Research, and Moderator agents.
                 </p>
               </div>
@@ -1004,13 +1069,13 @@ export default function FullScreenHistoryModal({
             </div>
 
             {filteredLogs.length === 0 ? (
-              <div className="py-16 text-center rounded-3xl border border-[hsl(225,18%,14%)] bg-card/30 p-8">
-                <Activity size={32} className="mx-auto mb-3 text-muted-foreground/40" />
-                <h3 className="text-sm font-bold text-foreground">No Fleet Logs Found</h3>
-                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Fleet activity will appear here as autonomous triggers and evaluators run.
-                </p>
-              </div>
+              <EmptyState
+                icon={<Activity size={40} />}
+                title={hasActiveFilters ? "No logs match those filters" : "No fleet logs yet"}
+                description="Fleet activity will appear here as autonomous triggers and evaluators run."
+                onClear={hasActiveFilters ? clearFilters : undefined}
+                onClose={onClose}
+              />
             ) : (
               <div className="space-y-2.5">
                 {filteredLogs.map((log) => {
@@ -1019,16 +1084,16 @@ export default function FullScreenHistoryModal({
                   return (
                     <div
                       key={log.id}
-                      className={`p-4 rounded-2xl border transition-all ${
+                      className={`hist-lift hist-in p-5 rounded-3xl border ${
                         isDropped
                           ? "bg-rose-950/20 border-rose-500/40 shadow-[0_0_12px_rgba(244,63,94,0.15)]"
-                          : "bg-card border-[hsl(225,18%,14%)] hover:border-primary/30"
+                          : "bg-card border-border hover:border-primary/30"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-3 mb-2">
                         <div className="flex items-center gap-2">
-                          <AgentAvatar agentId={log.agent_name || "trader"} size={18} />
-                          <span className="text-xs font-bold uppercase text-foreground">
+                          <AgentAvatar agentId={log.agent_name || "trader"} size={30} />
+                          <span className="text-sm font-bold uppercase text-foreground">
                             {log.agent_name}
                           </span>
                           <span className="text-[10px] px-2 py-0.5 rounded bg-secondary text-muted-foreground font-mono">
@@ -1040,18 +1105,18 @@ export default function FullScreenHistoryModal({
                         </span>
                       </div>
 
-                      <p className={`text-xs font-semibold ${isDropped ? "text-rose-300" : "text-foreground"}`}>
+                      <p className={`text-sm font-semibold ${isDropped ? "text-rose-300" : "text-foreground"}`}>
                         {log.action_taken}
                       </p>
 
                       {log.reasoning_text && (
-                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                        <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
                           {log.reasoning_text}
                         </p>
                       )}
 
                       {log.cid_reference && log.cid_reference !== "local" && (
-                        <div className="mt-2 pt-2 border-t border-[hsl(225,18%,12%)] flex items-center justify-between text-[10px]">
+                        <div className="mt-2 pt-2 border-t border-border flex items-center justify-between text-[10px]">
                           <span className="text-muted-foreground">IPFS Provenance:</span>
                           <span className="font-mono text-primary">{log.cid_reference}</span>
                         </div>
@@ -1063,6 +1128,8 @@ export default function FullScreenHistoryModal({
             )}
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -105,9 +105,9 @@ export default function SidebarAgentFeed({
   };
 
   return (
-    <div className="mx-1 mt-4 rounded-2xl border border-[hsl(225,18%,16%)] bg-card/40 p-3 shadow-xl">
+    <div className="mx-1 mt-4 rounded-2xl border border-border bg-card/40 p-3 shadow-xl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-[hsl(225,18%,14%)]">
+      <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-border">
         <div className="flex items-center gap-1.5">
           <Activity size={12} className="text-primary animate-pulse" />
           <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">
@@ -162,7 +162,7 @@ export default function SidebarAgentFeed({
                     onOpenAgentSuite();
                   }
                 }}
-                className="group p-2 rounded-xl border border-[hsl(225,18%,13%)] bg-secondary/30 hover:bg-secondary/60 hover:border-primary/30 transition-all cursor-pointer"
+                className="group p-2 rounded-xl border border-border bg-secondary/30 hover:bg-secondary/60 hover:border-primary/30 transition-all cursor-pointer"
               >
                 {/* Top Row: SVG Avatar, Agent Name, Time */}
                 <div className="flex items-center justify-between gap-1.5 mb-1">
@@ -192,7 +192,7 @@ export default function SidebarAgentFeed({
                 )}
 
                 {/* Footer Metadata: CID & Tx Hash */}
-                <div className="flex items-center justify-between gap-1 mt-1.5 pt-1 border-t border-[hsl(225,18%,12%)]/60 text-[8px] text-muted-foreground">
+                <div className="flex items-center justify-between gap-1 mt-1.5 pt-1 border-t border-border/60 text-[8px] text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <CheckCircle2 size={9} className="text-emerald-400" />
                     <span className="capitalize">{item.status || "Verified"}</span>
@@ -211,7 +211,7 @@ export default function SidebarAgentFeed({
       )}
 
       {/* Footer Links */}
-      <div className="flex items-center gap-1.5 mt-2.5 pt-1.5 border-t border-[hsl(225,18%,13%)]">
+      <div className="flex items-center gap-1.5 mt-2.5 pt-1.5 border-t border-border">
         {onOpenFullScreenHistory && (
           <button
             onClick={onOpenFullScreenHistory}

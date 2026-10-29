@@ -124,9 +124,9 @@ export default function AgentFleetModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-card border border-[hsl(225,18%,16%)] shadow-2xl p-6 space-y-6">
+      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-card border border-border shadow-2xl p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-[hsl(225,18%,14%)]">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
           <div className="flex items-center gap-2.5">
             <span className="p-2 rounded-xl bg-primary/10 text-primary">
               <Sparkles size={20} />
@@ -149,7 +149,7 @@ export default function AgentFleetModal({
         </div>
 
         {/* Network Selection: Testnet vs Mainnet */}
-        <div className="p-4 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] flex items-center justify-between">
+        <div className="p-4 rounded-xl bg-secondary/30 border border-border flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Globe size={18} className="text-primary" />
             <div>
@@ -161,7 +161,7 @@ export default function AgentFleetModal({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary border border-[hsl(225,18%,18%)]">
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary border border-border">
             <button
               onClick={() => onToggleNetwork("testnet")}
               className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all ${
@@ -199,7 +199,7 @@ export default function AgentFleetModal({
               className={`p-3 rounded-xl border text-left transition-all ${
                 autonomyLevel === 1
                   ? "bg-primary/10 border-primary text-foreground"
-                  : "bg-secondary/40 border-transparent text-muted-foreground hover:border-[hsl(225,18%,20%)]"
+                  : "bg-secondary/40 border-transparent text-muted-foreground hover:border-border"
               }`}
             >
               <p className="text-xs font-bold">Level 1: Semi-Autonomous</p>
@@ -212,7 +212,7 @@ export default function AgentFleetModal({
               className={`p-3 rounded-xl border text-left transition-all ${
                 autonomyLevel === 2
                   ? "bg-emerald-500/10 border-emerald-500/40 text-foreground"
-                  : "bg-secondary/40 border-transparent text-muted-foreground hover:border-[hsl(225,18%,20%)]"
+                  : "bg-secondary/40 border-transparent text-muted-foreground hover:border-border"
               }`}
             >
               <p className="text-xs font-bold text-emerald-400 flex items-center gap-1">
@@ -236,11 +236,11 @@ export default function AgentFleetModal({
               return (
                 <div
                   key={agent.id}
-                  className="p-3.5 rounded-xl bg-secondary/40 border border-[hsl(225,18%,14%)] flex flex-col justify-between gap-2.5"
+                  className="p-3.5 rounded-xl bg-secondary/40 border border-border flex flex-col justify-between gap-2.5"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-1 rounded-xl bg-card border border-[hsl(225,18%,18%)] flex-shrink-0">
+                      <div className="p-1 rounded-xl bg-card border border-border flex-shrink-0">
                         <AgentAvatar agentId={agent.id} size={28} />
                       </div>
                       <div>
@@ -261,7 +261,7 @@ export default function AgentFleetModal({
                     {agent.stats}
                   </p>
 
-                  <div className="flex flex-wrap gap-1 pt-1 border-t border-[hsl(225,18%,14%)] text-[10px] font-mono text-foreground/80">
+                  <div className="flex flex-wrap gap-1 pt-1 border-t border-border text-[10px] font-mono text-foreground/80">
                     {agent.highlights.map((h, i) => (
                       <span key={i} className="px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
                         {h}
@@ -275,7 +275,7 @@ export default function AgentFleetModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="pt-3 border-t border-[hsl(225,18%,14%)] flex items-center justify-between">
+        <div className="pt-3 border-t border-border flex items-center justify-between">
           <p className="text-[11px] text-muted-foreground">
             {accountId ? (
               <span>Wallet Connected: <strong className="text-foreground font-mono">{accountId}</strong></span>

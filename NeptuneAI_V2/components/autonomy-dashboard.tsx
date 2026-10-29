@@ -274,7 +274,7 @@ function StrategyInput({
     };
 
     return (
-        <div className="rounded-lg border border-[hsl(225,18%,14%)] bg-zinc-800/30 p-2.5">
+        <div className="rounded-lg border border-border bg-secondary/40 p-2.5">
             <div className="flex items-center gap-1.5 mb-1.5">
                 <Icon size={11} className={config.color} />
                 <span className={`text-[10px] font-semibold uppercase tracking-wider ${config.color}`}>
@@ -288,7 +288,7 @@ function StrategyInput({
                     onChange={(e) => { setText(e.target.value); setError(""); }}
                     onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                     placeholder={config.placeholder}
-                    className="flex-1 bg-zinc-900/60 border border-zinc-700/50 rounded-md px-2 py-1.5 text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40"
+                    className="flex-1 bg-background/70 border border-border rounded-md px-2 py-1.5 text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40"
                 />
                 <button
                     onClick={handleSubmit}
@@ -344,7 +344,7 @@ function SliderSetting({
                 onChange={(e) => setLocalVal(Number(e.target.value))}
                 onMouseUp={() => onCommit(localVal)}
                 onTouchEnd={() => onCommit(localVal)}
-                className="w-full h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                className="w-full h-1 bg-muted-foreground/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
             />
         </div>
     );
@@ -719,7 +719,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             </div>
 
             {/* Agent Wallet */}
-            <div className="mx-1 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
+            <div className="mx-1 rounded-xl border border-border bg-secondary/30 p-3">
                 <div className="flex items-center gap-2 mb-2">
                     <Wallet size={12} className="text-violet-400" />
                     <span className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider">
@@ -749,7 +749,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
                                     <p className="text-[14px] font-bold text-emerald-400 mb-1.5">{agentBalance[k.chain_type] || "0"}</p>
                                     <button
                                         onClick={() => { handleCopyAddress(addr); }}
-                                        className="w-full text-left px-2 py-1.5 rounded-md bg-zinc-900/60 border border-zinc-700/30 hover:border-violet-500/30 transition-colors group flex items-center justify-between"
+                                        className="w-full text-left px-2 py-1.5 rounded-md bg-background/70 border border-border hover:border-violet-500/30 transition-colors group flex items-center justify-between"
                                         title="Click to copy"
                                     >
                                         <p className="text-[8px] font-mono text-violet-300/80 truncate group-hover:text-violet-300">
@@ -826,7 +826,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             </div>
 
             {/* Notification Email */}
-            <div className="mx-1 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
+            <div className="mx-1 rounded-xl border border-border bg-secondary/30 p-3">
                 <div className="flex items-center gap-2 mb-2">
                     <Mail size={12} className="text-cyan-400" />
                     <span className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider">
@@ -843,7 +843,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
                         onChange={(e) => setEmailInput(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleSaveEmail()}
                         placeholder="your@email.com"
-                        className="flex-1 bg-zinc-900/60 border border-zinc-700/50 rounded-md px-2 py-1.5 text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-cyan-500/40"
+                        className="flex-1 bg-background/70 border border-border rounded-md px-2 py-1.5 text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-cyan-500/40"
                     />
                     <button
                         onClick={handleSaveEmail}
@@ -860,7 +860,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             <div
                 className={`mx-1 rounded-xl border p-3 transition-all ${isKillSwitchOn
                     ? "border-red-500/50 bg-red-500/10"
-                    : "border-[hsl(225,18%,14%)] bg-secondary/30"
+                    : "border-border bg-secondary/30"
                     }`}
             >
                 <button
@@ -874,7 +874,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
                             {isKillSwitchOn ? "Kill Switch ACTIVE" : "Kill Switch"}
                         </span>
                     </div>
-                    <div className={`w-8 h-4 rounded-full relative transition-colors ${isKillSwitchOn ? "bg-red-500" : "bg-zinc-700"}`}>
+                    <div className={`w-8 h-4 rounded-full relative transition-colors ${isKillSwitchOn ? "bg-red-500" : "bg-muted-foreground/30"}`}>
                         <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${isKillSwitchOn ? "translate-x-4" : "translate-x-0.5"}`} />
                     </div>
                 </button>
@@ -884,7 +884,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             </div>
 
             {/* Autonomy Level */}
-            <div className="mx-1 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
+            <div className="mx-1 rounded-xl border border-border bg-secondary/30 p-3">
                 <div className="flex items-center gap-2 mb-2">
                     <Activity size={12} className="text-muted-foreground" />
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -898,11 +898,11 @@ export default function AutonomyDashboard({ accountId }: Props) {
                             onClick={() => handleAutonomyChange(i)}
                             className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-all ${autonomyLevel === i
                                 ? i === 0
-                                    ? "bg-zinc-700 text-white"
+                                    ? "bg-primary/20 text-foreground"
                                     : i === 1
                                         ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                                         : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : "bg-zinc-800/50 text-muted-foreground hover:bg-zinc-700/50"
+                                : "bg-secondary/60 text-muted-foreground hover:bg-secondary"
                                 }`}
                         >
                             {label}
@@ -912,7 +912,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             </div>
 
             {/* Guardrails */}
-            <div className="mx-1 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
+            <div className="mx-1 rounded-xl border border-border bg-secondary/30 p-3">
                 <div className="flex items-center gap-2 mb-1">
                     <Settings size={12} className="text-muted-foreground" />
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -938,7 +938,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             </div>
 
             {/* Strategy Setup (NLP Inputs) */}
-            <div className="mx-1 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
+            <div className="mx-1 rounded-xl border border-border bg-secondary/30 p-3">
                 <div className="flex items-center gap-2 mb-2">
                     <Brain size={12} className="text-muted-foreground" />
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -958,7 +958,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             </div>
 
             {/* Active Strategies */}
-            <div className="mx-1 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
+            <div className="mx-1 rounded-xl border border-border bg-secondary/30 p-3">
                 <div className="flex items-center gap-2 mb-2">
                     <AlertTriangle size={12} className="text-muted-foreground" />
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -975,7 +975,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
                         {strategies.map((s) => (
                             <div
                                 key={s.id}
-                                className="flex items-center justify-between p-2 rounded-lg bg-zinc-800/30"
+                                className="flex items-center justify-between p-2 rounded-lg bg-secondary/40"
                             >
                                 <div className="min-w-0">
                                     <span className="text-[10px] font-medium text-foreground capitalize">
@@ -998,7 +998,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
             </div>
 
             {/* Decision History */}
-            <div className="mx-1 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/30 p-3">
+            <div className="mx-1 rounded-xl border border-border bg-secondary/30 p-3">
                 <button
                     onClick={() => setShowLogs(!showLogs)}
                     className="flex items-center justify-between w-full text-left"
@@ -1027,7 +1027,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
                                     approved: { icon: "✅", color: "text-emerald-400", label: "Approved" },
                                     executed: { icon: "⚡", color: "text-blue-400", label: "Executed" },
                                     blocked: { icon: "⛔", color: "text-red-400", label: "Blocked" },
-                                    archived: { icon: "📁", color: "text-zinc-400", label: "Logged" },
+                                    archived: { icon: "📁", color: "text-muted-foreground", label: "Logged" },
                                 };
                                 const s = statusMap[log.status] || { icon: "ℹ️", color: "text-amber-400", label: log.status };
 
@@ -1041,7 +1041,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
                                 const timeAgo = mins < 1 ? "just now" : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
 
                                 return (
-                                    <div key={log.id} className="p-2 rounded-lg bg-zinc-800/30">
+                                    <div key={log.id} className="p-2 rounded-lg bg-secondary/40">
                                         <div className="flex items-center justify-between mb-0.5">
                                             <span className={`text-[9px] font-medium ${s.color} flex items-center gap-1`}>
                                                 <span>{s.icon}</span> {s.label}

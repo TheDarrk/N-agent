@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import AgentFleetModal from "./agent-fleet-modal";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
+import { ThemeToggle } from "./theme-toggle";
 import { useWallet } from "@/providers/wallet-provider";
 import { isMainnetAllowed } from "@/lib/near/network";
 
@@ -83,56 +84,59 @@ export default function ChatHeader({
 
   return (
     <>
-      <header className="flex flex-col md:flex-row md:items-center justify-between px-4 py-2.5 border-b border-[hsl(225,18%,14%)] bg-card/60 backdrop-blur-md gap-3 z-30 overflow-hidden select-none">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <header className="flex flex-col 2xl:flex-row 2xl:items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border bg-card/60 backdrop-blur-md gap-2 2xl:gap-3 z-30 overflow-hidden select-none">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={onToggleSidebar}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors md:hidden"
+              className="p-2 -ml-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors lg:hidden shrink-0"
               aria-label="Toggle sidebar"
             >
               {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
 
-            <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => onTabChange("chat")}>
+            <div className="flex items-center gap-2 sm:gap-2.5 cursor-pointer min-w-0" onClick={() => onTabChange("chat")}>
               <img
                 src="/neptune-logo.png"
                 alt="Neptune AI"
                 width={34}
                 height={34}
-                className="rounded-lg"
+                className="rounded-lg shrink-0 w-8 h-8 sm:w-[34px] sm:h-[34px]"
               />
-              <div>
-                <div className="flex items-center gap-1">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 whitespace-nowrap">
                   <span className="text-sm font-bold tracking-tight text-foreground">Neptune</span>
                   <span className="text-sm font-bold tracking-tight text-primary">Market</span>
                 </div>
-                <p className="text-[10px] text-muted-foreground leading-none">Autonomous AI Agents on NEAR</p>
+                <p className="hidden sm:block text-[10px] text-muted-foreground leading-none truncate">Autonomous AI Agents on NEAR</p>
               </div>
             </div>
           </div>
 
-          {/* Mobile Right */}
-          <div className="flex items-center gap-2 md:hidden">
+          {/* Mobile & Tablet Right */}
+          <div className="flex items-center gap-1.5 sm:gap-2 2xl:hidden shrink-0">
+            <ThemeToggle />
             <button
               onClick={() => setIsFleetModalOpen(true)}
-              className="p-1.5 rounded-lg bg-secondary text-primary"
+              className="hidden sm:inline-flex p-2 rounded-lg bg-secondary text-primary"
+              aria-label="Open agent fleet"
             >
               <Sparkles size={16} />
             </button>
             <button
-            onClick={() => setIsFullScreenHistoryOpen(true)}
-            title="Open Full Screen Fleet History & Traces"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[hsl(225,18%,16%)] bg-secondary/60 hover:bg-secondary text-xs font-semibold text-foreground transition-all active:scale-95 shadow-sm"
-          >
-            <History size={13} className="text-primary" />
-            <span className="hidden lg:inline">History</span>
-          </button>
+              onClick={() => setIsFullScreenHistoryOpen(true)}
+              title="Open Full Screen Fleet History & Traces"
+              aria-label="Open fleet history"
+              className="flex items-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-border bg-secondary/60 hover:bg-secondary text-xs font-semibold text-foreground transition-all active:scale-95 shadow-sm"
+            >
+              <History size={14} className="text-primary" />
+              <span className="hidden sm:inline">History</span>
+            </button>
 
-          {accountId ? (
+            {accountId ? (
               <button
                 onClick={onDisconnect}
-                className="px-2.5 py-1 text-xs font-mono rounded-lg bg-secondary border border-[hsl(225,18%,14%)] text-foreground truncate max-w-[100px]"
+                className="px-2.5 py-2 text-xs font-mono rounded-lg bg-secondary border border-border text-foreground truncate max-w-[96px]"
               >
                 {accountId.slice(0, 6)}...
               </button>
@@ -140,7 +144,7 @@ export default function ChatHeader({
               <button
                 onClick={onConnect}
                 disabled={isConnecting}
-                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-primary text-primary-foreground"
+                className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground whitespace-nowrap disabled:opacity-50"
               >
                 Connect
               </button>
@@ -149,7 +153,7 @@ export default function ChatHeader({
         </div>
 
         {/* Top Navigation Bar Tabs */}
-        <nav className="flex items-center gap-1.5 py-1 justify-start md:justify-center overflow-x-auto md:overflow-x-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <nav className="flex items-center gap-1.5 py-1 justify-start sm:justify-center overflow-x-auto 2xl:overflow-x-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {tabs.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.id;
@@ -171,7 +175,8 @@ export default function ChatHeader({
         </nav>
 
         {/* Wallet Connection & Controls (Desktop) */}
-        <div className="hidden md:flex items-center gap-2.5">
+        <div className="hidden 2xl:flex items-center gap-2.5">
+          <ThemeToggle />
           {/* Network Switcher Pill */}
           <button
             onClick={() => {
@@ -183,8 +188,8 @@ export default function ChatHeader({
             }}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
               !isMainnetAllowed()
-                ? "bg-secondary/40 border-[hsl(225,18%,14%)] text-muted-foreground/80 cursor-default"
-                : "bg-secondary/60 border-[hsl(225,18%,16%)] text-muted-foreground hover:text-foreground"
+                ? "bg-secondary/40 border-border text-muted-foreground/80 cursor-default"
+                : "bg-secondary/60 border-border text-muted-foreground hover:text-foreground"
             }`}
             title={!isMainnetAllowed() ? "Mainnet is prohibited (NEXT_PUBLIC_ENABLE_MAINNET=false)" : "Click to switch between Testnet and Mainnet"}
           >
@@ -200,7 +205,7 @@ export default function ChatHeader({
           <button
             onClick={() => setIsFullScreenHistoryOpen(true)}
             title="Open Full Screen Fleet History & Traces"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[hsl(225,18%,16%)] bg-secondary/60 hover:bg-secondary text-xs font-semibold text-foreground transition-all active:scale-95 shadow-sm"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-secondary/60 hover:bg-secondary text-xs font-semibold text-foreground transition-all active:scale-95 shadow-sm"
           >
             <History size={13} className="text-primary" />
             <span className="hidden lg:inline">History</span>
@@ -208,7 +213,7 @@ export default function ChatHeader({
 
           {accountId ? (
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/80 border border-[hsl(225,18%,14%)]">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/80 border border-border">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-glow" />
                 <Flame size={12} className="text-orange-400" />
                 <span className="text-xs font-mono text-foreground">
@@ -221,7 +226,7 @@ export default function ChatHeader({
                     {connectedChains.map((chain) => (
                       <span
                         key={chain}
-                        className={`text-[9px] font-bold uppercase px-1 py-0.2 rounded ${CHAIN_COLORS[chain] || "bg-zinc-700 text-zinc-300"}`}
+                        className={`text-[9px] font-bold uppercase px-1 py-0.2 rounded ${CHAIN_COLORS[chain] || "bg-muted-foreground/30 text-secondary-foreground"}`}
                       >
                         {chain}
                       </span>
@@ -241,7 +246,7 @@ export default function ChatHeader({
 
               <button
                 onClick={onDisconnect}
-                className="px-2.5 py-1.5 rounded-lg border border-[hsl(225,18%,14%)] text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
               >
                 Disconnect
               </button>

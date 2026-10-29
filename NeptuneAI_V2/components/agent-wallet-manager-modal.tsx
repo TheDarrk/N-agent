@@ -501,9 +501,9 @@ export default function AgentWalletManagerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md animate-in fade-in-0">
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-[hsl(225,18%,18%)] bg-card shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[hsl(225,18%,14%)] px-6 py-4 bg-card/90">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4 bg-card/90">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
               <Key size={20} />
@@ -531,7 +531,7 @@ export default function AgentWalletManagerModal({
         {/* Scrollable Content */}
         <div className="overflow-y-auto p-6 space-y-6">
           {/* Active Network / Connected Wallet Banner */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] text-xs">
+          <div className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border text-xs">
             <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-muted-foreground">Connected Funding Wallet:</span>
@@ -587,7 +587,7 @@ export default function AgentWalletManagerModal({
           )}
 
           {/* Cross-Chain Settings Switch */}
-          <div className="p-3.5 rounded-xl bg-secondary/20 border border-[hsl(225,18%,16%)] flex items-center justify-between gap-4">
+          <div className="p-3.5 rounded-xl bg-secondary/20 border border-border flex items-center justify-between gap-4">
             <div>
               <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <Sparkles size={13} className="text-primary" />
@@ -637,7 +637,7 @@ export default function AgentWalletManagerModal({
                   className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
                     isImportingView
                       ? "border-primary/40 bg-primary/10 text-primary"
-                      : "border-[hsl(225,18%,16%)] hover:bg-secondary text-muted-foreground hover:text-foreground"
+                      : "border-border hover:bg-secondary text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {isImportingView ? "Cancel Import" : "Import Key"}
@@ -658,7 +658,7 @@ export default function AgentWalletManagerModal({
                 ) : (
                   <button
                     onClick={() => setIsCreating(false)}
-                    className="px-2.5 py-1 rounded-lg text-xs font-medium border border-[hsl(225,18%,16%)] hover:bg-secondary text-muted-foreground"
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium border border-border hover:bg-secondary text-muted-foreground"
                   >
                     Close Setup
                   </button>
@@ -852,7 +852,7 @@ export default function AgentWalletManagerModal({
                           ))}
                         </div>
                       </div>
-                      <div className="flex items-center rounded-lg bg-background border border-[hsl(225,18%,16%)] px-3 py-1.5 text-xs">
+                      <div className="flex items-center rounded-lg bg-background border border-border px-3 py-1.5 text-xs">
                         <input
                           type="text"
                           value={subaccountPrefix}
@@ -870,7 +870,7 @@ export default function AgentWalletManagerModal({
                         <select
                           value={assignedAgentChoice}
                           onChange={(e) => setAssignedAgentChoice(e.target.value)}
-                          className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-[hsl(225,18%,16%)] rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                          className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
                         >
                           <option value="trader">Titan Trader Agent</option>
                           <option value="rebalancer">Portfolio Rebalancer Agent</option>
@@ -886,7 +886,7 @@ export default function AgentWalletManagerModal({
                           value={subaccountLabel}
                           onChange={(e) => setSubaccountLabel(e.target.value)}
                           placeholder={`e.g. ${subaccountPrefix.toUpperCase()} Execution Key`}
-                          className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-[hsl(225,18%,16%)] rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                          className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
                         />
                       </div>
                     </div>
@@ -1009,7 +1009,7 @@ export default function AgentWalletManagerModal({
                       value={importAccountId}
                       onChange={(e) => setImportAccountId(e.target.value)}
                       placeholder="e.g. trader_sub.testnet or 64-char address"
-                      className="w-full mt-1 px-3 py-1.5 text-xs font-mono bg-background border border-[hsl(225,18%,16%)] rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                      className="w-full mt-1 px-3 py-1.5 text-xs font-mono bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
                     />
                   </div>
                   <div>
@@ -1019,7 +1019,7 @@ export default function AgentWalletManagerModal({
                       value={importPublicKey}
                       onChange={(e) => setImportPublicKey(e.target.value)}
                       placeholder="ed25519:3Ab..."
-                      className="w-full mt-1 px-3 py-1.5 text-xs font-mono bg-background border border-[hsl(225,18%,16%)] rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                      className="w-full mt-1 px-3 py-1.5 text-xs font-mono bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
                     />
                   </div>
                 </div>
@@ -1030,7 +1030,7 @@ export default function AgentWalletManagerModal({
                     value={importLabel}
                     onChange={(e) => setImportLabel(e.target.value)}
                     placeholder="e.g. Rebalance Vault Wallet"
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-[hsl(225,18%,16%)] rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                    className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
                   />
                 </div>
                 <button
@@ -1045,7 +1045,7 @@ export default function AgentWalletManagerModal({
 
             {/* Wallets List */}
             {wallets.length === 0 ? (
-              <div className="p-8 rounded-xl border border-dashed border-[hsl(225,18%,16%)] bg-secondary/20 text-center">
+              <div className="p-8 rounded-xl border border-dashed border-border bg-secondary/20 text-center">
                 <Cpu size={24} className="mx-auto mb-2 text-muted-foreground opacity-50" />
                 <p className="text-xs font-medium text-foreground">No agent execution wallets created yet.</p>
                 <p className="text-[11px] text-muted-foreground/70 mt-1 max-w-md mx-auto">
@@ -1067,7 +1067,7 @@ export default function AgentWalletManagerModal({
                       className={`p-3.5 rounded-xl border transition-all space-y-2 relative group ${
                         isZeroOrUnfunded
                           ? "border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50"
-                          : "border-[hsl(225,18%,16%)] bg-secondary/30 hover:border-primary/30"
+                          : "border-border bg-secondary/30 hover:border-primary/30"
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -1159,7 +1159,7 @@ export default function AgentWalletManagerModal({
                       <div className="pt-1 flex items-center justify-between gap-1.5 flex-wrap">
                         <div className="flex items-center gap-1.5">
                           {shareCount === 0 ? (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 font-medium">
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
                               Unassigned
                             </span>
                           ) : (
@@ -1249,7 +1249,7 @@ export default function AgentWalletManagerModal({
           )}
 
           {/* Agent-to-Wallet Assignment Section */}
-          <div className="pt-2 border-t border-[hsl(225,18%,14%)]">
+          <div className="pt-2 border-t border-border">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -1290,7 +1290,7 @@ export default function AgentWalletManagerModal({
                 return (
                   <div
                     key={agent.id}
-                    className="p-3.5 rounded-xl border border-[hsl(225,18%,16%)] bg-secondary/20 space-y-3"
+                    className="p-3.5 rounded-xl border border-border bg-secondary/20 space-y-3"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5 min-w-0">
@@ -1313,7 +1313,7 @@ export default function AgentWalletManagerModal({
                           </span>
                         )}
                         {!currentNearId && !currentEvmId && (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-400">
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-secondary text-muted-foreground">
                             Unassigned
                           </span>
                         )}
@@ -1331,7 +1331,7 @@ export default function AgentWalletManagerModal({
                         <select
                           value={currentNearId}
                           onChange={(e) => updateAgentChainWallet("near", e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium bg-background border border-[hsl(225,18%,18%)] text-foreground focus:outline-none focus:border-primary/50"
+                          className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium bg-background border border-border text-foreground focus:outline-none focus:border-primary/50"
                         >
                           <option value="">No NEAR Wallet Assigned</option>
                           {nearWallets.map((w) => (
@@ -1351,7 +1351,7 @@ export default function AgentWalletManagerModal({
                         <select
                           value={currentEvmId}
                           onChange={(e) => updateAgentChainWallet("evm", e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium bg-background border border-[hsl(225,18%,18%)] text-foreground focus:outline-none focus:border-blue-500/50"
+                          className="w-full px-2.5 py-1.5 rounded-lg text-xs font-medium bg-background border border-border text-foreground focus:outline-none focus:border-blue-500/50"
                         >
                           <option value="">No EVM Wallet (Cross-chain to ARB disabled)</option>
                           {evmWallets.map((w) => (
@@ -1370,7 +1370,7 @@ export default function AgentWalletManagerModal({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-[hsl(225,18%,14%)] px-6 py-4 flex items-center justify-between bg-card">
+        <div className="border-t border-border px-6 py-4 flex items-center justify-between bg-card">
           <div className="text-xs text-muted-foreground">
             {successToast && (
               <span className="text-emerald-400 font-semibold flex items-center gap-1.5 animate-in fade-in-0">
@@ -1389,7 +1389,7 @@ export default function AgentWalletManagerModal({
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-medium border border-[hsl(225,18%,16%)] text-muted-foreground hover:text-foreground transition-all"
+              className="px-4 py-2 rounded-xl text-xs font-medium border border-border text-muted-foreground hover:text-foreground transition-all"
             >
               Close
             </button>

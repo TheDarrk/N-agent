@@ -162,7 +162,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 max-w-6xl mx-auto space-y-6">
       {/* Header Banner */}
-      <div className="relative rounded-3xl border border-[hsl(225,18%,16%)] bg-gradient-to-r from-card/90 via-secondary/30 to-card/90 p-6 md:p-8 backdrop-blur-xl shadow-2xl overflow-hidden">
+      <div className="relative rounded-3xl border border-border bg-gradient-to-r from-card/90 via-secondary/30 to-card/90 p-6 md:p-8 backdrop-blur-xl shadow-2xl overflow-hidden">
         <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -195,7 +195,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
       </div>
 
       {/* Tabs Switcher: Browse vs My Hires */}
-      <div className="flex items-center justify-between border-b border-[hsl(225,18%,14%)] pb-3">
+      <div className="flex items-center justify-between border-b border-border pb-3">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveTab("browse")}
@@ -264,7 +264,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
               <p className="text-xs text-muted-foreground font-mono">Loading active marketplace listings...</p>
             </div>
           ) : agents.length === 0 ? (
-            <div className="p-10 rounded-2xl bg-card border border-[hsl(225,18%,14%)] text-center space-y-4">
+            <div className="p-10 rounded-2xl bg-card border border-border text-center space-y-4">
               <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center text-primary mx-auto">
                 <Store size={24} />
               </div>
@@ -293,13 +293,13 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                 return (
                   <div
                     key={agent.listing_id}
-                    className="p-6 rounded-2xl bg-card border border-[hsl(225,18%,14%)] flex flex-col justify-between space-y-4 hover:border-primary/40 transition-all shadow-md shadow-black/10 group"
+                    className="p-6 rounded-2xl bg-card border border-border flex flex-col justify-between space-y-4 hover:border-primary/40 transition-all shadow-md shadow-black/10 group"
                   >
                     <div className="space-y-3.5">
                       {/* Top Bar: Avatar, Title, Creator, Category */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-11 h-11 rounded-xl bg-secondary/80 border border-[hsl(225,18%,16%)] flex items-center justify-center p-1 shadow-sm">
+                          <div className="w-11 h-11 rounded-xl bg-secondary/80 border border-border flex items-center justify-center p-1 shadow-sm">
                             <AgentAvatar agentId={agent.agent_type} size={30} />
                           </div>
                           <div>
@@ -312,7 +312,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                           </div>
                         </div>
 
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-secondary border border-[hsl(225,18%,16%)] text-primary">
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-secondary border border-border text-primary">
                           {agent.agent_type}
                         </span>
                       </div>
@@ -323,7 +323,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                       </p>
 
                       {/* Performance Stats */}
-                      <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] text-center">
+                      <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-secondary/30 border border-border text-center">
                         <div>
                           <span className="text-[10px] text-muted-foreground uppercase font-bold">Sharpe Ratio</span>
                           <p className="text-sm font-mono font-bold text-emerald-400">
@@ -350,7 +350,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                           <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
                             Active Parameters &amp; Strategy
                           </span>
-                          <div className="p-2.5 rounded-lg bg-secondary/20 border border-[hsl(225,18%,14%)] font-mono text-[11px] space-y-1 max-h-24 overflow-y-auto">
+                          <div className="p-2.5 rounded-lg bg-secondary/20 border border-border font-mono text-[11px] space-y-1 max-h-24 overflow-y-auto">
                             {Object.entries(agent.config_snapshot).map(([k, v]) => (
                               <div key={k} className="flex justify-between text-muted-foreground">
                                 <span className="capitalize">{k.replace(/_/g, " ")}:</span>
@@ -365,7 +365,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                     </div>
 
                     {/* Action & Fee Footer */}
-                    <div className="pt-3 border-t border-[hsl(225,18%,14%)] flex items-center justify-between gap-3">
+                    <div className="pt-3 border-t border-border flex items-center justify-between gap-3">
                       <div>
                         <span className="text-[10px] text-muted-foreground uppercase font-bold block">
                           Monetization Terms
@@ -377,7 +377,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
 
                       <div className="flex items-center gap-2">
                         {isCreator ? (
-                          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-secondary text-muted-foreground border border-[hsl(225,18%,14%)]">
+                          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-secondary text-muted-foreground border border-border">
                             Your Agent
                           </span>
                         ) : isHired ? (
@@ -413,7 +413,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
       {activeTab === "hired" && (
         <div className="space-y-4">
           {!accountId ? (
-            <div className="p-8 rounded-2xl bg-card border border-[hsl(225,18%,14%)] text-center space-y-3">
+            <div className="p-8 rounded-2xl bg-card border border-border text-center space-y-3">
               <p className="text-xs text-muted-foreground">Please connect your wallet to view and manage your hired agents.</p>
               <button
                 onClick={onConnectWallet}
@@ -423,7 +423,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
               </button>
             </div>
           ) : myHires.length === 0 ? (
-            <div className="p-8 rounded-2xl bg-card border border-[hsl(225,18%,14%)] text-center space-y-3">
+            <div className="p-8 rounded-2xl bg-card border border-border text-center space-y-3">
               <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground mx-auto">
                 <UserCheck size={20} />
               </div>
@@ -468,7 +468,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                     {hire.description}
                   </p>
 
-                  <div className="p-3 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] flex items-center justify-between text-xs">
+                  <div className="p-3 rounded-xl bg-secondary/30 border border-border flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Agreed Terms:</span>
                     <span className="font-mono font-bold text-emerald-400">
                       {hire.pricing_type === "profit_share"
@@ -477,7 +477,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-[hsl(225,18%,14%)] text-xs">
+                  <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
                     <span className="text-[11px] text-muted-foreground font-mono">
                       Hired: {new Date(hire.hired_at).toLocaleDateString()}
                     </span>

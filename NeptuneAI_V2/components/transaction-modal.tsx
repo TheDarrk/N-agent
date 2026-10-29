@@ -79,7 +79,7 @@ export default function TransactionModal({
 
       {/* Modal */}
       <div
-        className={`relative w-full max-w-sm rounded-2xl border border-[hsl(225,18%,14%)] bg-card shadow-2xl shadow-primary/5 transition-all duration-300 ${visible ? "scale-100 translate-y-0" : "scale-95 translate-y-4"}`}
+        className={`relative w-full max-w-sm rounded-2xl border border-border bg-card shadow-2xl shadow-primary/5 transition-all duration-300 ${visible ? "scale-100 translate-y-0" : "scale-95 translate-y-4"}`}
       >
         {/* Close button (only when done/error) */}
         {canClose && (
@@ -110,7 +110,7 @@ export default function TransactionModal({
                   alt="Neptune AI"
                   width={40}
                   height={40}
-                  className="tx-spinner"
+                  className="rounded-full"
                 />
               </div>
             )}
@@ -256,7 +256,7 @@ export default function TransactionModal({
             {canClose && (
               <button
                 onClick={onClose}
-                className={`${isError && onRetry ? "flex-1" : "w-full"} py-2.5 rounded-xl border border-[hsl(225,18%,14%)] text-[13px] font-medium text-foreground hover:bg-secondary transition-all active:scale-[0.98]`}
+                className={`${isError && onRetry ? "flex-1" : "w-full"} py-2.5 rounded-xl border border-border text-[13px] font-medium text-foreground hover:bg-secondary transition-all active:scale-[0.98]`}
               >
                 {isDone ? "Done" : "Close"}
               </button>

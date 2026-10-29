@@ -94,9 +94,9 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 max-w-5xl mx-auto space-y-6">
+    <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-5xl mx-auto space-y-4 suite-stagger">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-card border border-[hsl(225,18%,14%)] shadow-lg shadow-black/20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl bg-card border border-border shadow-md shadow-black/20">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className={`p-2 rounded-lg ${isKillSwitchActive ? "bg-rose-500/10 text-rose-400" : "bg-emerald-500/10 text-emerald-400"}`}>
@@ -119,7 +119,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
           <button
             onClick={fetchStatus}
             disabled={isLoading}
-            className="p-2.5 rounded-xl border border-[hsl(225,18%,14%)] bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground transition-all"
+            className="p-2.5 rounded-xl border border-border bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground transition-all"
             title="Refresh LLM Audit"
           >
             <RotateCw size={16} className={isLoading ? "animate-spin" : ""} />
@@ -150,7 +150,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       {/* Main Grid: Overall Health Gauge + 5 Parameter Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Composite Fleet Health Score & Exposure */}
-        <div className="lg:col-span-1 p-6 rounded-2xl bg-card border border-[hsl(225,18%,14%)] space-y-6 flex flex-col justify-between">
+        <div className="lg:col-span-1 p-4 rounded-2xl bg-card border border-border space-y-6 flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -161,7 +161,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
             {/* Circular / Radial Score Representation */}
             <div className="text-center py-4">
-              <div className="inline-flex items-center justify-center w-28 h-28 rounded-full border-4 border-[hsl(225,18%,18%)] bg-secondary/30 relative">
+              <div className="inline-flex items-center justify-center w-28 h-28 rounded-full border-4 border-border bg-secondary/30 relative">
                 <span className={`text-3xl font-extrabold font-mono ${
                   overallScore >= 80 ? "text-emerald-400" : overallScore >= 50 ? "text-amber-400" : "text-rose-400"
                 }`}>
@@ -175,7 +175,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             </div>
 
             {/* Exposure Gauges */}
-            <div className="space-y-3 pt-3 border-t border-[hsl(225,18%,14%)]">
+            <div className="space-y-3 pt-3 border-t border-border">
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-muted-foreground">Total Open Exposure</span>
@@ -196,11 +196,11 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               </div>
 
               <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] text-muted-foreground">
-                <div className="p-2 rounded-lg bg-secondary/40 border border-[hsl(225,18%,14%)]">
+                <div className="p-2 rounded-lg bg-secondary/40 border border-border">
                   <span>Open Trades</span>
                   <p className="text-xs font-bold text-foreground font-mono">{status?.open_trades_count || 0}</p>
                 </div>
-                <div className="p-2 rounded-lg bg-secondary/40 border border-[hsl(225,18%,14%)]">
+                <div className="p-2 rounded-lg bg-secondary/40 border border-border">
                   <span>Daily Cap</span>
                   <p className="text-xs font-bold text-foreground font-mono">3 Trades</p>
                 </div>
@@ -231,7 +231,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             </div>
           )}
 
-          <div className="p-3 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] text-[11px] text-muted-foreground">
+          <div className="p-3 rounded-xl bg-secondary/30 border border-border text-[11px] text-muted-foreground">
             <span className="text-foreground font-bold flex items-center gap-1.5 mb-0.5">
               <Zap size={13} className="text-primary" /> Active Guardian Scope
             </span>
@@ -241,8 +241,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
         {/* Right 2 Columns: 5-Parameter Breakdown from LLM Judge */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="p-5 rounded-2xl bg-card border border-[hsl(225,18%,14%)] space-y-4">
-            <div className="flex items-center justify-between border-b border-[hsl(225,18%,14%)] pb-3">
+          <div className="p-4 rounded-2xl bg-card border border-border space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
                 <Brain size={16} className="text-primary" />
                 LLM-as-a-Judge: 5 Key Performance &amp; Safety Parameters
@@ -293,7 +293,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               ].map((p) => (
                 <div
                   key={p.key}
-                  className="p-3.5 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-1.5"
+                  className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-1.5"
                 >
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-foreground">{p.label}</span>
@@ -322,7 +322,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
           {/* Key Findings & Recommended Tuning */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl bg-card border border-[hsl(225,18%,14%)] space-y-2">
+            <div className="p-4 rounded-xl bg-card border border-border space-y-2">
               <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                 <CheckCircle2 size={13} className="text-emerald-400" /> Key Guardian Findings
               </span>
@@ -341,7 +341,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               </ul>
             </div>
 
-            <div className="p-4 rounded-xl bg-card border border-[hsl(225,18%,14%)] space-y-2">
+            <div className="p-4 rounded-xl bg-card border border-border space-y-2">
               <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
                 <Sparkles size={13} className="text-primary" /> Recommended Tuning
               </span>

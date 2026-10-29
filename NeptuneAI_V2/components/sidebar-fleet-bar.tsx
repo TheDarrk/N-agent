@@ -123,7 +123,7 @@ export default function SidebarFleetBar({
 
   if (!accountId) {
     return (
-      <div className="mx-1 mt-3 rounded-2xl border border-dashed border-[hsl(225,18%,18%)] bg-gradient-to-b from-secondary/40 to-secondary/10 p-4 text-center shadow-lg select-none">
+      <div className="mx-1 mt-3 rounded-2xl border border-dashed border-border bg-gradient-to-b from-secondary/40 to-secondary/10 p-4 text-center shadow-lg select-none">
         <div className="flex items-center justify-center gap-1.5 mb-2.5">
           <Sparkles size={14} className="text-primary" />
           <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
@@ -136,11 +136,11 @@ export default function SidebarFleetBar({
           {agents.map((ag) => (
             <div
               key={ag.id}
-              className="relative w-8 h-8 rounded-xl bg-card/80 border border-[hsl(225,18%,16%)] flex items-center justify-center p-1 opacity-70 shadow-inner"
+              className="relative w-8 h-8 rounded-xl bg-card/80 border border-border flex items-center justify-center p-1 opacity-70 shadow-inner"
               title={`${ag.name} (Standby)`}
             >
               <AgentAvatar agentId={ag.id} size={22} />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-zinc-600 border border-background" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-muted-foreground/50 border border-background" />
             </div>
           ))}
         </div>
@@ -161,9 +161,9 @@ export default function SidebarFleetBar({
   }
 
   return (
-    <div className="mx-1 mt-3 rounded-2xl border border-[hsl(225,18%,18%)] bg-gradient-to-b from-secondary/50 via-card/50 to-secondary/20 p-3.5 shadow-xl transition-all select-none">
+    <div className="mx-1 mt-3 rounded-2xl border border-border bg-gradient-to-b from-secondary/50 via-card/50 to-secondary/20 p-3.5 shadow-xl transition-all select-none">
       {/* Header */}
-      <div className="flex items-center justify-between mb-3 pb-2 border-b border-[hsl(225,18%,14%)]">
+      <div className="flex items-center justify-between mb-3 pb-2 border-b border-border">
         <div className="flex items-center gap-1.5">
           <Sparkles size={13} className="text-primary animate-pulse" />
           <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
@@ -174,7 +174,7 @@ export default function SidebarFleetBar({
           className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold border ${
             activeCount > 0
               ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-              : "bg-zinc-800/80 text-zinc-400 border-zinc-700/50"
+              : "bg-secondary text-muted-foreground border-border"
           }`}
         >
           {activeCount}/4 Active
@@ -193,7 +193,7 @@ export default function SidebarFleetBar({
                 onOpenAgentSuite();
               }
             }}
-            className="w-full p-2.5 rounded-xl border border-[hsl(225,18%,14%)] bg-card/60 hover:bg-card hover:border-primary/40 transition-all text-left group"
+            className="w-full p-2.5 rounded-xl border border-border bg-card/60 hover:bg-card hover:border-primary/40 transition-all text-left group"
           >
             {/* Top Row: Avatar, Name, Status Pill */}
             <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -202,12 +202,12 @@ export default function SidebarFleetBar({
                   <AgentAvatar agentId={ag.id} size={22} />
                   <span
                     className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${
-                      ag.active ? "bg-emerald-400 animate-ping" : "bg-zinc-600"
+                      ag.active ? "bg-emerald-400 animate-ping" : "bg-muted-foreground/50"
                     }`}
                   />
                   <span
                     className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${
-                      ag.active ? "bg-emerald-400" : "bg-zinc-600"
+                      ag.active ? "bg-emerald-400" : "bg-muted-foreground/50"
                     }`}
                   />
                 </div>
@@ -225,7 +225,7 @@ export default function SidebarFleetBar({
                 className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex-shrink-0 ${
                   ag.active
                     ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                    : "bg-zinc-800 text-zinc-400 border border-zinc-700/50"
+                    : "bg-secondary text-muted-foreground border border-border"
                 }`}
               >
                 {ag.active ? "ACTIVE" : "STANDBY"}
@@ -233,7 +233,7 @@ export default function SidebarFleetBar({
             </div>
 
             {/* Bottom Row: Meaningful Operational Metric for User */}
-            <div className="pt-1.5 border-t border-[hsl(225,18%,12%)] flex items-center justify-between text-[10px]">
+            <div className="pt-1.5 border-t border-border flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-1 text-muted-foreground font-medium">
                 <Activity size={10} className={ag.active ? "text-primary" : "text-muted-foreground"} />
                 <span>{ag.metricLabel}:</span>

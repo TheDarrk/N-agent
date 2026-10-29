@@ -119,9 +119,9 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 max-w-5xl mx-auto space-y-6">
+    <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-5xl mx-auto space-y-4 suite-stagger">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-card border border-[hsl(225,18%,14%)] shadow-lg shadow-black/20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl bg-card border border-border shadow-md shadow-black/20">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
@@ -143,7 +143,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           <button
             onClick={handleSaveTargets}
             disabled={isSaving}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-secondary hover:bg-secondary/80 border border-[hsl(225,18%,16%)] text-foreground font-semibold text-xs transition-all active:scale-95"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs transition-all active:scale-95"
           >
             {isSaving ? <RotateCw size={14} className="animate-spin" /> : <Save size={14} className="text-primary" />}
             <span>Save Targets</span>
@@ -163,8 +163,8 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
       {/* Main Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Allocations Setup */}
-        <div className="p-5 rounded-2xl bg-card border border-[hsl(225,18%,14%)] space-y-5">
-          <h2 className="text-sm font-bold text-foreground flex items-center gap-2 border-b border-[hsl(225,18%,14%)] pb-3">
+        <div className="p-4 rounded-2xl bg-card border border-border space-y-5">
+          <h2 className="text-sm font-bold text-foreground flex items-center gap-2 border-b border-border pb-3">
             <Sliders size={16} className="text-primary" />
             Target Asset Allocations
           </h2>
@@ -210,7 +210,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               />
             </div>
 
-            <div className="space-y-1.5 pt-3 border-t border-[hsl(225,18%,14%)]">
+            <div className="space-y-1.5 pt-3 border-t border-border">
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground font-medium">Rebalance Drift Threshold</span>
                 <span className="font-mono text-foreground font-bold">{driftThreshold}%</span>
@@ -229,7 +229,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               </p>
             </div>
 
-            <div className="pt-3 border-t border-[hsl(225,18%,14%)] flex items-center justify-between">
+            <div className="pt-3 border-t border-border flex items-center justify-between">
               <div>
                 <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <Sparkles size={13} className="text-primary" />
@@ -257,8 +257,8 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         </div>
 
         {/* Current State / Status */}
-        <div className="p-5 rounded-2xl bg-card border border-[hsl(225,18%,14%)] space-y-5">
-          <div className="flex items-center justify-between border-b border-[hsl(225,18%,14%)] pb-3">
+        <div className="p-4 rounded-2xl bg-card border border-border space-y-5">
+          <div className="flex items-center justify-between border-b border-border pb-3">
             <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
               <Shield size={16} className="text-emerald-400" />
               Live Portfolio Status
@@ -275,21 +275,21 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           </div>
 
           <div className="space-y-3">
-            <div className="p-4 rounded-xl bg-secondary/40 border border-[hsl(225,18%,14%)] flex justify-between items-center">
+            <div className="p-4 rounded-xl bg-secondary/40 border border-border flex justify-between items-center">
               <span className="text-xs text-muted-foreground">Total Portfolio Value</span>
               <span className="text-base font-bold font-mono text-foreground">
                 ${status?.total_portfolio_usd || "360.00"}
               </span>
             </div>
 
-            <div className="p-4 rounded-xl bg-secondary/40 border border-[hsl(225,18%,14%)] flex justify-between items-center">
+            <div className="p-4 rounded-xl bg-secondary/40 border border-border flex justify-between items-center">
               <span className="text-xs text-muted-foreground">Current Max Drift</span>
               <span className="text-sm font-bold font-mono text-primary">
                 {status?.max_drift_pct || "2.4"}%
               </span>
             </div>
 
-            <div className="p-4 rounded-xl bg-secondary/40 border border-[hsl(225,18%,14%)]">
+            <div className="p-4 rounded-xl bg-secondary/40 border border-border">
               <span className="text-xs text-muted-foreground block mb-1">Execution Telemetry</span>
               <p className="text-xs font-semibold text-foreground">
                 {status?.action_taken || "Portfolio balanced within acceptable drift"}

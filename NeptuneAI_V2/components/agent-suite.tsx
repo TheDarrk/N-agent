@@ -23,7 +23,8 @@ import {
   Store,
   Key,
   Maximize2,
-  History
+  History,
+  ChevronDown
 } from "lucide-react";
 import FullScreenHistoryModal from "@/components/fullscreen-history-modal";
 import AgentWalletManagerModal from "@/components/agent-wallet-manager-modal";
@@ -32,6 +33,8 @@ import ModeratorSection from "@/components/agent-sections/moderator-section";
 import ResearchSection from "@/components/agent-sections/research-section";
 import RebalancerSection from "@/components/agent-sections/rebalancer-section";
 import { AgentAvatar } from "@/components/agent-avatars";
+import { AgentCardScene } from "@/components/agent-card-scene";
+import { tilt3d } from "@/components/agent-sections/trader/tilt-3d";
 import ShareAgentModal from "@/components/share-agent-modal";
 
 type Props = {
@@ -195,69 +198,78 @@ export default function NeptuneAgentSuite({
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-background">
         {/* Sub-view Header & Breadcrumbs */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-[hsl(225,18%,14%)] bg-card/70 backdrop-blur-md">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 sm:px-5 py-2.5 border-b border-border bg-card/70 backdrop-blur-md">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               onClick={() => onSelectAgentSubView(null)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold border border-[hsl(225,18%,16%)] transition-all active:scale-95 group"
+              aria-label="Back to Agent Suite"
+              className="suite-press flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 text-foreground text-xs font-semibold border border-border transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             >
-              <ArrowLeft size={14} className="group-hover:-translate-x-0.5 transition-transform" />
-              <span>Back to Agent Suite</span>
+              <ArrowLeft size={14} className="group-hover:-translate-x-0.5 transition-transform duration-200" />
+              <span className="hidden sm:inline">Back to Agent Suite</span>
             </button>
-            <div className="h-4 w-px bg-[hsl(225,18%,20%)]" />
-            <div className="flex items-center gap-2">
+            <div className="h-4 w-px bg-secondary" />
+            <div className="flex items-center gap-2 min-w-0">
               <AgentAvatar agentId={currentAgent?.id || "trader"} size={26} />
-              <div>
-                <h3 className="text-sm font-bold text-foreground leading-tight">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-foreground leading-tight truncate">
                   {currentAgent?.name}
                 </h3>
-                <p className="text-[10px] text-muted-foreground">{currentAgent?.role}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{currentAgent?.role}</p>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             {saveSuccessMsg && (
-              <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 animate-fade-in">
+              <span
+                role="status"
+                className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20 animate-fade-in"
+              >
                 {saveSuccessMsg}
               </span>
             )}
             <button
               onClick={() => setIsFullScreenHistoryOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary/80 hover:bg-secondary text-foreground border border-[hsl(225,18%,16%)] hover:border-primary/40 text-xs font-semibold transition-all active:scale-95"
+              className="suite-press flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-secondary/80 hover:bg-secondary text-foreground border border-border hover:border-primary/40 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
               title="View Full Screen History & Audit Log"
+              aria-label="History and Audit"
             >
               <History size={13} className="text-primary" />
-              <span>History & Audit</span>
+              <span className="hidden md:inline">History & Audit</span>
             </button>
             <button
               onClick={() => setIsAgentWalletModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary/80 hover:bg-secondary text-foreground border border-[hsl(225,18%,16%)] hover:border-primary/40 text-xs font-semibold transition-all active:scale-95"
+              className="suite-press flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-secondary/80 hover:bg-secondary text-foreground border border-border hover:border-primary/40 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
               title="Manage Agent Execution Wallets"
+              aria-label="Agent Wallets"
             >
               <Key size={13} className="text-primary" />
-              <span>Agent Wallets</span>
+              <span className="hidden md:inline">Agent Wallets</span>
             </button>
             {activeAgentSubView !== "moderator" && (
               <button
                 onClick={() => setShareModalAgent(activeAgentSubView as any)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-xs font-semibold transition-all active:scale-95"
+                className="suite-press flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/25 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                title="Share to Marketplace"
+                aria-label="Share to Marketplace"
               >
                 <Store size={13} />
-                <span>Share to Marketplace</span>
+                <span className="hidden md:inline">Share to Marketplace</span>
               </button>
             )}
             {/* Active Toggle */}
             <button
               onClick={() => handleToggleAgentActive(activeAgentSubView, agentActive)}
               disabled={isUpdating === activeAgentSubView}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+              aria-pressed={agentActive}
+              className={`suite-press flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
                 agentActive
                   ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
-                  : "bg-zinc-800/80 border-zinc-700/60 text-zinc-400 hover:bg-zinc-800"
+                  : "bg-secondary border-border text-muted-foreground hover:bg-secondary"
               }`}
             >
-              <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-zinc-500"}`} />
+              <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/60"}`} />
               <span>{agentActive ? "AGENT ACTIVE" : "AGENT INACTIVE"}</span>
             </button>
           </div>
@@ -265,21 +277,21 @@ export default function NeptuneAgentSuite({
 
         {/* Sandbox Notice if No Wallet Connected */}
         {!accountId && (
-          <div className="mx-6 mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md animate-in fade-in-0">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
-                <Wallet size={18} />
+          <div className="suite-rise mx-3 sm:mx-5 mt-3 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                <Wallet size={16} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-bold text-foreground">Sandbox Configuration Mode (No Wallet Connected)</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground leading-snug">
                   You can freely test and adjust all parameters. To save this configuration into the database and activate autonomous background execution, please connect a wallet.
                 </p>
               </div>
             </div>
             <button
               onClick={onConnectWallet}
-              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-amber-950 font-bold text-xs shrink-0 transition-all shadow-md shadow-amber-500/20 flex items-center gap-1.5"
+              className="suite-press px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-amber-950 font-bold text-xs shrink-0 transition-colors flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
             >
               <Wallet size={13} />
               <span>Connect Wallet to Save</span>
@@ -288,7 +300,7 @@ export default function NeptuneAgentSuite({
         )}
 
         {/* Configuration Component Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div key={activeAgentSubView} className="suite-fade flex-1 overflow-y-auto">
           {activeAgentSubView === "trader" && (
             <TraderSection accountId={accountId} onConnectWallet={onConnectWallet} />
           )}
@@ -323,155 +335,81 @@ export default function NeptuneAgentSuite({
   const activeCount = Object.values(fleetData?.agents || {}).filter((a: any) => a?.is_active).length;
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 max-w-6xl mx-auto w-full space-y-6">
-      {/* Suite Hero Header */}
-      <div className="relative rounded-3xl border border-[hsl(225,18%,16%)] bg-gradient-to-r from-card/90 via-secondary/30 to-card/90 p-6 md:p-8 backdrop-blur-xl shadow-2xl overflow-hidden">
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2.5 py-0.5 rounded-full bg-primary/15 text-primary text-[11px] font-bold tracking-wider uppercase border border-primary/25">
+    <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-6xl mx-auto w-full space-y-4">
+      {/* Suite Header */}
+      <header
+        {...tilt3d(1.5)}
+        className="tilt3d rounded-2xl border border-border bg-gradient-to-r from-card/90 via-secondary/30 to-card/90 px-4 py-4 sm:px-6 sm:py-5"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-bold tracking-wider uppercase border border-primary/25">
                 Autonomous AI Infrastructure
               </span>
-              <span className="px-2.5 py-0.5 rounded-full bg-secondary text-muted-foreground text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-[10px] font-mono">
                 {fleetData?.near_network?.toUpperCase() || "TESTNET"}
               </span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight text-balance">
               Neptune Agent Suite
             </h1>
-            <p className="text-xs md:text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl leading-relaxed text-pretty">
               Institutional-grade multi-agent fleet running natively on NEAR Protocol. Deploy, configure, and supervise specialized trading, risk auditing, fundamental research, and portfolio rebalancing agents.
             </p>
           </div>
 
           {/* Quick Metrics Bar & Agent Wallets Action */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={() => setIsAgentWalletModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-secondary/80 hover:bg-secondary text-foreground border border-[hsl(225,18%,16%)] hover:border-primary/40 text-xs font-bold transition-all shadow-md active:scale-95"
+              {...tilt3d(6)}
+              className="tilt3d pop3d flex items-center gap-2 px-4 py-3 rounded-xl bg-secondary text-foreground border border-border hover:border-primary/50 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             >
-              <Key size={14} className="text-primary" />
+              <Key size={16} className="text-primary" />
               <span>Agent Wallets (0-4)</span>
             </button>
-            <div className="flex items-center gap-3 bg-card/80 p-3 rounded-2xl border border-[hsl(225,18%,14%)] shadow-inner">
-            <div className="text-center px-3 border-r border-[hsl(225,18%,14%)]">
-              <p className="text-[10px] text-muted-foreground uppercase font-bold">Active Fleet</p>
-              <p className="text-lg font-mono font-bold text-foreground">{activeCount}/4</p>
+            <div
+              {...tilt3d(5)}
+              className="tilt3d pop3d flex items-center bg-card py-2 rounded-xl border border-border"
+            >
+              <div className="text-center px-4 border-r border-border">
+                <p className="text-[11px] text-muted-foreground uppercase font-bold tracking-wide">Active Fleet</p>
+                <p className="text-lg font-mono font-extrabold text-foreground leading-tight">{activeCount}/4</p>
+              </div>
+              <div className="text-center px-4">
+                <p className="text-[11px] text-muted-foreground uppercase font-bold tracking-wide">Protection</p>
+                <p className="text-base font-bold text-emerald-400 flex items-center gap-1 justify-center leading-tight">
+                  <CheckCircle2 size={13} /> Armed
+                </p>
+              </div>
             </div>
-            <div className="text-center px-3">
-              <p className="text-[10px] text-muted-foreground uppercase font-bold">Protection</p>
-              <p className="text-sm font-semibold text-emerald-400 flex items-center gap-1 justify-center">
-                <CheckCircle2 size={13} /> Armed
-              </p>
-            </div>
-          </div>
           </div>
         </div>
-      </div>
+      </header>
 
       {saveSuccessMsg && (
-        <div className="px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-2">
+        <div
+          role="status"
+          className="animate-fade-in px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-2"
+        >
           <CheckCircle2 size={15} />
           <span>{saveSuccessMsg}</span>
         </div>
       )}
 
       {/* 4 Agent Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {agentCards.map((agent) => {
-          const isAgentActive = (fleetData?.agents as any)?.[agent.id]?.is_active ?? false;
-
-          return (
-            <div
-              key={agent.id}
-              className={`relative rounded-3xl border ${
-                isAgentActive ? agent.borderColor : "border-[hsl(225,18%,14%)]"
-              } bg-gradient-to-br ${agent.color} p-6 shadow-xl hover:shadow-2xl transition-all duration-300 flex flex-col justify-between group`}
-            >
-              <div>
-                {/* Card Top: Avatar, Title, Active Badge */}
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-card border border-[hsl(225,18%,16%)] flex items-center justify-center p-1.5 shadow-md group-hover:scale-105 transition-transform">
-                      <AgentAvatar agentId={agent.id} size={36} />
-                    </div>
-                    <div>
-                      <h2 className="text-base font-bold text-foreground group-hover:text-primary transition-colors">
-                        {agent.name}
-                      </h2>
-                      <p className="text-[11px] text-muted-foreground font-medium">{agent.role}</p>
-                    </div>
-                  </div>
-
-                  {/* Active / Inactive Status Pill */}
-                  <span
-                    className={`text-[10px] font-mono px-2.5 py-1 rounded-full font-bold border flex items-center gap-1.5 ${
-                      isAgentActive
-                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                        : "bg-zinc-800 text-zinc-400 border-zinc-700/60"
-                    }`}
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${isAgentActive ? "bg-emerald-400" : "bg-zinc-500"}`} />
-                    {isAgentActive ? "ACTIVE" : "STANDBY"}
-                  </span>
-                </div>
-
-                {/* Description */}
-                <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-                  {agent.description}
-                </p>
-
-                {/* Feature Tags */}
-                <div className="flex flex-wrap gap-1.5 mb-5">
-                  {agent.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="text-[10px] font-medium px-2.5 py-1 rounded-lg bg-card/60 border border-[hsl(225,18%,14%)] text-muted-foreground"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Card Footer: Live Telemetry + Action Button */}
-              <div className="pt-4 border-t border-[hsl(225,18%,14%)]/60 flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                    Telemetry / Status
-                  </p>
-                  <p className="text-xs font-mono font-medium text-foreground truncate">
-                    {agent.stats}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {agent.id !== "moderator" && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShareModalAgent(agent.id as any);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-secondary/80 hover:bg-secondary text-foreground text-xs font-semibold border border-[hsl(225,18%,16%)] hover:border-primary/40 transition-all active:scale-95 flex-shrink-0"
-                      title="Share this agent to the decentralized marketplace"
-                    >
-                      <Store size={13} className="text-primary" />
-                      <span>Share</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onSelectAgentSubView(agent.id)}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-md shadow-primary/20 active:scale-95 flex-shrink-0"
-                  >
-                    <span>Configure</span>
-                    <ArrowRight size={14} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-14 pb-6 pt-12 md:grid-cols-2">
+        {agentCards.map((agent, index) => (
+          <AgentOverviewCard
+            key={agent.id}
+            agent={agent}
+            index={index + 1}
+            isActive={(fleetData?.agents as any)?.[agent.id]?.is_active ?? false}
+            onShare={() => setShareModalAgent(agent.id as any)}
+            onConfigure={() => onSelectAgentSubView(agent.id)}
+          />
+        ))}
       </div>
       <ShareAgentModal
         isOpen={!!shareModalAgent}
@@ -486,6 +424,198 @@ export default function NeptuneAgentSuite({
         accountId={accountId}
         onConnectWallet={onConnectWallet}
       />
+    </div>
+  );
+}
+
+type OverviewAgent = {
+  id: string;
+  name: string;
+  role: string;
+  color: string;
+  borderColor: string;
+  accentColor: string;
+  badgeColor: string;
+  description: string;
+  tags: string[];
+  stats: string;
+};
+
+const AGENT_THEME: Record<string, { glow: string; summary: string }> = {
+  trader: {
+    glow: "190 95% 55%",
+    summary: "Watches the crypto market for you and makes trades, but only inside the limits you set."
+  },
+  moderator: {
+    glow: "262 85% 70%",
+    summary: "A safety guard for your other agents. It checks every move and hits pause if things look risky."
+  },
+  research: {
+    glow: "160 70% 50%",
+    summary: "Studies any token and writes you a simple report on whether it looks promising."
+  },
+  rebalancer: {
+    glow: "38 95% 58%",
+    summary: "Keeps your money split the way you want between stable coins and crypto, automatically."
+  }
+};
+
+function AgentOverviewCard({
+  agent,
+  index,
+  isActive,
+  onShare,
+  onConfigure
+}: {
+  agent: OverviewAgent;
+  index: number;
+  isActive: boolean;
+  onShare: () => void;
+  onConfigure: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const cardRef = React.useRef<HTMLElement>(null);
+  const panelId = `agent-capabilities-${agent.id}`;
+  const theme = AGENT_THEME[agent.id] ?? AGENT_THEME.trader;
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    if (e.pointerType !== "mouse" || !cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+    const el = cardRef.current;
+    el.style.setProperty("--ry", `${((px - 0.5) * 10).toFixed(2)}deg`);
+    el.style.setProperty("--rx", `${((0.5 - py) * 8).toFixed(2)}deg`);
+  };
+
+  const handlePointerLeave = () => {
+    const el = cardRef.current;
+    if (!el) return;
+    el.style.setProperty("--rx", "0deg");
+    el.style.setProperty("--ry", "0deg");
+  };
+
+  return (
+    <div
+      className="agent3d-scene suite-rise"
+      style={{ "--i": index, "--glow": theme.glow } as React.CSSProperties}
+    >
+      <article
+        ref={cardRef}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={handlePointerLeave}
+        data-active={isActive}
+        className="agent3d-card group flex flex-col gap-4 px-5 pb-5 sm:px-6 sm:pb-6"
+      >
+        <div className="agent3d-bg" aria-hidden="true">
+          <span className="agent3d-shine" />
+        </div>
+
+        {/* Pop-up avatar + status */}
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="agent3d-avatar -mt-10 flex h-[76px] w-[76px] shrink-0 items-center justify-center">
+            <span className="agent3d-orbit" aria-hidden="true" />
+            <AgentAvatar agentId={agent.id} size={52} />
+          </div>
+          <span
+            className={`agent3d-pop mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold ${
+              isActive
+                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                : "border-border bg-secondary text-secondary-foreground"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                isActive ? "animate-glow bg-emerald-400" : "bg-muted-foreground"
+              }`}
+            />
+            {isActive ? "Running" : "Standby"}
+          </span>
+        </div>
+
+        {/* Name + plain-language summary */}
+        <div className="relative space-y-1.5">
+          <h2 className="text-xl font-extrabold leading-tight tracking-tight text-foreground text-balance">
+            {agent.name}
+          </h2>
+          <p className="agent3d-role text-sm font-semibold">
+            {agent.role}
+          </p>
+          <p className="pt-1 text-[15px] leading-relaxed text-foreground/85 text-pretty">
+            {theme.summary}
+          </p>
+        </div>
+
+        <AgentCardScene agentId={agent.id} isActive={isActive} />
+
+        {/* Details */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            aria-controls={panelId}
+            className="suite-press inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold text-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            style={{ backgroundColor: `hsl(${theme.glow} / 0.12)` }}
+          >
+            <ChevronDown
+              size={16}
+              className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            />
+            <span>{expanded ? "Hide details" : "What can it do?"}</span>
+          </button>
+          <div id={panelId} className="suite-collapse" data-open={expanded}>
+            <div>
+              <div className="space-y-3 pt-3">
+                <p className="text-sm leading-relaxed text-muted-foreground text-pretty">
+                  {agent.description}
+                </p>
+                <ul className="flex flex-wrap gap-2">
+                  {agent.tags.map((tag) => (
+                    <li
+                      key={tag}
+                      className="rounded-full border px-3 py-1 text-sm font-medium text-foreground/90"
+                      style={{
+                        borderColor: `hsl(${theme.glow} / 0.3)`,
+                        backgroundColor: `hsl(${theme.glow} / 0.1)`
+                      }}
+                    >
+                      {tag}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer: status + actions */}
+        <div className="relative mt-auto flex flex-col gap-3 border-t border-border/70 pt-4">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Status</p>
+            <p className="text-sm font-medium text-foreground text-pretty">{agent.stats}</p>
+          </div>
+          <div className="agent3d-pop flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={onConfigure}
+              className="agent3d-btn agent3d-btn-primary inline-flex h-11 items-center gap-2 rounded-full px-5 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <span>Set it up</span>
+              <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+            </button>
+            {agent.id !== "moderator" && (
+              <button
+                onClick={onShare}
+                className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-border bg-secondary px-4 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                title="Share this agent to the decentralized marketplace"
+              >
+                <Store size={16} className="text-primary" />
+                <span>Share</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </article>
     </div>
   );
 }

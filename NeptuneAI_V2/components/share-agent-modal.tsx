@@ -121,9 +121,9 @@ export default function ShareAgentModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in-0">
       <div className="relative w-full max-w-lg rounded-2xl border border-primary/30 bg-card/95 p-6 shadow-2xl backdrop-blur-xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[hsl(225,18%,14%)] pb-4">
+        <div className="flex items-center justify-between border-b border-border pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-card border border-[hsl(225,18%,18%)] flex items-center justify-center p-1 shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-card border border-border flex items-center justify-center p-1 shadow-md">
               <AgentAvatar agentId={agentId} size={32} />
             </div>
             <div>
@@ -162,7 +162,7 @@ export default function ShareAgentModal({
         ) : (
           <div className="mt-4 space-y-4">
             {/* Creator Wallet Note */}
-            <div className="p-3 rounded-xl bg-secondary/40 border border-[hsl(225,18%,14%)] flex items-center justify-between text-xs">
+            <div className="p-3 rounded-xl bg-secondary/40 border border-border flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Listing Creator:</span>
               <span className="font-mono font-semibold text-foreground">
                 {accountId || "Connect wallet to publish"}
@@ -179,7 +179,7 @@ export default function ShareAgentModal({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Alpha Momentum Trader v1"
-                className="w-full rounded-xl bg-background border border-[hsl(225,18%,16%)] px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:border-primary/50"
+                className="w-full rounded-xl bg-background border border-border px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:border-primary/50"
               />
             </div>
 
@@ -192,7 +192,7 @@ export default function ShareAgentModal({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
-                className="w-full rounded-xl bg-background border border-[hsl(225,18%,16%)] p-2.5 text-xs text-foreground focus:outline-none focus:border-primary/50 resize-none"
+                className="w-full rounded-xl bg-background border border-border p-2.5 text-xs text-foreground focus:outline-none focus:border-primary/50 resize-none"
               />
             </div>
 
@@ -237,7 +237,7 @@ export default function ShareAgentModal({
                     step={isTrader ? "1" : "0.01"}
                     value={pricingValue}
                     onChange={(e) => setPricingValue(Number(e.target.value))}
-                    className="w-full rounded-lg bg-background border border-[hsl(225,18%,18%)] px-3 py-1.5 text-xs font-mono font-bold text-foreground focus:outline-none focus:border-primary"
+                    className="w-full rounded-lg bg-background border border-border px-3 py-1.5 text-xs font-mono font-bold text-foreground focus:outline-none focus:border-primary"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground pointer-events-none">
                     {isTrader ? "%" : "NEAR"}
@@ -255,7 +255,7 @@ export default function ShareAgentModal({
                         className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all ${
                           pricingValue === pct
                             ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-secondary text-muted-foreground hover:text-foreground border-[hsl(225,18%,16%)]"
+                            : "bg-secondary text-muted-foreground hover:text-foreground border-border"
                         }`}
                       >
                         {pct}%
@@ -274,7 +274,7 @@ export default function ShareAgentModal({
                         className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all ${
                           pricingValue === amt
                             ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-secondary text-muted-foreground hover:text-foreground border-[hsl(225,18%,16%)]"
+                            : "bg-secondary text-muted-foreground hover:text-foreground border-border"
                         }`}
                       >
                         {amt}N
@@ -293,7 +293,7 @@ export default function ShareAgentModal({
                         className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all ${
                           pricingValue === amt
                             ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-secondary text-muted-foreground hover:text-foreground border-[hsl(225,18%,16%)]"
+                            : "bg-secondary text-muted-foreground hover:text-foreground border-border"
                         }`}
                       >
                         {amt}N
@@ -313,7 +313,7 @@ export default function ShareAgentModal({
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[hsl(225,18%,14%)]">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
               <button
                 type="button"
                 onClick={onClose}

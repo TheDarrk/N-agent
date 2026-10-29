@@ -108,9 +108,9 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 max-w-6xl mx-auto space-y-6">
+    <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-6xl mx-auto space-y-4 suite-stagger">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-card border border-[hsl(225,18%,14%)] shadow-lg shadow-black/20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl bg-card border border-border shadow-md shadow-black/20">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
@@ -150,7 +150,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
 
       {/* A2A Confirmation Banner if triggered */}
       {latestA2AResult && (
-        <div className="p-5 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-3 animate-fade-in">
+        <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-3 animate-fade-in">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold text-purple-300">
               <CheckCircle2 size={18} className="text-emerald-400" />
@@ -162,15 +162,15 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="p-3 rounded-xl bg-secondary/50 border border-[hsl(225,18%,14%)]">
+            <div className="p-3 rounded-xl bg-secondary/50 border border-border">
               <span className="text-[10px] text-muted-foreground uppercase">From Agent</span>
               <p className="font-semibold text-foreground">{latestA2AResult.from_agent}</p>
             </div>
-            <div className="p-3 rounded-xl bg-secondary/50 border border-[hsl(225,18%,14%)]">
+            <div className="p-3 rounded-xl bg-secondary/50 border border-border">
               <span className="text-[10px] text-muted-foreground uppercase">Recipient Creator</span>
               <p className="font-semibold text-foreground">{latestA2AResult.recipient}</p>
             </div>
-            <div className="p-3 rounded-xl bg-secondary/50 border border-[hsl(225,18%,14%)]">
+            <div className="p-3 rounded-xl bg-secondary/50 border border-border">
               <span className="text-[10px] text-muted-foreground uppercase">Alpha Signal</span>
               <p className="font-bold text-emerald-400">
                 {latestA2AResult.signal?.action} {latestA2AResult.signal?.target_asset} ({latestA2AResult.signal?.confidence}% Conf)
@@ -181,7 +181,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       )}
 
       {/* Report Generator Input */}
-      <div className="p-5 rounded-2xl bg-card border border-[hsl(225,18%,14%)] space-y-4">
+      <div className="p-4 rounded-2xl bg-card border border-border space-y-4">
         <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
           <Sparkles size={16} className="text-primary" />
           Request Customized Institutional Research
@@ -193,7 +193,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="e.g. Liquid Staking Yields on NEAR"
-            className="flex-1 px-4 py-2.5 rounded-xl bg-secondary/60 border border-[hsl(225,18%,14%)] text-xs text-foreground focus:outline-none focus:border-primary/50"
+            className="flex-1 px-4 py-2.5 rounded-xl bg-secondary/60 border border-border text-xs text-foreground focus:outline-none focus:border-primary/50"
           />
           <button
             onClick={handleGenerate}
@@ -207,7 +207,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       </div>
 
       {/* Recent 10 Decentralized Research Reports */}
-      <div className="p-5 rounded-2xl bg-card border border-[hsl(225,18%,14%)] space-y-4">
+      <div className="p-4 rounded-2xl bg-card border border-border space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Layers size={16} className="text-primary" />
@@ -225,7 +225,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             reports.map((r, i) => (
               <div
                 key={r.cid || i}
-                className="p-4 rounded-xl bg-secondary/30 border border-[hsl(225,18%,14%)] space-y-3 hover:border-primary/30 transition-all"
+                className="p-4 rounded-xl bg-secondary/30 border border-border space-y-3 hover:border-primary/30 transition-all"
               >
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="text-xs font-bold text-foreground leading-snug">
@@ -247,7 +247,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
                   </div>
                 )}
 
-                <div className="pt-2 border-t border-[hsl(225,18%,14%)] flex items-center justify-between text-[10px] text-muted-foreground">
+                <div className="pt-2 border-t border-border flex items-center justify-between text-[10px] text-muted-foreground">
                   <span className="font-mono text-primary truncate max-w-[150px]">{r.cid}</span>
                   <span>{new Date(r.created_at).toLocaleDateString()}</span>
                 </div>
