@@ -1,0 +1,156 @@
+{
+  "reasoning": "1. User wants: highest-APR NEAR staking pools, evaluation of liquid staking (stNEAR/LiNEAR), best DeFi yield pools, and recent hackathons/grants for participation. 2. Source mapping: S1 covers delegation mechanics and validator-selection criteria (NearBlocks/Pikespeak/Near Staking, commission fees); S5 gives the only yield figure \u2014 2.5% of total supply yearly budget, 10% to treasury, validators share the rest (~2.25% of supply \u00f7 total stake) plus uptime rules; S2/S3 cover the 4-epoch unbonding and unstake/withdraw separation; S4 covers lockup-contract staking with immediately liquid rewards; S3 notes slashing not enabled in nearcore 2.13.4. 3. No conflicts; all five are official NEAR docs but undated. 4. Missing: pool-level APRs, stNEAR/LiNEAR APY/liquidity data, DeFi pool yields, and hackathons/grants \u2014 the last confirms the known coverage gap. All figures are potentially stale. 5. Risks: 4-epoch exit lockup, uptime-based reward loss, commission fees, version-dependent slashing, stale/thin data. 6. Evidence supports only one modest signal \u2014 native NEAR staking participation at low confidence; no liquid-staking or hackathon signals are supportable, so none are given.",
+  "title": "NEAR Yield Investing: Native Staking Mechanics and Validator Selection \u2014 With No Evidence on stNEAR/LiNEAR, DeFi Pools, or Hackathons",
+  "user_expectations_summary": "The user wants to invest in the NEAR ecosystem for yield: comparing the highest-APR staking pools, evaluating liquid staking tokens (stNEAR/LiNEAR), finding the best DeFi yield pools, and identifying recent hackathons, grants, or other ways to participate.",
+  "findings": "## Scope of Evidence\nAll retrieved sources are official NEAR protocol documentation (undated; retrieved 2026-11-02). They cover **native proof-of-stake delegation** in depth, but contain **no pool-level APR rankings, no stNEAR/LiNEAR liquid staking data, no DeFi yield-pool APYs, and no hackathon or grant listings**.\n\n## Native NEAR Staking Yield (Protocol Level)\n\n| Parameter | Value | Source |\n|---|---|---|\n| Yearly reward budget | 2.5% of total NEAR supply | [S5] |\n| Protocol treasury cut | 10% of the budget | [S5] |\n| Validator/delegator share | Remaining ~90% \u2192 validator yearly yield \u2248 2.25% \u00d7 total supply \u00f7 total stake | [S5] |\n| Validator seats (mainnet) | 500; seat price = stake of 500th proposal, or stake > 1/62,500 of total stake | [S5] |\n| Reward start | The epoch after you stake | [S1] |\n| Uptime rule | <90% uptime in an epoch \u2192 no reward; 90\u201399% \u2192 reduced reward; unearned rewards are not minted | [S5] |\n| Unbonding period | 4 epochs between unstaking and withdrawal | [S2, S3] |\n| Slashing | Not enabled in nearcore 2.13.4 (version-specific) | [S3] |\n\nThe docs give the yield **formula**, not a current APR: your realized return depends on total network stake and your pool's commission. No fiat-denominated or percentage APR for any specific pool is provided.\n\n## Choosing a Staking Pool\n- Evaluate validators on **track record, uptime, and reasonable commission rates** using NearBlocks, Pikespeak, or Near Staking [S1].\n- A pool's reward fee is queryable on-chain via `get_reward_fee_fraction`, and staked/unstaked balances via the pool's read methods [S1, S3].\n- Delegation is executed through the staking-pool contract (e.g., `near staking delegation deposit-and-stake '100 NEAR' <validator>` or a `deposit_and_stake` function call) [S1].\n\n## Liquidity and Exit Mechanics\n- **Unstaking and withdrawing are separate operations**: call `unstake`/`unstake_all`, wait the 4-epoch unbonding period, then `withdraw`/`withdraw_all` [S2, S3].\n- Anyone meeting the stake requirements can also become a validator directly; selection takes effect at epoch boundaries [S3, S5].\n\n## Niche: Lockup Contract Holders\n- Tokens in NEAR lockup contracts can be staked to whitelisted pools; the base tokens stay locked per vesting schedules, but **staking rewards are liquid immediately** and transferable [S4].\n\n## Gaps (Not Covered by Evidence)\n- **stNEAR / LiNEAR**: no APY, peg, liquidity, or platform comparison available \u2014 cannot rank liquid staking options.\n- **DeFi yield pools / liquidity farming**: no pools, APYs, or protocols mentioned.\n- **Hackathons, grants, bounties (last month)**: none found in any source \u2014 this confirms the known coverage gap; no participation events can be recommended from this evidence.\n- **Current NEAR price / net APR figures**: absent; all rates are potentially stale since the docs are undated.",
+  "risk_factors": [
+    "Unstaked NEAR stays locked for a 4-epoch unbonding period before it can be withdrawn, creating exit-liquidity risk [S2][S3].",
+    "Validators with less than 90% uptime earn no rewards for that epoch (and reduced rewards at 90\u201399% uptime), directly cutting delegator yield [S5].",
+    "Pool commission/reward fees vary by validator and reduce net yield below the gross protocol-level rate [S1].",
+    "Slashing is not enabled in nearcore 2.13.4, but this is version-specific and could change in future protocol upgrades [S3].",
+    "All yield figures come from undated official docs (retrieved 2026-11-02), so the 2.5% reward budget and seat mechanics may be stale [S5].",
+    "There is no evidence on stNEAR/LiNEAR, DeFi pools, or hackathons, so any decision on those would rest on data outside this evidence set."
+  ],
+  "signals": [
+    {
+      "signal": "Stake native NEAR with a low-commission, high-uptime validator through the official staking-pool contracts",
+      "direction": "STAKE",
+      "asset_or_target": "NEAR (native PoS staking)",
+      "confidence": 45,
+      "timeframe": "Rewards begin the epoch after staking; 4-epoch unbonding on exit",
+      "rationale": "The protocol distributes ~2.25% of total supply yearly to stakers pro-rata (2.5% budget minus 10% treasury), but the docs provide no current APR, no pool rankings, and no liquid-staking comparison, so conviction is limited to the mechanism itself.",
+      "supporting_sources": [
+        1,
+        5
+      ]
+    }
+  ],
+  "primary_signal": {
+    "signal": "Stake native NEAR with a low-commission, high-uptime validator through the official staking-pool contracts",
+    "direction": "STAKE",
+    "asset_or_target": "NEAR (native PoS staking)",
+    "confidence": 3,
+    "timeframe": "Rewards begin the epoch after staking; 4-epoch unbonding on exit",
+    "rationale": "The protocol distributes ~2.25% of total supply yearly to stakers pro-rata (2.5% budget minus 10% treasury), but the docs provide no current APR, no pool rankings, and no liquid-staking comparison, so conviction is limited to the mechanism itself.",
+    "supporting_sources": [
+      1,
+      5
+    ]
+  },
+  "ecosystem_opportunities": [
+    {
+      "title": "Native NEAR Staking via Validator Delegation",
+      "category": "Yield / Staking",
+      "target_asset_or_protocol": "NEAR protocol (staking-pool contracts)",
+      "reward_or_yield": "\u22482.25% of total supply distributed yearly to validators pro-rata (net APR varies with total stake and pool commission)",
+      "timeframe_or_deadlines": "Rewards start the epoch after delegation; unstaking requires a 4-epoch wait before withdrawal",
+      "how_to_participate": "Select a validator with good track record, uptime, and reasonable commission on NearBlocks, Pikespeak, or Near Staking; delegate via NEAR CLI ('near staking delegation deposit-and-stake') or a 'deposit_and_stake' function call; unstake and then withdraw after 4 epochs to exit",
+      "supporting_sources": [
+        1,
+        2,
+        5
+      ]
+    }
+  ],
+  "sources_cited": [
+    {
+      "index": 1,
+      "url": "https://docs.near.org/protocol/tutorials/staking-tokens",
+      "title": "Staking NEAR Tokens - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.377,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/protocol/tutorials/staking-tokens",
+        "retrieved_at": "2026-11-02T21:12:09.765565+00:00"
+      }
+    },
+    {
+      "index": 2,
+      "url": "https://docs.near.org/protocol/tutorials/sunsetting-a-staking-pool",
+      "title": "Sunsetting a Staking Pool - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.422,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/protocol/tutorials/sunsetting-a-staking-pool",
+        "retrieved_at": "2026-11-02T21:12:09.765673+00:00"
+      }
+    },
+    {
+      "index": 3,
+      "url": "https://docs.near.org/integrations/staking",
+      "title": "Staking & Delegation - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.436,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/integrations/staking",
+        "retrieved_at": "2026-11-02T21:12:09.765745+00:00"
+      }
+    },
+    {
+      "index": 4,
+      "url": "https://docs.near.org/primitives/lockup/introduction",
+      "title": "Introduction - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.447,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/primitives/lockup/introduction",
+        "retrieved_at": "2026-11-02T21:12:09.765769+00:00"
+      }
+    },
+    {
+      "index": 5,
+      "url": "https://docs.near.org/protocol/network/validators",
+      "title": "Validators - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.453,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/protocol/network/validators",
+        "retrieved_at": "2026-11-02T21:12:09.765806+00:00"
+      }
+    }
+  ],
+  "coverage_gaps": [
+    "No selected evidence directly covered: hackathons and grants."
+  ],
+  "tool_calls_used": 1,
+  "cid": "bafy6d5c00ce5e5170ad3c0864322226fe7ec6b95a40bc92",
+  "fee_paid_near": 0.1,
+  "requester": "neptune1.testnet",
+  "created_at": "2026-11-02T21:16:25.015918+00:00",
+  "cot_step_cards": [],
+  "summary": "## Scope of Evidence\nAll retrieved sources are official NEAR protocol documentation (undated; retrieved 2026-11-02). They cover **native proof-of-stake delegation** in depth, but contain **no pool-level APR rankings, no stNEAR/LiNEAR liquid staking data, no DeFi yield-pool APYs, and no hackathon or ...",
+  "regime": "ACCUMULATION",
+  "staking_and_yield_matrix": [
+    {
+      "protocol": "Native NEAR Staking via Validator Delegation",
+      "asset": "NEAR protocol (staking-pool contracts)",
+      "estimated_apy": "\u22482.25% of total supply distributed yearly to validators pro-rata (net APR varies with total stake and pool commission)",
+      "liquidity_type": "Yield / Staking",
+      "notes": "Rewards start the epoch after delegation; unstaking requires a 4-epoch wait before withdrawal. Select a validator with good track record, uptime, and reasonable commission on NearBlocks, Pikespeak, or Near Staking; delegate via NEAR CLI ('near staking delegation deposit-and-stake') or a 'deposit_and_stake' function call; unstake and then withdraw after 4 epochs to exit"
+    }
+  ],
+  "hackathons_and_opportunities": [],
+  "actionable_signal": {
+    "action": "STAKE",
+    "target_asset": "NEAR (native PoS staking)",
+    "confidence": 3,
+    "recommended_timeframe": "Rewards begin the epoch after staking; 4-epoch unbonding on exit",
+    "key_levels_or_actions": "The protocol distributes ~2.25% of total supply yearly to stakers pro-rata (2.5% budget minus 10% treasury), but the docs provide no current APR, no pool rankings, and no liquid-staking comparison, so conviction is limited to the mechanism itself."
+  },
+  "stored_at": "2026-11-02 21:16:25 UTC",
+  "stored_at_iso": "2026-11-02T21:16:25.080417+00:00",
+  "date_utc": "2026-11-02",
+  "time_utc": "21:16:25 UTC",
+  "timestamp_utc": "2026-11-02 21:16:25 UTC",
+  "created_at_utc": "2026-11-02T21:16:25.080417+00:00"
+}

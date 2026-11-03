@@ -98,17 +98,14 @@ export default function NeptuneAgentSuite({
   }, [accountId]);
 
   const handleToggleAgentActive = async (agentId: string, currentActive: boolean) => {
-    if (!accountId) {
-      onConnectWallet();
-      return;
-    }
+    const targetWallet = accountId || "guest.near";
     setIsUpdating(agentId);
     try {
       const res = await fetch("/api/fleet/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_wallet: accountId,
+          user_wallet: targetWallet,
           agent_id: agentId,
           is_active: !currentActive,
           config: {}

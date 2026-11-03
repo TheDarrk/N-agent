@@ -24,12 +24,14 @@ _GECKO_POOL_CACHE: Dict[str, str] = {
 }
 
 
-def _calc_ema(prices: List[float], period: int) -> float:
-    """Calculate Exponential Moving Average for a series of prices."""
-    if not prices:
-        return 0.0
-    if len(prices) < period:
-        return sum(prices) / len(prices)
+def _calc_ema(prices: List[float], period: int) -> Optional[float]:
+    """
+    Calculate Exponential Moving Average for a series of prices.
+    Returns None if there are fewer closed candles than the requested period,
+    preventing fabricated / misleading moving averages on short windows.
+    """
+    if not prices or len(prices) < period:
+        return None
     k = 2 / (period + 1)
     ema = sum(prices[:period]) / period
     for price in prices[period:]:
@@ -326,14 +328,19 @@ def summarize_lookback(candles: List[Dict[str, Any]]) -> Dict[str, Any]:
 async def analyze_token_indicators(
     symbol: str = "NEAR",
     timeframe: str = "1h",
-    limit: int = 50,
+    limit: int = 250,
     include_lookback_summary: bool = False,
 ) -> Dict[str, Any]:
     """
     Computes a full technical indicator snapshot for a token:
     RSI, EMA 20/50/200, ATR, volume delta, trend regime.
+    Uses closed candles only (drops currently forming candle to prevent look-ahead bias).
+    Returns None for EMA200 when fewer than 200 closed candles are available.
     """
-    candles = await fetch_klines(symbol=symbol, timeframe=timeframe, limit=limit)
+    raw_candles = await fetch_klines(symbol=symbol, timeframe=timeframe, limit=max(limit, 220))
+    # Exclude the still-forming candle to avoid look-ahead noise and mid-bar signal flip
+    candles = raw_candles[:-1] if len(raw_candles) > 1 else raw_candles
+
     closes = [c["close"] for c in candles]
     highs = [c["high"] for c in candles]
     lows = [c["low"] for c in candles]
@@ -343,16 +350,28 @@ async def analyze_token_indicators(
     rsi = _calc_rsi(closes, period=14)
     ema20 = _calc_ema(closes, period=20)
     ema50 = _calc_ema(closes, period=50)
-    ema200 = _calc_ema(closes, period=len(closes) if len(closes) < 200 else 200)
+    ema200 = _calc_ema(closes, period=200)  # None if len(closes) < 200
     atr = _calc_atr(highs, lows, closes, period=14)
 
-    # Determine trend & signals
-    ema_trend = "BULLISH" if ema20 > ema50 else "BEARISH"
-    ema_cross = "GOLDEN" if (ema20 >= ema50 and len(closes) > 2 and closes[-2] <= ema50) else ("DEATH" if ema20 < ema50 else "NEUTRAL")
+    # Determine trend & signals (safe when EMAs are None)
+    if ema20 is not None and ema50 is not None:
+        ema_trend = "BULLISH" if ema20 > ema50 else "BEARISH"
+        ema_cross = "GOLDEN" if (ema20 >= ema50 and len(closes) > 2 and closes[-2] <= ema50) else ("DEATH" if ema20 < ema50 else "NEUTRAL")
+    else:
+        ema_trend = "INSUFFICIENT_HISTORY"
+        ema_cross = "NEUTRAL"
     
-    avg_volume = sum(volumes[-10:]) / 10 if volumes else 1.0
-    current_volume = volumes[-1] if volumes else 1.0
-    volume_surge = current_volume > (avg_volume * 1.35)
+    # Check volume presence
+    has_valid_volume = any(v > 0 for v in volumes[-10:]) if volumes else False
+    if has_valid_volume:
+        avg_volume = sum(volumes[-10:]) / 10
+        current_volume = volumes[-1] if volumes else 0.0
+        volume_surge = current_volume > (avg_volume * 1.35)
+        volume_ratio = round(current_volume / avg_volume, 2) if avg_volume > 0 else None
+    else:
+        avg_volume = None
+        volume_surge = False
+        volume_ratio = None
 
     recent_support = min(lows[-10:]) if lows else current_price * 0.95
     recent_resistance = max(highs[-10:]) if highs else current_price * 1.05
@@ -373,7 +392,7 @@ async def analyze_token_indicators(
         "atr": atr,
         "atr_pct": round(atr_pct, 2),
         "volume_surge": volume_surge,
-        "volume_ratio": round(current_volume / avg_volume, 2) if avg_volume > 0 else 1.0,
+        "volume_ratio": volume_ratio,
         "recent_support": recent_support,
         "recent_resistance": recent_resistance,
         "price_near_support": price_near_support,
@@ -528,3 +547,89 @@ async def analyze_multiframe_market_tool(symbol: str, timeframes: Optional[List[
     Evaluates market structure across 1h, 2h, 4h, 1d, 1w for Node 1 and LLM Council.
     """
     return await get_chart_data_bundle(symbol=symbol, timeframes=timeframes)
+
+
+async def compute_btc_beta_and_correlations(symbols: List[str]) -> Dict[str, Any]:
+    """
+    Computes 30-day closed daily returns, Beta to BTC, correlation to BTC,
+    and a pairwise correlation matrix for all candidate tokens.
+    Provides portfolio volatility estimate so risk parity accounts for cross-asset co-movement.
+    """
+    clean_syms = list(set(s.upper() for s in symbols if s.upper() not in ["USDT", "USDC", "DAI", "USN"]))
+    
+    # Fetch 30-day closed daily candles for BTC
+    raw_btc = await fetch_klines(symbol="BTC", timeframe="1d", limit=35)
+    btc_candles = raw_btc[:-1] if len(raw_btc) > 1 else raw_btc
+    btc_closes = [c["close"] for c in btc_candles]
+    
+    def _pct_returns(closes: List[float]) -> List[float]:
+        return [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes)) if closes[i-1] > 0]
+    
+    btc_returns = _pct_returns(btc_closes)
+    n_days = len(btc_returns)
+    if n_days < 5:
+        return {"btc_beta": {}, "btc_correlation": {}, "correlation_matrix": {}, "portfolio_volatility_pct": 3.0}
+
+    # Fetch daily closes for each candidate token
+    token_returns: Dict[str, List[float]] = {}
+    for sym in clean_syms:
+        try:
+            raw_k = await fetch_klines(symbol=sym, timeframe="1d", limit=35)
+            k_candles = raw_k[:-1] if len(raw_k) > 1 else raw_k
+            closes = [c["close"] for c in k_candles]
+            rets = _pct_returns(closes)
+            if len(rets) >= 5:
+                # Align to min length
+                token_returns[sym] = rets[-n_days:]
+        except Exception:
+            pass
+
+    def _cov(x: List[float], y: List[float]) -> float:
+        n = min(len(x), len(y))
+        if n < 2: return 0.0
+        mx = sum(x[:n]) / n
+        my = sum(y[:n]) / n
+        return sum((x[i] - mx) * (y[i] - my) for i in range(n)) / (n - 1)
+
+    def _std(x: List[float]) -> float:
+        n = len(x)
+        if n < 2: return 0.0
+        mx = sum(x) / n
+        return math.sqrt(sum((xi - mx) ** 2 for xi in x) / (n - 1))
+
+    btc_std = _std(btc_returns)
+    btc_var = btc_std ** 2 if btc_std > 0 else 0.0001
+
+    btc_beta: Dict[str, float] = {}
+    btc_corr: Dict[str, float] = {}
+    for sym, rets in token_returns.items():
+        cov = _cov(rets, btc_returns)
+        s = _std(rets)
+        btc_beta[sym] = round(cov / btc_var, 3)
+        btc_corr[sym] = round(cov / (s * btc_std), 3) if (s > 0 and btc_std > 0) else 0.0
+
+    # Pairwise correlation matrix
+    all_keys = list(token_returns.keys())
+    matrix: Dict[str, Dict[str, float]] = {}
+    for s1 in all_keys:
+        matrix[s1] = {}
+        for s2 in all_keys:
+            if s1 == s2:
+                matrix[s1][s2] = 1.0
+            else:
+                c = _cov(token_returns[s1], token_returns[s2])
+                s1_sd = _std(token_returns[s1])
+                s2_sd = _std(token_returns[s2])
+                matrix[s1][s2] = round(c / (s1_sd * s2_sd), 3) if (s1_sd > 0 and s2_sd > 0) else 0.0
+
+    # Aggregate average volatility across candidate tokens (annualized approx)
+    avg_daily_vol = (sum(_std(r) for r in token_returns.values()) / len(token_returns)) if token_returns else 0.03
+    est_annual_vol_pct = round(avg_daily_vol * math.sqrt(365) * 100.0, 1)
+
+    return {
+        "btc_beta": btc_beta,
+        "btc_correlation": btc_corr,
+        "correlation_matrix": matrix,
+        "avg_daily_volatility_pct": round(avg_daily_vol * 100.0, 2),
+        "est_annualized_volatility_pct": est_annual_vol_pct
+    }

@@ -28,6 +28,9 @@ async def poll_active_trades() -> List[Dict[str, Any]]:
         # Poller only runs for users who have explicitly activated the Trader Agent
         valid_trades = []
         for t in open_trades:
+            # Skip rebalance swaps (e.g. NEAR->USDT) as they are atomic portfolio adjustments, not directional positions
+            if "->" in t.get("symbol", "") or t.get("action") == "SWAP":
+                continue
             user = get_user(t["user_wallet"]) or {}
             if user.get("trader_active", 0) and not user.get("kill_switch", 0):
                 valid_trades.append(t)

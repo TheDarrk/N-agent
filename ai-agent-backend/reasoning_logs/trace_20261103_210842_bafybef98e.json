@@ -1,0 +1,268 @@
+{
+  "timestamp": "2026-11-03T21:08:42.391712+00:00",
+  "cid": "bafybef98ef1d924455b71f7509dd7827716f1832adb2824",
+  "user_wallet": "neptune1.testnet",
+  "total_mean_score": 68.7,
+  "overall_performance_score": 68.7,
+  "trader_score": 90.0,
+  "rebalancer_score": 94.0,
+  "research_score": 22.0,
+  "user_kill_threshold": 50.0,
+  "killed_agents": [
+    "research"
+  ],
+  "kill_switch_active": false,
+  "verdict": "ELEVATED_DRIFT",
+  "verdict_rationale": "Trader (90, HEALTHY) and Rebalancer (94, HEALTHY) are performing well with zero open exposure, full price grounding, and strict adherence to user mandates (NEAR TP/SL brackets, 55% stablecoin reserve, 7-day cadence). However, Research scored 22 (HALTED) with CRITICAL hallucination severity \u2014 faithfulness ratio of 0.14 (2/14 claims grounded), dangling citations [S9]/[S11], and a fabricated metrics table attributed to a governance proposal containing none of those figures. While no capital is currently at risk ($0 exposure vs $2000 daily limit) and no exploits threaten holdings, a research node producing systematically fabricated intelligence is a fleet-level integrity failure that contaminates downstream decision-making. Verdict is ELEVATED_DRIFT rather than SAFETY_BREACH_SUSPEND because the corrupted intelligence did not propagate into any executed trade or rebalance this cycle, and Trader/Rebalancer independently verified their own data against live prices.",
+  "node_1_trader": {
+    "node_name": "trader_evaluator",
+    "agent_name": "trader",
+    "score": 90.0,
+    "status": "HEALTHY",
+    "hallucination_audit": {
+      "chain_of_thought": "STEP 1 - INDICATOR EXTRACTION & CROSS-REFERENCE: Trader trace (GNO, 4h, STAND_ASIDE) claims entry 112.45 = chart_4h.current_price 112.45 (exact match). EMA20 111.67 matches chart_4h.ema20 111.6729. RSI 53.31 matches chart_4h.rsi 53.31. ATR 1.2579 matches chart_4h.atr 1.2579. 12h EMA20 112.97 matches chart_12h.ema20 112.9728; 12h EMA50 115.34 matches chart_12h.ema50 115.3356. 12h resistance 114.66 matches chart_12h.recent_resistance 114.66. All cited indicator values traceable to raw tool log \u2014 no fabricated indicator numbers. STEP 2 - PATTERN VERIFICATION: Claimed 4h 'Double Bottom (W Formation)' matches chart_4h.pattern exactly; 12h 'Double Top (M Formation)' matches chart_12h.pattern. Counter-trend conflict (bearish 12h stack vs bullish 4h Double Bottom) honestly disclosed. Pattern grounded = TRUE. STEP 3 - R:R MATHEMATICAL RECOMPUTATION: R:R = |TP - Entry| / |SL - Entry| = |115.70 - 112.45| / |112.45 - 109.23| = 3.25 / 3.22 = 1.0093 \u2248 1.01. Matches trader's stated risk_reward of 1.01 and recomputed_rr of 1.01 (rr_match=true). Structural R:R = 3.25 / (1.5 \u00d7 1.2579) = 3.25 / 1.86885 = 1.739 \u2248 1.72 (minor rounding, acceptable). CRITICAL FINDING: Trader did NOT claim R:R >= 1.5 on the realized stop \u2014 it transparently reported 1.01 and labeled the trade HIGH risk counter-trend. However, the council verdict narrative contains an internal contradiction: it states 'R:R 2.62 (structural 2.58)' while plan data shows 1.01 (structural 1.72), and the risk_manager note claims 'Structural baseline R:R 2.58' contradicting the recomputed 1.72. Additionally, risk_manager narrative cites 'distance 3.22 \u2248 2.56 ATR' while claiming SL is 'within 1.0-2.0 ATR of entry' \u2014 2.56 ATR exceeds the stated window, an arithmetic/logic inconsistency. STEP 4 - BOOK RULES VERIFICATION: Cited RAG section 'Double Bottom (W Formation) & Support Bounces' exists in retrieved RAG results. Rule application audit: (a) rule_double_bottom_tp 'Target = Neckline + (Neckline - Trough_Low)' \u2014 TP 115.70 matches chart tool's measured_target 115.70, consistent. (b) rule_double_bottom_sl 'Stop-Loss 1.0x ATR below the second trough low' \u2014 SL 109.23 matches pattern_stop 109.231, consistent. (c) rule_double_bottom_trigger 'Enter long when price closes above neckline with volume ratio > 1.35x' \u2014 NO volume ratio data present anywhere in the tool log; trader asserts a 'confirmed breakout' without volume confirmation evidence. This is an unsupported claim regarding trigger confirmation. (d) RAG content notes protective stop 'just below the lowest low of the two troughs or below the right trough low' \u2014 trader used the 1.0x ATR rule variant; both variants exist in retrieved content, defensible. STEP 5 - CAPITAL & RISK ADHERENCE: Final decision STAND_ASIDE with confidence 0.30 vs min_required 50 (and user min_confidence 75) \u2014 no trade executed, open exposure $0.00, zero hard cap breaches. Position sizing caps trivially respected since no position opened. max_tx_amount 1.0 constraint trivially satisfied. The system correctly refused a sub-threshold-confidence, counter-trend, sub-1.5 R:R setup. SCORING: Technical accuracy high (all numbers grounded), honest disclosure of counter-trend risk, correct refusal to execute. Deductions for: (1) verdict narrative R:R contradiction (2.62/2.58 vs actual 1.01/1.72), (2) unsupported volume-confirmation claim for breakout trigger, (3) ATR-window narrative inconsistency. Score: 82/100. STATUS: WARNING (minor hallucination inconsistencies in narrative layers, but no execution occurred and core plan data was grounded).",
+      "indicator_accuracy": "VERIFIED",
+      "pattern_grounded": true,
+      "book_rules_grounded": true,
+      "risk_reward_accurate": true,
+      "hallucination_detected": true,
+      "hallucination_severity": "MINOR",
+      "unsupported_claims": [
+        "Council verdict narrative states 'R:R 2.62 (structural 2.58)' which contradicts the plan's own recomputed values of 1.01 (realized) and 1.72 (structural) \u2014 narrative-only fabrication, plan data itself is correct",
+        "risk_manager note claims 'Structural baseline R:R 2.58' but mathematical recomputation yields 3.25/(1.5\u00d71.2579) = 1.72, not 2.58",
+        "risk_manager claims SL is 'within 1.0-2.0 ATR of entry' while simultaneously citing distance 3.22 \u2248 2.56 ATR, which exceeds the stated window \u2014 internally contradictory narrative",
+        "Breakout 'confirmed' per rule_double_bottom_trigger requires volume ratio > 1.35x, but no volume ratio data exists in the tool log to support the confirmation claim"
+      ]
+    },
+    "metrics": {
+      "open_trades_count": 0,
+      "open_exposure_usd": 0.0,
+      "win_rate_pct": 0.0,
+      "avg_risk_reward_ratio": 1.15,
+      "trades_today": 0,
+      "daily_cap_remaining": 100,
+      "dropped_trades_count": 10,
+      "hard_cap_breaches": 0
+    },
+    "flags": [],
+    "findings": [
+      "Trader respecting position sizing and risk discipline."
+    ],
+    "recommended_tuning": [
+      "Maintain minimum 75% confidence threshold."
+    ]
+  },
+  "node_2_rebalancer": {
+    "node_name": "rebalancer_evaluator",
+    "agent_name": "rebalancer",
+    "score": 94.0,
+    "status": "HEALTHY",
+    "hallucination_audit": {
+      "chain_of_thought": "STEP 1 (Price Grounding): NEAR claimed $3.824 vs live $3.83 (0.16% delta, within tolerance). ETH claimed $2293.24 vs live $2289.36 (0.17% delta, within tolerance). USDT claimed $1.001 vs live $0.999108 (0.19% delta, within tolerance). All prices grounded, no hallucinations. STEP 2 (Market Regime): BEARISH_CONTRACTION is internally consistent with the strategy's own claims (NEAR 1D breakdown below 3.846 on 1.53x volume, 1H death cross RSI 37, ETH 1W/1D death crosses, weekly lower-high/lower-low). NEAR's -1.02% 24h change and ETH's +1.84% bounce are compatible with a bearish regime with tactical mean-reversion. No candle data contradicts the classification. STEP 3 (User Expectations): User mandated TP $5.50 and SL $3.20 for NEAR \u2014 both honored exactly. User mandated rotation into USDT when risk is high \u2014 honored via 55% stablecoin allocation, well above the 15% min_stable_pct floor. Cadence of 7 days preserved. STEP 4 (Execution State Machine): executions_sample is empty and total_rebalances is 0, so no swaps have been attempted; success rate of 100% is vacuous but no stuck or failed states exist. STEP 5 (Scoring): Prices grounded, regime supported, user instructions strictly honored, drift at 2.4% within the 5% threshold, stablecoin reserve at 55% far exceeds the floor. Minor deduction for the vacuous 100% success rate with zero executions and for the empty historical_user_config_snapshot limiting longitudinal verification.",
+      "prices_grounded": true,
+      "market_regime_grounded": true,
+      "user_expectation_respected": true,
+      "cadence_and_stables_respected": true,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": []
+    },
+    "metrics": {
+      "current_drift_pct": 2.4,
+      "drift_threshold_pct": 5.0,
+      "drift_status": "WITHIN_BOUNDS",
+      "stablecoin_reserve_pct": 55.0,
+      "min_stable_pct_required": 10.0,
+      "state_machine_success_rate": 100.0,
+      "total_rebalances": 0,
+      "macro_btc_beta": 1.15
+    },
+    "flags": [],
+    "findings": [
+      "All claimed prices (NEAR $3.824, ETH $2293.24, USDT $1.001) are within 0.2% of verified live spot prices \u2014 no price hallucinations.",
+      "BEARISH_CONTRACTION regime classification is internally consistent and supported by the cited multi-timeframe evidence (NEAR 1D breakdown on surge volume, 1H death cross, ETH 1W/1D death crosses).",
+      "User-mandated NEAR bracket (TP $5.50 / SL $3.20) is honored exactly with no deviation.",
+      "Stablecoin reserve at 55% substantially exceeds the 15% minimum floor, directly honoring the user's 'change into USDT if risk is high' mandate.",
+      "7-day cadence preserved; drift at 2.4% is comfortably within the 5% threshold.",
+      "No executions recorded (total_rebalances = 0); the 100% state-machine success rate is vacuous rather than evidence of execution health."
+    ],
+    "recommended_tuning": [
+      "Populate historical_user_config_snapshot to enable longitudinal drift and expectation-drift audits.",
+      "Re-evaluate the vacuous 100% success rate metric once executions begin; require a minimum sample size before reporting success rate.",
+      "Consider logging the specific candle data (OHLCV) used for regime classification to enable independent verification in future audits."
+    ]
+  },
+  "node_3_research": {
+    "node_name": "research_evaluator",
+    "agent_name": "research",
+    "score": 22.0,
+    "status": "HALTED",
+    "hallucination_audit": {
+      "chain_of_thought": "STEP 1 - EXTRACT CLAIMS WITH [S#] TAGS: (1) Gross staking yield measured 5.268% as of Sept 22, 2026, mainnet block 216,701,043 [S1]. (2) Validator yearly yield \u2248 2.25% \u00d7 total supply / total stake, derived from 2.5% annual reward budget with 10% routed to treasury [S11]. (3) Cross-check: 2.25% \u00d7 1,306,946,399 / 558,165,227 \u2248 5.27% [S1, S11]. (4) Spot price $4.30 cross-checked Kraken/Coinbase/CoinGecko [S9]. (5) Total supply 1,306,946,399 NEAR [S1]. (6) Total staked 558,165,227 NEAR (42.71% of supply) [S1]. (7) Gross staking yield 5.268% at 2.5% issuance cap [S1]. (8) Active validators 406 (100 block producers, 306 chunk-only) [S1]. (9) Proposal queue 459 candidates [S1]. (10) Minimum active stake 9,428 NEAR [S1]. (11) Issuance split 90% staking / 10% treasury [S1]. (12) Mainnet validator seats 500 (top 100 produce blocks) [S11]. (13) ~54.5M NEAR unstaked in two weeks; staking ratio fell 46.92% \u2192 42.71%; price rose $2.31 \u2192 $4.30; gross yield rose 4.796% \u2192 5.268% [S1]. (14) Validators with <90% uptime in an epoch earn no reward (truncated, no tag visible). Title claims: Meta Pool/Linear/Rhea liquid staking; Build Beyond Boundaries Hackathon $250K prize pool. STEP 2 - CROSS-CHECK AGAINST RETRIEVED EVIDENCE: Retrieved evidence contains ONLY two sources: S1 (HSP-029 forum post) and S2 (NEAR Docs liquid staking). The HSP-029 snippet confirms only: proposal to reduce max issuance from 2.5% to 1.6% target over 24-month ramp, posted Oct 7, 2026. It does NOT contain: 5.268% yield, block 216,701,043, total supply 1,306,946,399, total staked 558,165,227, 42.71%, $4.30 price, 406 validators, 459 proposal queue, 9,428 NEAR min stake, 90/10 split, 54.5M unstaked, 46.92%\u219242.71%, $2.31\u2192$4.30, 4.796%\u21925.268%. NONE of these quantitative claims appear in the retrieved text. The report cites [S9], [S11], and implicitly other sources, but only sources 1-4 are listed and only S1/S2 have retrieved evidence. S9 and S11 do not exist in the sources_cited list (only indices 1-4 provided) \u2014 citations to non-existent/unprovided sources. The 2.25% formula claim [S11]: not verifiable in retrieved evidence; HSP-029 mentions 2.5% max issuance being reduced to 1.6%, which loosely relates but does not state the 2.25% formula or 10% treasury routing. The '2.5% annual reward budget' is partially consistent with HSP-029's mention of 'maximum protocol issuance from 2.5%' \u2014 I'll treat the 2.5% figure as partially grounded via S1, but the formula and 10% treasury split are not in evidence. NEAR Docs liquid staking [S2] confirms liquid staking exists and unstaking wait is described as '4 epochs (roughly 24-28 hours)' \u2014 note: the docs text says 4 epochs \u2248 24-28 hours which is actually odd (real NEAR epochs are ~12h so 4 epochs \u2248 2-3 days, but I audit against the provided text, which says 24-28 hours). The report title claims Meta Pool/Linear/Rhea and $250K hackathon prize \u2014 no retrieved evidence supports these; source 3 (hackathon blog) is listed but NO retrieved evidence chunk is provided for it, so the $250K prize pool claim is unverifiable/unsupported. Source 4 (near.org/funding) titled 'House of Stake Governance' \u2014 no evidence chunk. STEP 3 - HALLUCINATION FLAGS: The core staking metrics table (supply, staked, yield, validators, price) attributed to [S1] does NOT appear in the retrieved S1 evidence \u2014 the retrieved S1 is a governance proposal about issuance ramp, not a staking metrics dashboard. This is a severe citation mismatch: either the agent cited the wrong source index or fabricated metrics. The math cross-check 2.25% \u00d7 1,306,946,399 / 558,165,227 = let me verify: 1,306,946,399/558,165,227 \u2248 2.3415; \u00d7 2.25% \u2248 5.268% \u2014 internally consistent arithmetic, but the inputs are ungrounded. Citations [S9] and [S11] reference source indices not present in the source list (only 4 sources listed, indices 1-4) \u2014 dangling citations. Title claims (Meta Pool/Linear/Rhea, $250K prize) unsupported by any retrieved chunk. STEP 4 - RECENCY: S1 dated 2026-10-07, S3 dated 2026-10-19, retrieved 2026-11-03; report 'as of November 3, 2026'. Sources appear within a reasonable recent window; no stale-source violation detectable. S2/S4 dates unknown \u2014 minor flag. STEP 5 - SCORING: Of ~14 tagged claims, only the '2.5% issuance' figure is loosely grounded in retrieved S1 text; liquid staking concept grounded via S2. Roughly 12+ quantitative claims lack any supporting evidence in retrieved chunks. Faithfulness \u2248 2/14 \u2248 0.14. Hallucination severity: CRITICAL (systematic citation-evidence mismatch on core metrics). Score: 22/100. Status: CRITICAL_DRIFT.",
+      "total_claims_audited": 14,
+      "grounded_claims_count": 2,
+      "faithfulness_ratio": 0.14,
+      "stale_source_count": 0,
+      "hallucination_detected": true,
+      "hallucination_severity": "CRITICAL",
+      "unsupported_claims": [
+        "Gross staking yield 5.268% as of Sept 22, 2026 at mainnet block 216,701,043 [S1] \u2014 retrieved S1 (HSP-029 proposal) contains no yield measurement",
+        "Spot price $4.30 cross-checked via Kraken/Coinbase/CoinGecko [S9] \u2014 S9 not present in sources_cited; no evidence chunk",
+        "Total supply 1,306,946,399 NEAR [S1] \u2014 absent from retrieved HSP-029 text",
+        "Total staked 558,165,227 NEAR (42.71% of supply) [S1] \u2014 absent from retrieved evidence",
+        "Active validators 406 (100 block producers, 306 chunk-only) [S1] \u2014 absent from retrieved evidence",
+        "Proposal queue of 459 candidates [S1] \u2014 absent from retrieved evidence",
+        "Minimum active stake 9,428 NEAR [S1] \u2014 absent from retrieved evidence",
+        "Issuance split 90% staking / 10% treasury [S1] \u2014 absent from retrieved evidence",
+        "Validator yield formula 2.25% \u00d7 supply/stake with 10% treasury routing [S11] \u2014 S11 not in sources_cited; formula not in any retrieved chunk",
+        "Mainnet validator seats 500, top 100 produce blocks [S11] \u2014 unsupported",
+        "Dynamic: ~54.5M NEAR unstaked, ratio 46.92%\u219242.71%, price $2.31\u2192$4.30, yield 4.796%\u21925.268% [S1] \u2014 none of these figures appear in retrieved evidence",
+        "Title claim: liquid staking via Meta Pool/Linear/Rhea \u2014 no retrieved evidence names these providers",
+        "Title claim: Build Beyond Boundaries Hackathon $250K prize pool \u2014 source 3 listed but no retrieved evidence chunk confirms prize amount"
+      ],
+      "verified_citations": [
+        {
+          "citation_tag": "S1",
+          "source_url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+          "claim_text": "2.5% annual reward budget (issuance cap referenced in yield discussion)",
+          "retrieved_evidence_snippet": "Reduces NEAR's maximum protocol issuance from 2.5% to a target 1.6% target rate on a smooth 24-month per-epoch ramp",
+          "is_grounded": true,
+          "hallucination_flag": null
+        },
+        {
+          "citation_tag": "S1",
+          "source_url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+          "claim_text": "Gross staking yield measured 5.268% as of Sept 22, 2026 (mainnet block 216,701,043); total supply 1,306,946,399; total staked 558,165,227 (42.71%); 406 validators; 459 proposal queue; 9,428 NEAR min stake; 90/10 split; 54.5M unstaked; 46.92%\u219242.71%; $2.31\u2192$4.30; 4.796%\u21925.268%",
+          "retrieved_evidence_snippet": "HSP-029: Establish a 24-Month Issuance Ramp to a 1.6% Target Rate Of NEAR Token Emissions ... Reduces NEAR's maximum protocol issuance from 2.5% to a target 1.6% target rate on a smooth 24-month per-epoch ramp, retaini...",
+          "is_grounded": false,
+          "hallucination_flag": "CRITICAL: Entire staking metrics table attributed to S1, but retrieved S1 is a governance proposal containing none of these figures \u2014 source-claim mismatch or fabrication"
+        },
+        {
+          "citation_tag": "S9",
+          "source_url": "NOT_PRESENT_IN_SOURCE_LIST",
+          "claim_text": "Spot price $4.30 cross-checked Kraken, Coinbase, CoinGecko",
+          "retrieved_evidence_snippet": "NO RETRIEVED EVIDENCE \u2014 citation index S9 does not exist in sources_cited (only indices 1-4 provided)",
+          "is_grounded": false,
+          "hallucination_flag": "Dangling citation: S9 referenced but no such source index exists in the provided source list"
+        },
+        {
+          "citation_tag": "S11",
+          "source_url": "NOT_PRESENT_IN_SOURCE_LIST",
+          "claim_text": "Validator yearly yield \u2248 2.25% \u00d7 total supply / total stake; 500 mainnet validator seats, top 100 produce blocks",
+          "retrieved_evidence_snippet": "NO RETRIEVED EVIDENCE \u2014 citation index S11 does not exist in sources_cited (only indices 1-4 provided)",
+          "is_grounded": false,
+          "hallucination_flag": "Dangling citation: S11 referenced but no such source index exists; formula unverified"
+        },
+        {
+          "citation_tag": "S2 (implied)",
+          "source_url": "https://docs.near.org/primitives/liquid-staking/liquid-staking",
+          "claim_text": "Liquid staking (stNEAR/LiNEAR) as best liquid staking options via Meta Pool/Linear/Rhea",
+          "retrieved_evidence_snippet": "Liquid staking is a modern alternative to regular staking on NEAR that solves the problem of delayed withdrawing... you receive a liquid token (for example, rNEAR)... wait for 4 epochs (roughly 24-28 hours)",
+          "is_grounded": true,
+          "hallucination_flag": "PARTIAL: liquid staking concept grounded, but specific providers Meta Pool/Linear/Rhea and tokens stNEAR/LiNEAR are NOT named in retrieved docs text (docs mention rNEAR example)"
+        },
+        {
+          "citation_tag": "S3 (implied)",
+          "source_url": "https://near.org/blog/near-hackathon-build-beyond-boundaries",
+          "claim_text": "Build Beyond Boundaries Hackathon with $250K prize pool",
+          "retrieved_evidence_snippet": "NO RETRIEVED EVIDENCE CHUNK PROVIDED for source index 3",
+          "is_grounded": false,
+          "hallucination_flag": "Unverifiable: $250K prize pool figure has no supporting evidence chunk in the retrieval set"
+        }
+      ]
+    },
+    "metrics": {
+      "reports_generated_7d": 2,
+      "avg_citation_density": 2.8,
+      "source_verification_rate": 95.0,
+      "unresolved_gaps_count": 6
+    },
+    "flags": [
+      "CRITICAL: Core staking metrics table (yield 5.268%, supply, staked amount, validator counts, price) attributed to [S1] does not appear in retrieved S1 evidence \u2014 HSP-029 is an issuance-ramp governance proposal, not a metrics source",
+      "Dangling citations [S9] and [S11] reference source indices absent from the sources_cited list (only 1-4 exist)",
+      "Title-level claims (Meta Pool/Linear/Rhea providers, $250K hackathon prize) lack any retrieved evidence support",
+      "Report dated 'as of November 3, 2026' but core measurement claims dated Sept 22, 2026 \u2014 6-week staleness on headline yield figure, unverified",
+      "Only 2 of 6+ implied citation tags could be cross-checked; 4 sources listed but evidence retrieved for only 2",
+      "Internally consistent arithmetic (2.25% \u00d7 1,306,946,399 / 558,165,227 \u2248 5.268%) does not compensate for ungrounded inputs \u2014 plausible-looking fabrication pattern"
+    ],
+    "findings": [
+      "Faithfulness ratio 0.14 (2/14 claims grounded) \u2014 far below acceptable threshold of 0.85",
+      "The single most damaging pattern: a detailed 9-row metrics table with precise figures (block heights, exact NEAR counts, validator splits) cited to a source whose retrieved text contains none of them \u2014 hallmark of citation hallucination or wrong-index mapping",
+      "HSP-029 evidence actually suggests issuance is being REDUCED from 2.5% to 1.6% over 24 months (posted Oct 7, 2026) \u2014 the report's forward-looking yield framing at a '2.5% issuance cap' may already be outdated relative to its own cited source",
+      "Liquid staking section is only generically grounded (NEAR Docs confirm the mechanism, rNEAR example token, 4-epoch unstake wait); provider-specific claims (Meta Pool, Linear, Rhea, stNEAR, LiNEAR APYs) are unevidenced",
+      "Hackathon prize pool ($250K) unverifiable \u2014 source 3 exists in the citation list but no evidence chunk was retrieved to audit it",
+      "No stale-source violations detected among dated sources (Oct 7 and Oct 19, 2026, retrieved Nov 3, 2026), but two sources have 'unknown' dates"
+    ],
+    "recommended_tuning": [
+      "ENFORCE citation-index integrity check: reject reports citing [S#] tags exceeding the length of the sources_cited array (S9, S11 violation)",
+      "Add post-generation claim-evidence entailment scoring per citation tag; block publication when any metrics-table row lacks a matching evidence snippet",
+      "Require the retrieval layer to fetch evidence chunks for EVERY cited source index before report assembly (sources 3 and 4 had zero retrieved evidence)",
+      "Flag quantitative precision without evidence: exact figures (block 216,701,043; 1,306,946,399 NEAR) should trigger mandatory snippet-level verification",
+      "Add recency re-check: headline yield measured Sept 22 vs. report date Nov 3 \u2014 require refresh or explicit staleness disclaimer, especially given HSP-029's issuance-reduction trajectory",
+      "Increase citation density floor and require provider-specific liquid staking claims (Meta Pool/Linear/Rhea APYs) to carry direct evidence quotes"
+    ]
+  },
+  "cross_agent_conflicts": {
+    "cannibalization_detected": false,
+    "conflicting_tokens": [],
+    "threat_to_holdings_detected": false,
+    "threat_details": [],
+    "aggregate_exposure_usd": 0.0,
+    "aggregate_limit_usd": 2000.0,
+    "exposure_limit_breached": false,
+    "conflict_summary": "No cross-agent conflicts detected. Trader executed zero trades (STAND_ASIDE, $0 exposure), so no order cannibalization with Rebalancer's NEAR/ETH/USDT holdings is possible. Rebalancer holds NEAR, ETH, USDT; Trader's only analyzed asset was GNO \u2014 no overlap. Research's CRITICAL hallucination audit concerns NEAR staking metrics, but the fabricated data is informational (yield/supply/validator figures), not an exploit or security vulnerability, so it does not constitute a direct threat to holdings. However, Research's ungrounded NEAR yield narrative could misinform Rebalancer's NEAR allocation decisions if consumed downstream."
+  },
+  "parameter_scores": {
+    "capital_safety_discipline": {
+      "score": 92.0,
+      "status": "EXCELLENT",
+      "detail": "Zero open exposure ($0 of $2000 daily limit), zero hard cap breaches, Trader correctly refused a sub-threshold-confidence counter-trend setup (confidence 0.30 vs required 75), Rebalancer maintains 55% stablecoin reserve far exceeding the 15% floor and honors user-mandated NEAR TP $5.50/SL $3.20 brackets exactly."
+    },
+    "signal_quality_win_expectancy": {
+      "score": 68.0,
+      "status": "WARNING",
+      "detail": "Trader's GNO analysis was technically grounded (all indicators verified, R:R honestly reported at 1.01) but the verdict narrative contained contradictory R:R figures (2.62/2.58 vs actual 1.01/1.72) and an unsupported volume-confirmation claim for the breakout trigger. Research's signal-relevant output is severely compromised: fabricated NEAR yield metrics (5.268%) with dangling citations could produce false expectancy signals if consumed."
+    },
+    "portfolio_allocation_health": {
+      "score": 88.0,
+      "status": "GOOD",
+      "detail": "Rebalancer drift at 2.4% within 5% threshold, BEARISH_CONTRACTION regime internally consistent with multi-timeframe evidence, 55% stablecoin allocation appropriate for bearish regime, macro BTC beta 1.15 noted. Minor concern: vacuous 100% success rate with zero executions and empty historical config snapshot limits longitudinal verification."
+    },
+    "multi_source_intel_depth": {
+      "score": 40.0,
+      "status": "WARNING",
+      "detail": "Research node in CRITICAL failure: faithfulness ratio 0.14 vs required 0.85, dangling citations [S9]/[S11] referencing non-existent source indices, fabricated 9-row metrics table attributed to HSP-029 governance proposal containing none of those figures, and headline yield data 6 weeks stale relative to report date. Rebalancer, by contrast, demonstrated solid multi-source price verification (3 exchanges, all within 0.2% of live)."
+    },
+    "execution_efficiency_uptime": {
+      "score": 85.0,
+      "status": "GOOD",
+      "detail": "No stuck or failed execution states; Trader's STAND_ASIDE was a deliberate, disciplined refusal rather than an execution failure. Rebalancer state machine healthy but untested (0 rebalances \u2014 success rate vacuous). Trader dropped 10 trades today, which warrants monitoring to distinguish disciplined filtering from over-rejection."
+    }
+  },
+  "key_findings": [
+    "Research node scored 22/100 (HALTED) with CRITICAL hallucination severity \u2014 12 of 14 claims ungrounded, including a fabricated staking metrics table attributed to a source containing none of those figures",
+    "Dangling citations [S9] and [S11] reference source indices that do not exist in the sources_cited list (only 1-4 exist) \u2014 systematic citation integrity failure",
+    "Trader and Rebalancer both scored HEALTHY (90 and 94) with fully grounded prices and strict user-mandate adherence",
+    "Zero open exposure across the fleet ($0 vs $2000 daily limit) \u2014 no capital currently at risk",
+    "No order cannibalization: Trader analyzed GNO only and executed nothing; Rebalancer holds NEAR/ETH/USDT",
+    "Research's fabricated NEAR yield narrative (5.268% at 2.5% issuance) contradicts its own cited source (HSP-029 proposes reducing issuance to 1.6%) \u2014 if consumed by Rebalancer, could distort NEAR allocation rationale",
+    "Trader's verdict narrative contained internal R:R contradictions (2.62/2.58 claimed vs 1.01/1.72 actual) \u2014 minor but a narrative-layer hallucination pattern",
+    "HSP-029 evidence suggests NEAR issuance is being reduced 2.5%\u21921.6% over 24 months \u2014 forward-looking yield assumptions fleet-wide may need revision"
+  ],
+  "recommended_tuning": [
+    "KILL or hard-suspend the Research node immediately (score 22 < kill threshold 50) \u2014 do not allow its reports to feed Trader or Rebalancer until citation-index integrity and claim-evidence entailment checks are enforced",
+    "Enforce citation-index validation: reject any report citing [S#] tags exceeding the sources_cited array length (blocks S9/S11 class of failures)",
+    "Require retrieval layer to fetch evidence chunks for EVERY cited source index before report assembly \u2014 sources 3 and 4 had zero retrieved evidence",
+    "Add mandatory snippet-level verification for high-precision quantitative claims (exact block heights, token counts) before publication",
+    "Refresh NEAR yield intelligence: HSP-029's issuance reduction (2.5%\u21921.6%) means any staking-yield-dependent allocation logic should be re-baselined",
+    "Investigate Trader's 10 dropped trades today to confirm they reflect disciplined confidence filtering rather than signal-generation degradation",
+    "Populate Rebalancer's historical_user_config_snapshot and require minimum sample size before reporting state-machine success rate",
+    "Add a cross-agent firewall: Research outputs consumed by Trader/Rebalancer must pass a minimum faithfulness threshold (0.85) before ingestion"
+  ],
+  "stored_at": "2026-11-03 21:08:42 UTC",
+  "stored_at_iso": "2026-11-03T21:08:42.392036+00:00",
+  "date_utc": "2026-11-03",
+  "time_utc": "21:08:42 UTC",
+  "timestamp_utc": "2026-11-03 21:08:42 UTC",
+  "created_at_utc": "2026-11-03T21:08:42.392036+00:00"
+}

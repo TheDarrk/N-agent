@@ -17,7 +17,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "neptune.db")
 
 def get_connection() -> sqlite3.Connection:
     """Get a SQLite connection with row_factory for dict-like access."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")  # Better concurrent reads
     return conn
@@ -145,6 +145,72 @@ def init_db():
             last_action_at TIMESTAMP,
             FOREIGN KEY (listing_id) REFERENCES marketplace_agents(listing_id)
         );
+
+        -- Rebalancer Agent Strategies (dynamic allocations, user prompt expectations, TP/SL conversion to USDT)
+        CREATE TABLE IF NOT EXISTS rebalancer_strategies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_wallet TEXT NOT NULL,
+            selected_coins TEXT NOT NULL,          -- JSON list of symbols e.g. ["NEAR", "ETH", "DOGE"]
+            user_expectation TEXT DEFAULT '',      -- User guidance / strategy prompt
+            cadence_days INTEGER DEFAULT 7,        -- Review interval in days (3, 7, 14, 30)
+            status TEXT DEFAULT 'ACTIVE',          -- 'ACTIVE', 'DROPPED', 'SUPERSEDED'
+            allocations TEXT DEFAULT '{}',         -- JSON object: {"USDT": 20.0, "NEAR": 30.0, ...}
+            tp_sl_rules TEXT DEFAULT '[]',         -- JSON list of per-token rules: [{symbol, target_pct, action, entry, tp, sl, rationale}]
+            market_regime TEXT DEFAULT '',
+            overall_strategy TEXT DEFAULT '',
+            raw_pydantic_output TEXT DEFAULT '{}',
+            drop_reason TEXT DEFAULT '',
+            min_stable_pct REAL DEFAULT 10.0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            dropped_at TIMESTAMP
+        );
+
+        -- Rebalancer Agent Execution State Machine (Proposal, Validation, Approval, Execution, Reconciliation)
+        CREATE TABLE IF NOT EXISTS rebalancer_executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            execution_id TEXT UNIQUE NOT NULL,
+            user_wallet TEXT NOT NULL,
+            strategy_id INTEGER,
+            state TEXT NOT NULL,                   -- 'PROPOSAL', 'VALIDATION', 'APPROVAL', 'EXECUTION', 'RECONCILIATION', 'COMPLETED', 'FAILED', 'REFUNDED'
+            token_in TEXT NOT NULL,
+            token_out TEXT NOT NULL,
+            amount_in_usd REAL DEFAULT 0.0,
+            amount_in_atomic TEXT DEFAULT '0',
+            amount_out_expected TEXT DEFAULT '0',
+            amount_out_actual TEXT DEFAULT '0',
+            slippage_tolerance_bps INTEGER DEFAULT 50,
+            estimated_slippage_bps INTEGER DEFAULT 0,
+            deposit_address TEXT DEFAULT '',
+            quote_id TEXT DEFAULT '',
+            signature TEXT DEFAULT '',             -- 1Click cryptographic signature saved for disputes
+            dry_run_quote TEXT DEFAULT '{}',
+            live_quote TEXT DEFAULT '{}',
+            deposit_tx_hash TEXT DEFAULT '',
+            near_tx_hashes TEXT DEFAULT '[]',
+            terminal_status TEXT DEFAULT '',
+            refund_reason TEXT DEFAULT '',
+            refund_tx_hash TEXT DEFAULT '',
+            idempotency_key TEXT UNIQUE,
+            error_message TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        -- Moderator Evaluations Audit Log
+        CREATE TABLE IF NOT EXISTS moderator_evaluations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cid TEXT UNIQUE NOT NULL,
+            user_wallet TEXT NOT NULL,
+            total_mean_score REAL NOT NULL,
+            overall_performance_score REAL NOT NULL,
+            trader_score REAL NOT NULL,
+            rebalancer_score REAL NOT NULL,
+            research_score REAL NOT NULL,
+            kill_threshold REAL DEFAULT 50.0,
+            killed_agents TEXT DEFAULT '[]',
+            verdict TEXT NOT NULL,
+            evaluation_data TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """);
 
     conn.commit()
@@ -182,6 +248,14 @@ def init_db():
         "ALTER TABLE active_trades ADD COLUMN is_cross_chain INTEGER DEFAULT 0",
         "ALTER TABLE active_trades ADD COLUMN drop_reason TEXT DEFAULT ''",
         "ALTER TABLE active_trades ADD COLUMN target_chain TEXT DEFAULT 'near'",
+        "ALTER TABLE rebalancer_strategies ADD COLUMN min_stable_pct REAL DEFAULT 10.0",
+        "ALTER TABLE users ADD COLUMN moderator_kill_threshold REAL DEFAULT 50.0",
+        "ALTER TABLE rebalancer_strategies ADD COLUMN user_config_snapshot TEXT DEFAULT '{}'",
+        "ALTER TABLE active_trades ADD COLUMN user_config_snapshot TEXT DEFAULT '{}'",
+        "ALTER TABLE rebalancer_executions ADD COLUMN user_config_snapshot TEXT DEFAULT '{}'",
+        "ALTER TABLE users ADD COLUMN moderator_frequency TEXT DEFAULT '1w'",
+        "ALTER TABLE users ADD COLUMN last_moderator_run_at TEXT DEFAULT NULL",
+        "ALTER TABLE users ADD COLUMN moderator_activated_at TEXT DEFAULT NULL",
     ]
     for migration in migrations:
         try:
@@ -230,7 +304,7 @@ def upsert_user(wallet_address: str, settings: Dict[str, Any] = None) -> Dict[st
                 'agent_wallet', 'notification_email',
                 'trader_timeframe', 'trader_min_confidence',
                 'trader_risk_profile', 'trader_max_trades_per_day',
-                'trader_max_trades_per_week', 'trader_coin_mode', 'trader_custom_coins', 'trader_enable_researcher', 'near_network', 'trader_active', 'rebalancer_active', 'research_active', 'moderator_active', 'rebalancer_target_stables', 'rebalancer_target_near', 'rebalancer_drift_threshold',
+                'trader_max_trades_per_week', 'trader_coin_mode', 'trader_custom_coins', 'trader_enable_researcher', 'near_network', 'trader_active', 'rebalancer_active', 'research_active', 'moderator_active', 'moderator_frequency', 'last_moderator_run_at', 'moderator_activated_at', 'moderator_kill_threshold', 'rebalancer_target_stables', 'rebalancer_target_near', 'rebalancer_drift_threshold',
                 'allow_cross_chain_trades', 'trader_agent_wallet', 'rebalancer_agent_wallet', 'research_agent_wallet', 'moderator_agent_wallet'
             ]
             updates = {k: v for k, v in settings.items() if k in allowed_keys}
@@ -323,6 +397,365 @@ def update_strategy_triggered(strategy_id: int):
     conn.close()
 
 
+# -- Rebalancer Strategy Management --------------------------------
+
+def save_rebalancer_strategy(
+    user_wallet: str,
+    selected_coins: List[str],
+    user_expectation: str = "",
+    cadence_days: int = 7,
+    allocations: Dict[str, float] = None,
+    tp_sl_rules: List[Dict[str, Any]] = None,
+    market_regime: str = "",
+    overall_strategy: str = "",
+    raw_pydantic_output: Dict[str, Any] = None,
+    min_stable_pct: float = 10.0
+) -> Dict[str, Any]:
+    """
+    Saves a new active rebalancer strategy for the user.
+    Critically: drops/supersedes any previously active strategy for this wallet,
+    recording the dropped timestamp and reason.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Step 1: Drop previous active strategy
+    cursor.execute(
+        """
+        UPDATE rebalancer_strategies
+        SET status = 'DROPPED',
+            dropped_at = CURRENT_TIMESTAMP,
+            drop_reason = 'Superseded by new AI rebalancer evaluation'
+        WHERE user_wallet = ? AND status = 'ACTIVE'
+        """,
+        (user_wallet,)
+    )
+
+    # Step 2: Capture historical user configuration snapshot
+    user_for_snapshot = get_user(user_wallet) or {}
+    config_snapshot = {
+        "cadence_days": cadence_days,
+        "user_expectation": user_expectation,
+        "selected_coins": selected_coins,
+        "min_stable_pct": float(min_stable_pct),
+        "drift_threshold": float(user_for_snapshot.get("rebalancer_drift_threshold", 5.0)),
+        "target_stables": float(user_for_snapshot.get("rebalancer_target_stables", 70.0)),
+        "target_near": float(user_for_snapshot.get("rebalancer_target_near", 30.0)),
+        "risk_profile": user_for_snapshot.get("risk_profile", "moderate"),
+        "max_tx_amount": float(user_for_snapshot.get("max_tx_amount", 500.0)),
+        "daily_limit": float(user_for_snapshot.get("daily_limit", 2000.0)),
+        "captured_at_utc": datetime.now(timezone.utc).isoformat()
+    }
+
+    # Step 3: Insert new active strategy with historical config snapshot
+    cursor.execute(
+        """
+        INSERT INTO rebalancer_strategies
+        (user_wallet, selected_coins, user_expectation, cadence_days, status,
+         allocations, tp_sl_rules, market_regime, overall_strategy, raw_pydantic_output, min_stable_pct, user_config_snapshot)
+        VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_wallet,
+            json.dumps(selected_coins),
+            user_expectation,
+            cadence_days,
+            json.dumps(allocations or {}),
+            json.dumps(tp_sl_rules or []),
+            market_regime,
+            overall_strategy,
+            json.dumps(raw_pydantic_output or {}),
+            float(min_stable_pct),
+            json.dumps(config_snapshot)
+        )
+    )
+    new_id = cursor.lastrowid
+
+    # Step 3: Activate rebalancer agent status for user
+    cursor.execute(
+        "UPDATE users SET rebalancer_active = 1, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
+        (user_wallet,)
+    )
+    conn.commit()
+
+    # Retrieve freshly created strategy record
+    row = cursor.execute("SELECT * FROM rebalancer_strategies WHERE id = ?", (new_id,)).fetchone()
+    conn.close()
+
+    result = dict(row)
+    result["selected_coins"] = json.loads(result["selected_coins"])
+    result["allocations"] = json.loads(result["allocations"])
+    result["tp_sl_rules"] = json.loads(result["tp_sl_rules"])
+    result["raw_pydantic_output"] = json.loads(result["raw_pydantic_output"])
+    return result
+
+
+def get_active_rebalancer_strategy(user_wallet: str) -> Optional[Dict[str, Any]]:
+    """Fetches the latest ACTIVE rebalancing strategy for a user wallet."""
+    conn = get_connection()
+    row = conn.execute(
+        """
+        SELECT * FROM rebalancer_strategies
+        WHERE user_wallet = ? AND status = 'ACTIVE'
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (user_wallet,)
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    res = dict(row)
+    try:
+        res["selected_coins"] = json.loads(res.get("selected_coins", "[]"))
+    except Exception:
+        res["selected_coins"] = []
+    try:
+        res["allocations"] = json.loads(res.get("allocations", "{}"))
+    except Exception:
+        res["allocations"] = {}
+    try:
+        res["tp_sl_rules"] = json.loads(res.get("tp_sl_rules", "[]"))
+    except Exception:
+        res["tp_sl_rules"] = []
+    try:
+        res["raw_pydantic_output"] = json.loads(res.get("raw_pydantic_output", "{}"))
+    except Exception:
+        res["raw_pydantic_output"] = {}
+    return res
+
+
+def get_rebalancer_strategy_history(user_wallet: str, limit: int = 15) -> List[Dict[str, Any]]:
+    """Fetches historical rebalance strategies (both active and dropped) for a wallet."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT * FROM rebalancer_strategies
+        WHERE user_wallet = ?
+        ORDER BY created_at DESC LIMIT ?
+        """,
+        (user_wallet, limit)
+    ).fetchall()
+    conn.close()
+
+    results = []
+    for row in rows:
+        r = dict(row)
+        try:
+            r["selected_coins"] = json.loads(r.get("selected_coins", "[]"))
+        except Exception:
+            r["selected_coins"] = []
+        try:
+            r["allocations"] = json.loads(r.get("allocations", "{}"))
+        except Exception:
+            r["allocations"] = {}
+        try:
+            r["tp_sl_rules"] = json.loads(r.get("tp_sl_rules", "[]"))
+        except Exception:
+            r["tp_sl_rules"] = []
+        try:
+            r["raw_pydantic_output"] = json.loads(r.get("raw_pydantic_output", "{}"))
+        except Exception:
+            r["raw_pydantic_output"] = {}
+        results.append(r)
+    return results
+
+
+def drop_rebalancer_strategy(strategy_id: int, reason: str = "User dropped strategy") -> bool:
+    """Manually drop a rebalancing strategy and update agent active status."""
+    conn = get_connection()
+    row = conn.execute("SELECT user_wallet FROM rebalancer_strategies WHERE id = ?", (strategy_id,)).fetchone()
+    user_wallet = row["user_wallet"] if row else None
+
+    cursor = conn.execute(
+        """
+        UPDATE rebalancer_strategies
+        SET status = 'DROPPED',
+            dropped_at = CURRENT_TIMESTAMP,
+            drop_reason = ?
+        WHERE id = ?
+        """,
+        (reason, strategy_id)
+    )
+    if user_wallet:
+        active_count = conn.execute(
+            "SELECT COUNT(*) as count FROM rebalancer_strategies WHERE user_wallet = ? AND status = 'ACTIVE'",
+            (user_wallet,)
+        ).fetchone()["count"]
+        if active_count == 0:
+            conn.execute(
+                "UPDATE users SET rebalancer_active = 0, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
+                (user_wallet,)
+            )
+
+    conn.commit()
+    ok = cursor.rowcount > 0
+    conn.close()
+    return ok
+
+
+# -- Rebalancer Execution State Machine Helpers --------------------
+
+def create_rebalancer_execution(
+    execution_id: str,
+    user_wallet: str,
+    strategy_id: Optional[int],
+    state: str,
+    token_in: str,
+    token_out: str,
+    amount_in_usd: float,
+    amount_in_atomic: str,
+    amount_out_expected: str = "0",
+    slippage_tolerance_bps: int = 50,
+    estimated_slippage_bps: int = 0,
+    deposit_address: str = "",
+    quote_id: str = "",
+    signature: str = "",
+    dry_run_quote: Optional[Dict[str, Any]] = None,
+    live_quote: Optional[Dict[str, Any]] = None,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Initializes or registers a rebalancer trade execution state."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO rebalancer_executions (
+            execution_id, user_wallet, strategy_id, state, token_in, token_out,
+            amount_in_usd, amount_in_atomic, amount_out_expected, slippage_tolerance_bps,
+            estimated_slippage_bps, deposit_address, quote_id, signature,
+            dry_run_quote, live_quote, idempotency_key, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (
+            execution_id, user_wallet, strategy_id, state, token_in.upper(), token_out.upper(),
+            amount_in_usd, str(amount_in_atomic), str(amount_out_expected), slippage_tolerance_bps,
+            estimated_slippage_bps, deposit_address, quote_id, signature,
+            json.dumps(dry_run_quote or {}), json.dumps(live_quote or {}), idempotency_key
+        )
+    )
+    conn.commit()
+    row = cursor.execute("SELECT * FROM rebalancer_executions WHERE execution_id = ?", (execution_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def update_rebalancer_execution_state(
+    execution_id: str,
+    state: str,
+    terminal_status: Optional[str] = None,
+    amount_out_actual: Optional[str] = None,
+    deposit_tx_hash: Optional[str] = None,
+    near_tx_hashes: Optional[List[str]] = None,
+    refund_reason: Optional[str] = None,
+    refund_tx_hash: Optional[str] = None,
+    error_message: Optional[str] = None,
+    live_quote: Optional[Dict[str, Any]] = None,
+    signature: Optional[str] = None,
+    deposit_address: Optional[str] = None,
+) -> bool:
+    """Advances the state machine and records quotes, signatures, or terminal status."""
+    conn = get_connection()
+    updates = ["state = ?", "updated_at = CURRENT_TIMESTAMP"]
+    params: List[Any] = [state]
+
+    if terminal_status is not None:
+        updates.append("terminal_status = ?")
+        params.append(terminal_status)
+    if amount_out_actual is not None:
+        updates.append("amount_out_actual = ?")
+        params.append(str(amount_out_actual))
+    if deposit_tx_hash is not None:
+        updates.append("deposit_tx_hash = ?")
+        params.append(deposit_tx_hash)
+    if near_tx_hashes is not None:
+        updates.append("near_tx_hashes = ?")
+        params.append(json.dumps(near_tx_hashes))
+    if refund_reason is not None:
+        updates.append("refund_reason = ?")
+        params.append(refund_reason)
+    if refund_tx_hash is not None:
+        updates.append("refund_tx_hash = ?")
+        params.append(refund_tx_hash)
+    if error_message is not None:
+        updates.append("error_message = ?")
+        params.append(error_message)
+    if live_quote is not None:
+        updates.append("live_quote = ?")
+        params.append(json.dumps(live_quote))
+    if signature is not None:
+        updates.append("signature = ?")
+        params.append(signature)
+    if deposit_address is not None:
+        updates.append("deposit_address = ?")
+        params.append(deposit_address)
+
+    params.append(execution_id)
+    cols = ", ".join(updates)
+    sql = f"UPDATE rebalancer_executions SET {cols} WHERE execution_id = ?"
+    cursor = conn.execute(sql, tuple(params))
+    conn.commit()
+    ok = cursor.rowcount > 0
+    conn.close()
+    return ok
+
+
+def get_rebalancer_execution(execution_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves execution record by its unique ID."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM rebalancer_executions WHERE execution_id = ?", (execution_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    res = dict(row)
+    for k in ["dry_run_quote", "live_quote", "near_tx_hashes"]:
+        try:
+            res[k] = json.loads(res.get(k, "{}"))
+        except Exception:
+            pass
+    return res
+
+
+def get_rebalancer_execution_by_idempotency_key(idempotency_key: str) -> Optional[Dict[str, Any]]:
+    """Checks if an identical trade operation is already in flight or executed."""
+    if not idempotency_key:
+        return None
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM rebalancer_executions WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    res = dict(row)
+    for k in ["dry_run_quote", "live_quote", "near_tx_hashes"]:
+        try:
+            res[k] = json.loads(res.get(k, "{}"))
+        except Exception:
+            pass
+    return res
+
+
+def get_rebalancer_executions_for_user(user_wallet: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Returns recent execution history for a user wallet."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM rebalancer_executions WHERE user_wallet = ? ORDER BY created_at DESC LIMIT ?",
+        (user_wallet, limit)
+    ).fetchall()
+    conn.close()
+    results = []
+    for row in rows:
+        r = dict(row)
+        for k in ["dry_run_quote", "live_quote", "near_tx_hashes"]:
+            try:
+                r[k] = json.loads(r.get(k, "{}"))
+            except Exception:
+                pass
+        results.append(r)
+    return results
+
+
+
 # -- Agent Logs ----------------------------------------------------
 
 # Strict per-user log retention caps to prevent database bloat on free hosting instances
@@ -330,15 +763,15 @@ AGENT_LOG_CAPS = {
     "trader": 24,
     "trader_agent": 24,
     "trader_poller": 24,
-    "researcher": 5,
-    "research": 5,
-    "research_agent": 5,
-    "moderator": 2,
-    "watchdog": 2,
-    "all_agent_checker": 2,
-    "all_agent_audit": 2,
-    "rebalancer": 10,
-    "rebalancer_agent": 10,
+    "researcher": 20,
+    "research": 20,
+    "research_agent": 20,
+    "moderator": 30,
+    "watchdog": 30,
+    "all_agent_checker": 30,
+    "all_agent_audit": 30,
+    "rebalancer": 20,
+    "rebalancer_agent": 20,
 }
 DEFAULT_LOG_CAP = 10
 
@@ -501,17 +934,34 @@ def activate_kill_switch(user_wallet: str):
     print(f"[DB] Kill switch activated for {user_wallet}")
 
 
-def deactivate_kill_switch(user_wallet: str):
-    """Reset kill switch (does NOT re-enable strategies   user must do that)."""
+def deactivate_kill_switch(user_wallet: str, restore_agents: bool = True):
+    """Reset kill switch and restore agent operational statuses."""
     conn = get_connection()
-    conn.execute(
-        "UPDATE users SET kill_switch = 0, updated_at = CURRENT_TIMESTAMP "
-        "WHERE wallet_address = ?",
-        (user_wallet,)
-    )
+    if restore_agents:
+        conn.execute(
+            """UPDATE users SET 
+                kill_switch = 0, 
+                autonomy_level = 2,
+                trader_active = 1,
+                rebalancer_active = 1,
+                research_active = 1,
+                moderator_active = 1,
+                updated_at = CURRENT_TIMESTAMP 
+            WHERE wallet_address = ?""",
+            (user_wallet,)
+        )
+        conn.execute(
+            "UPDATE strategies SET active = 1 WHERE user_wallet = ?",
+            (user_wallet,)
+        )
+    else:
+        conn.execute(
+            "UPDATE users SET kill_switch = 0, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
+            (user_wallet,)
+        )
     conn.commit()
     conn.close()
-    print(f"[DB] Kill switch deactivated for {user_wallet}")
+    print(f"[DB] Kill switch deactivated for {user_wallet} (agents restored={restore_agents})")
 
 
 # -- Agent Key CRUD -----------------------------------------------
@@ -863,8 +1313,8 @@ def assign_agent_wallets(user_wallet: str, assignments: dict) -> dict:
     all_keys = conn.execute("SELECT id, chain_type, agent_account_id, public_key FROM agent_keys WHERE user_wallet = ?", (user_wallet,)).fetchall()
     keys_by_id = {str(k["id"]): dict(k) for k in all_keys}
 
-    normalized_assignments = {}
-    for agent in ["trader", "rebalancer", "research", "moderator"]:
+    normalized_assignments = {"research": "", "moderator": ""}
+    for agent in ["trader", "rebalancer"]:
         val = assignments.get(agent)
         if not val:
             normalized_assignments[agent] = ""
@@ -877,6 +1327,10 @@ def assign_agent_wallets(user_wallet: str, assignments: dict) -> dict:
             id_list = [str(v).strip() for v in val if v]
         else:
             id_list = [v.strip() for v in str(val).split(",") if v.strip()]
+        
+        # Strict rule: only 1 wallet can connect at a time to an agent
+        if len(id_list) > 1:
+            id_list = [id_list[0]]
         
         # Validate constraint: at most 1 wallet per chain for this agent
         chains_seen = {}
@@ -985,16 +1439,28 @@ def create_active_trade(
     target_chain: str = "near"
 ) -> int:
     """Record a newly opened trade with its TP/SL & confidence metrics."""
+    user_for_snapshot = get_user(user_wallet) or {}
+    config_snapshot = {
+        "timeframe": user_for_snapshot.get("trader_timeframe", "1h"),
+        "min_confidence": int(user_for_snapshot.get("trader_min_confidence", 75)),
+        "max_tx_amount": float(user_for_snapshot.get("max_tx_amount", 500.0)),
+        "daily_limit": float(user_for_snapshot.get("daily_limit", 2000.0)),
+        "risk_profile": user_for_snapshot.get("risk_profile", "moderate"),
+        "coin_mode": user_for_snapshot.get("trader_coin_mode", "auto"),
+        "captured_at_utc": datetime.now(timezone.utc).isoformat()
+    }
+
     conn = get_connection()
     cursor = conn.execute(
         """INSERT INTO active_trades 
            (user_wallet, symbol, action, entry_price, current_price, tp_price, sl_price, 
             confidence_score, expected_roi_pct, amount_usd, tx_hash, status,
-            agent_id, execution_wallet, is_cross_chain, drop_reason, target_chain)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)""",
+            agent_id, execution_wallet, is_cross_chain, drop_reason, target_chain, user_config_snapshot)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?)""",
         (user_wallet, symbol.upper(), action.upper(), entry_price, current_price, tp_price, sl_price,
          confidence_score, expected_roi_pct, amount_usd, tx_hash,
-         agent_id.lower(), execution_wallet, 1 if is_cross_chain else 0, drop_reason, target_chain.lower())
+         agent_id.lower(), execution_wallet, 1 if is_cross_chain else 0, drop_reason, target_chain.lower(),
+         json.dumps(config_snapshot))
     )
     trade_id = cursor.lastrowid
     conn.commit()
@@ -1589,6 +2055,11 @@ def update_agent_fleet_config(user_wallet: str, agent_id: str, is_active: bool, 
     upsert_user(user_wallet)
     active_int = 1 if is_active else 0
     
+    # If user explicitly activates an agent, clear the kill_switch lock so the agent can run
+    if is_active:
+        conn.execute("UPDATE users SET kill_switch = 0, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?", (user_wallet,))
+        conn.commit()
+    
     if agent_id == "trader":
         timeframe = config.get("timeframe", "1h")
         min_conf = config.get("min_confidence", 75)
@@ -1661,10 +2132,19 @@ def update_agent_fleet_config(user_wallet: str, agent_id: str, is_active: bool, 
         conn.commit()
 
     elif agent_id == "moderator":
-        conn.execute(
-            "UPDATE users SET moderator_active = ?, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
-            (active_int, user_wallet)
-        )
+        if active_int == 1:
+            conn.execute(
+                """UPDATE users SET moderator_active = 1,
+                   moderator_activated_at = COALESCE(moderator_activated_at, CURRENT_TIMESTAMP),
+                   updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?""",
+                (user_wallet,)
+            )
+        else:
+            conn.execute(
+                """UPDATE users SET moderator_active = 0,
+                   updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?""",
+                (user_wallet,)
+            )
         conn.commit()
 
     conn.close()
@@ -2088,4 +2568,236 @@ def create_evm_agent_wallet(user_wallet: str, label: str = "Trader Arbitrum / EV
         "agent_wallet_address": account_address,
         "label": final_label,
         "status": "active"
+    }
+
+
+# -- Moderator Evaluations & Kill Threshold Management -------------------------
+
+def save_moderator_evaluation(
+    user_wallet: str,
+    cid: str,
+    total_mean_score: float,
+    overall_performance_score: float,
+    trader_score: float,
+    rebalancer_score: float,
+    research_score: float,
+    kill_threshold: float,
+    killed_agents: List[str],
+    verdict: str,
+    evaluation_data: Dict[str, Any]
+) -> int:
+    """Stores full 4-node evaluation report in moderator_evaluations."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO moderator_evaluations
+        (cid, user_wallet, total_mean_score, overall_performance_score,
+         trader_score, rebalancer_score, research_score, kill_threshold,
+         killed_agents, verdict, evaluation_data)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            cid,
+            user_wallet,
+            float(total_mean_score),
+            float(overall_performance_score),
+            float(trader_score),
+            float(rebalancer_score),
+            float(research_score),
+            float(kill_threshold),
+            json.dumps(killed_agents),
+            verdict,
+            json.dumps(evaluation_data)
+        )
+    )
+    new_id = cursor.lastrowid
+    try:
+        cursor.execute(
+            "UPDATE users SET last_moderator_run_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
+            (user_wallet,)
+        )
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+    return new_id
+
+
+def get_latest_moderator_evaluation(user_wallet: str) -> Optional[Dict[str, Any]]:
+    """Retrieve the most recent moderator 4-node evaluation for a user."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM moderator_evaluations WHERE user_wallet = ? ORDER BY created_at DESC LIMIT 1",
+        (user_wallet,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    res = dict(row)
+    try:
+        res["killed_agents"] = json.loads(res.get("killed_agents") or "[]")
+    except Exception:
+        res["killed_agents"] = []
+    try:
+        res["evaluation_data"] = json.loads(res.get("evaluation_data") or "{}")
+    except Exception:
+        res["evaluation_data"] = {}
+    return res
+
+
+def get_moderator_evaluations(user_wallet: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """Retrieve recent moderator 4-node evaluations for a user."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM moderator_evaluations WHERE user_wallet = ? ORDER BY created_at DESC LIMIT ?",
+        (user_wallet, limit)
+    ).fetchall()
+    conn.close()
+    results = []
+    for r in rows:
+        item = dict(r)
+        try:
+            item["killed_agents"] = json.loads(item.get("killed_agents") or "[]")
+            item["evaluation_data"] = json.loads(item.get("evaluation_data") or "{}")
+        except Exception:
+            pass
+        results.append(item)
+    return results
+
+
+def kill_agent_by_moderator(user_wallet: str, agent_name: str, reason: str) -> Dict[str, Any]:
+    """Halt an individual agent due to Moderator audit failure / kill threshold breach."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    col = f"{agent_name.lower()}_active"
+    try:
+        cursor.execute(f"UPDATE users SET {col} = 0, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?", (user_wallet,))
+        conn.commit()
+    except Exception as e:
+        print(f"[DB] Error killing agent {agent_name}: {e}")
+    conn.close()
+
+    if agent_name.lower() == "trader":
+        open_trades = get_open_trades(user_wallet)
+        for t in open_trades:
+            update_trade_status(t["id"], "REVOKED")
+
+    log_agent_action(
+        user_wallet=user_wallet,
+        agent_name="moderator",
+        trigger_type="moderator_agent_kill",
+        reasoning_text=f"Moderator killed {agent_name} agent! Reason: {reason}",
+        action_taken=f"HALTED_{agent_name.upper()}",
+        status="revoked"
+    )
+    return {"success": True, "agent": agent_name, "reason": reason}
+
+
+def update_moderator_kill_threshold(user_wallet: str, threshold: float) -> bool:
+    """Updates the user-configured agent kill threshold (0-80)."""
+    if not get_user(user_wallet):
+        upsert_user(user_wallet)
+    conn = get_connection()
+    cursor = conn.cursor()
+    clamped = max(0.0, min(80.0, float(threshold)))
+    cursor.execute(
+        "UPDATE users SET moderator_kill_threshold = ?, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
+        (clamped, user_wallet)
+    )
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+
+def update_moderator_frequency(user_wallet: str, frequency: str) -> bool:
+    """Updates autonomous review cadence for Moderator Watchdog: '1w', '2w', or '1m'."""
+    if not get_user(user_wallet):
+        upsert_user(user_wallet)
+    norm_freq = frequency.lower().strip()
+    if norm_freq not in ["1w", "2w", "1m"]:
+        norm_freq = "1w"
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET moderator_frequency = ?, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
+        (norm_freq, user_wallet)
+    )
+    affected = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return affected
+
+
+def get_moderator_cadence_info(user_wallet: str) -> Dict[str, Any]:
+    """
+    Calculates cadence intervals, last run timestamp, and next scheduled due time.
+    Calculates time elapsed since activation or since last run.
+    """
+    user = get_user(user_wallet) or {}
+    freq = (user.get("moderator_frequency") or "1w").lower().strip()
+    if freq not in ["1w", "2w", "1m"]:
+        freq = "1w"
+
+    days_map = {"1w": 7, "2w": 14, "1m": 30}
+    cadence_days = days_map.get(freq, 7)
+    required_seconds = cadence_days * 86400
+
+    last_run_str = user.get("last_moderator_run_at")
+    activated_at_str = user.get("moderator_activated_at")
+
+    # Determine baseline timestamp:
+    # 1. If agent has executed a run previously, baseline is last_moderator_run_at.
+    # 2. Else if agent was activated, baseline is moderator_activated_at.
+    # 3. Else fallback to latest evaluation in DB or user creation timestamp.
+    baseline_str = last_run_str or activated_at_str
+    if not baseline_str:
+        latest = get_latest_moderator_evaluation(user_wallet)
+        if latest and latest.get("created_at"):
+            baseline_str = latest.get("created_at")
+        else:
+            baseline_str = user.get("created_at")
+
+    now = datetime.now(timezone.utc)
+    is_due = False
+    days_remaining = float(cadence_days)
+    next_due_iso = (now + timedelta(days=cadence_days)).isoformat()
+
+    if baseline_str:
+        try:
+            clean_ts = baseline_str.replace("Z", "+00:00")
+            if "T" in clean_ts:
+                base_dt = datetime.fromisoformat(clean_ts)
+            else:
+                base_dt = datetime.strptime(clean_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            
+            if base_dt.tzinfo is None:
+                base_dt = base_dt.replace(tzinfo=timezone.utc)
+
+            delta = now - base_dt
+            seconds_passed = delta.total_seconds()
+
+            if seconds_passed >= required_seconds:
+                is_due = True
+                days_remaining = 0.0
+                next_due_iso = now.isoformat()
+            else:
+                is_due = False
+                seconds_left = required_seconds - seconds_passed
+                days_remaining = round(seconds_left / 86400.0, 1)
+                next_due_dt = base_dt + timedelta(days=cadence_days)
+                next_due_iso = next_due_dt.isoformat()
+        except Exception:
+            is_due = False
+            days_remaining = float(cadence_days)
+
+    return {
+        "frequency": freq,
+        "cadence_days": cadence_days,
+        "last_run_at": last_run_str,
+        "activated_at": activated_at_str,
+        "next_run_due_at": next_due_iso,
+        "is_due": is_due,
+        "days_remaining": days_remaining
     }

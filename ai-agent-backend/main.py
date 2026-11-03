@@ -106,6 +106,39 @@ async def lifespan(app):
         except Exception as tp_err:
             print(f"[STARTUP] TP/SL poller error: {tp_err}")
 
+        # Register 5-minute autonomous Moderator Watchdog cadence checker
+        try:
+            async def check_all_moderator_cadences():
+                try:
+                    from database import get_connection
+                    from autonomous_agents.moderator_agent import ModeratorAgent
+                    conn = get_connection()
+                    rows = conn.execute(
+                        "SELECT wallet_address FROM users WHERE moderator_active = 1 AND (kill_switch IS NULL OR kill_switch = 0)"
+                    ).fetchall()
+                    conn.close()
+                    if not rows:
+                        return
+                    moderator = ModeratorAgent()
+                    for r in rows:
+                        wallet = r["wallet_address"]
+                        await moderator.run_cadence_check(wallet)
+                except Exception as me:
+                    print(f"[STARTUP] Moderator cadence runner error: {me}")
+
+            scheduler.add_job(
+                check_all_moderator_cadences,
+                'interval',
+                minutes=5,
+                id='moderator_cadence_job',
+                misfire_grace_time=3600,
+                coalesce=True,
+                replace_existing=True
+            )
+            print("[STARTUP] Moderator Watchdog cadence poller registered (every 5 min)")
+        except Exception as mod_err:
+            print(f"[STARTUP] Moderator cadence registration error: {mod_err}")
+
         scheduler.start()
         print("[STARTUP] Autonomy engine started (every 30 sec)")
     except ImportError:
@@ -543,10 +576,29 @@ class RebalanceRequest(BaseModel):
     user_wallet: str
     target_allocation: Optional[Dict[str, float]] = None
     drift_threshold_pct: Optional[float] = 5.0
+    slippage_tolerance_bps: Optional[int] = 50
+
+class RebalanceStrategyRequest(BaseModel):
+    user_wallet: str
+    selected_coins: List[str]
+    user_expectation: Optional[str] = ""
+    current_holdings: Optional[Dict[str, float]] = None
+    cadence_days: Optional[int] = 7
+    min_stable_pct: Optional[float] = 10.0
+
+class DryRunQuoteRequest(BaseModel):
+    token_in: str
+    token_out: str
+    amount: float
+    recipient_id: str
+    slippage_tolerance_bps: Optional[int] = 50
 
 class ResearchRequest(BaseModel):
     user_wallet: str
     topic: Optional[str] = "NEAR Liquid Staking Yields & DEX Liquidity"
+    user_expectations: Optional[str] = None
+    links: Optional[List[str]] = None
+    date_range: Optional[str] = "1_month"
 
 class A2AHireRequest(BaseModel):
     user_wallet: str
@@ -555,6 +607,17 @@ class A2AHireRequest(BaseModel):
 class ModeratorKillSwitchRequest(BaseModel):
     user_wallet: str
     activate: bool = True
+
+class ModeratorDeliberateRequest(BaseModel):
+    user_wallet: str
+
+class ModeratorKillThresholdRequest(BaseModel):
+    user_wallet: str
+    threshold: float
+
+class ModeratorFrequencyRequest(BaseModel):
+    user_wallet: str
+    frequency: str  # '1w', '2w', '1m'
 
 
 # ─── 1. TRADER AGENT ENDPOINTS ───────────────────────────────────
@@ -640,15 +703,70 @@ async def get_trade_traces():
 
 # ─── 2. REBALANCER AGENT ENDPOINTS ───────────────────────────────
 
+@app.post("/api/rebalancer/generate-strategy")
+async def rebalancer_generate_strategy(body: RebalanceStrategyRequest):
+    """
+    Generates an institutional AI rebalancing strategy using:
+    - 1h, 1d, 1w multi-timeframe charts with 5-10 closed candles (zero lookahead)
+    - 20 Embedded Crypto Trading Book Heuristics (probabilistic hypotheses)
+    - Macro BTC Beta, correlation matrix & portfolio volatility integration
+    - 1Click dry-run pre-trade liquidity & slippage simulation
+    - Deterministic minimum stablecoin percentage guardrail
+    - Pydantic index-based structured output
+    - Automatically supersedes/drops old strategy in Rebalancer DB
+    """
+    try:
+        from autonomous_agents.rebalancer_agent import RebalancerAgent
+        rebalancer = RebalancerAgent()
+        result = await rebalancer.generate_strategy(
+            user_wallet=body.user_wallet,
+            selected_coins=body.selected_coins,
+            user_expectation=body.user_expectation or "",
+            current_holdings=body.current_holdings,
+            cadence_days=body.cadence_days or 7,
+            min_stable_pct=body.min_stable_pct or 10.0
+        )
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rebalancer/strategy/{wallet_address}")
+async def rebalancer_get_active_strategy(wallet_address: str):
+    """Get active strategy and history for wallet."""
+    from database import get_active_rebalancer_strategy, get_rebalancer_strategy_history
+    active = get_active_rebalancer_strategy(wallet_address)
+    history = get_rebalancer_strategy_history(wallet_address, limit=10)
+    return {
+        "user_wallet": wallet_address,
+        "active_strategy": active,
+        "history": history
+    }
+
+@app.get("/api/rebalancer/history/{wallet_address}")
+async def rebalancer_get_history(wallet_address: str):
+    """Get historical rebalancing strategies for a user wallet."""
+    from database import get_rebalancer_strategy_history
+    return {"history": get_rebalancer_strategy_history(wallet_address, limit=20)}
+
+@app.post("/api/rebalancer/drop-strategy/{strategy_id}")
+async def rebalancer_drop_strategy_endpoint(strategy_id: int):
+    """Mark a strategy as dropped."""
+    from database import drop_rebalancer_strategy
+    ok = drop_rebalancer_strategy(strategy_id)
+    return {"success": ok, "strategy_id": strategy_id}
+
 @app.post("/api/rebalancer/evaluate")
 async def rebalancer_evaluate(body: RebalanceRequest):
-    """Trigger Rebalancer Agent portfolio drift calculation."""
+    """Trigger Rebalancer Agent Governed Execution State Machine (Proposal -> Validation -> Approval -> Execution -> Reconciliation)."""
     from autonomous_agents.rebalancer_agent import RebalancerAgent
     rebalancer = RebalancerAgent()
     result = await rebalancer.evaluate_and_rebalance(
         user_wallet=body.user_wallet,
         target_allocation=body.target_allocation,
-        drift_threshold_pct=body.drift_threshold_pct or 5.0
+        drift_threshold_pct=body.drift_threshold_pct or 5.0,
+        slippage_tolerance_bps=body.slippage_tolerance_bps or 50
     )
     return result
 
@@ -659,17 +777,72 @@ async def rebalancer_status(wallet_address: str):
     rebalancer = RebalancerAgent()
     return await rebalancer.evaluate_and_rebalance(user_wallet=wallet_address)
 
+@app.post("/api/rebalancer/dry-run-quote")
+async def rebalancer_dry_run_quote(body: DryRunQuoteRequest):
+    """Simulates 1Click quote (dry: true) to estimate real slippage, output, and fees without creating a deposit address."""
+    from tools import get_swap_quote
+    return get_swap_quote(
+        token_in=body.token_in,
+        token_out=body.token_out,
+        amount=body.amount,
+        recipient_id=body.recipient_id,
+        dry=True,
+        slippage_tolerance_bps=body.slippage_tolerance_bps or 50
+    )
+
+@app.get("/api/rebalancer/executions/{wallet_address}")
+async def rebalancer_get_executions(wallet_address: str):
+    """Get historical state machine execution records for audit and reconciliation."""
+    from database import get_rebalancer_executions_for_user
+    return {"executions": get_rebalancer_executions_for_user(wallet_address, limit=30)}
+
+@app.get("/api/rebalancer/execution/{execution_id}")
+async def rebalancer_get_single_execution(execution_id: str):
+    """Get single execution record including 1Click signature, quotes, and terminal status."""
+    from database import get_rebalancer_execution
+    rec = get_rebalancer_execution(execution_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Execution record not found")
+    return rec
+
 
 # ─── 3. RESEARCH AGENT ENDPOINTS ─────────────────────────────────
 
 @app.post("/api/research/generate")
+@app.post("/api/research/deep-dive")
 async def research_generate(body: ResearchRequest):
-    """Generate an institutional research report (0.1 NEAR fee)."""
+    """
+    Generate an institutional research report using Chain of Thought reasoning,
+    on-demand web crawler, and ChromaDB vector RAG retrieval (0.1 NEAR fee).
+    """
     from autonomous_agents.research_agent import ResearchAgent
     researcher = ResearchAgent()
     return await researcher.generate_research_report(
         topic=body.topic or "NEAR Liquid Staking Yields & DEX Liquidity",
+        user_expectations=body.user_expectations,
+        links=body.links,
+        date_range=body.date_range or "1_month",
         requester=body.user_wallet
+    )
+
+@app.post("/api/research/stream")
+async def research_stream_endpoint(body: ResearchRequest):
+    """
+    Real-time streaming research pipeline.
+    Streams each step card as it completes on the backend as NDJSON.
+    """
+    from fastapi.responses import StreamingResponse
+    from autonomous_agents.research_agent import ResearchAgent
+    researcher = ResearchAgent()
+    return StreamingResponse(
+        researcher.generate_research_report_stream(
+            topic=body.topic or "NEAR Liquid Staking Yields & DEX Liquidity",
+            user_expectations=body.user_expectations,
+            links=body.links,
+            date_range=body.date_range or "1_month",
+            requester=body.user_wallet
+        ),
+        media_type="application/x-ndjson"
     )
 
 @app.post("/api/research/hire")
@@ -694,10 +867,10 @@ async def get_research_reports():
 
 @app.get("/api/moderator/status/{wallet_address}")
 async def moderator_status(wallet_address: str):
-    """Get LLM-as-a-Judge evaluation of fleet performance across 5 parameters."""
+    """Get latest Moderator Watchdog telemetry and fleet health score (fast/non-blocking)."""
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()
-    return await moderator.evaluate_fleet_performance(wallet_address)
+    return await moderator.get_watchdog_status(wallet_address)
 
 @app.get("/api/moderator/judge/{wallet_address}")
 async def moderator_judge(wallet_address: str):
@@ -765,6 +938,41 @@ async def moderator_kill_switch_action(body: ModeratorKillSwitchRequest):
         return await moderator.trigger_emergency_kill_switch(body.user_wallet)
     else:
         return await moderator.reset_kill_switch(body.user_wallet)
+
+@app.post("/api/moderator/deliberate")
+async def moderator_deliberate(body: ModeratorDeliberateRequest):
+    """Trigger on-demand 4-Node LLM-as-a-Judge deliberation across Trader, Rebalancer, and Research."""
+    from autonomous_agents.moderator_agent import ModeratorAgent
+    moderator = ModeratorAgent()
+    return await moderator.evaluate_fleet_performance(body.user_wallet)
+
+@app.get("/api/moderator/history/{wallet_address}")
+async def moderator_history(wallet_address: str, limit: int = 10):
+    """Retrieve historical 4-Node evaluation reports for a wallet."""
+    from database import get_moderator_evaluations
+    return {"evaluations": get_moderator_evaluations(wallet_address, limit=limit)}
+
+@app.post("/api/moderator/kill-threshold")
+async def moderator_set_kill_threshold(body: ModeratorKillThresholdRequest):
+    """Configure autonomous agent kill threshold (0-80)."""
+    from database import update_moderator_kill_threshold
+    updated = update_moderator_kill_threshold(body.user_wallet, body.threshold)
+    return {"success": updated, "threshold": body.threshold, "user_wallet": body.user_wallet}
+
+@app.post("/api/moderator/frequency")
+async def moderator_set_frequency(body: ModeratorFrequencyRequest):
+    """Configure autonomous agent audit cadence ('1w', '2w', '1m')."""
+    from database import update_moderator_frequency, get_moderator_cadence_info
+    updated = update_moderator_frequency(body.user_wallet, body.frequency)
+    cadence = get_moderator_cadence_info(body.user_wallet)
+    return {"success": updated, "user_wallet": body.user_wallet, "cadence": cadence}
+
+@app.get("/api/moderator/logs/{wallet_address}")
+async def moderator_logs(wallet_address: str, limit: int = 25):
+    """Retrieve step-by-step 4-Node audit logs for the Moderator Agent."""
+    from database import get_agent_logs
+    logs = get_agent_logs(wallet_address, limit=limit, agent_name="moderator")
+    return {"logs": logs, "count": len(logs)}
 
 
 # ─── 5. AGENT MARKETPLACE DISCOVERY & HIRING ──────────────────────
@@ -1234,13 +1442,6 @@ async def execute_tx_broadcast(body: ExecuteTxRequest):
 
 
 
-if __name__ == "__main__":
-    if not os.getenv("NEAR_AI_API_KEY"):
-        print("WARNING: NEAR_AI_API_KEY not found in environment variables. Agent will fail.")
-
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
-
 class FundAgentWalletRequest(BaseModel):
     user_wallet: str
     key_id: int
@@ -1277,3 +1478,10 @@ async def generate_evm_agent_wallet_endpoint(body: GenerateEvmAgentWalletRequest
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    if not os.getenv("NEAR_AI_API_KEY"):
+        print("WARNING: NEAR_AI_API_KEY not found in environment variables. Agent will fail.")
+
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

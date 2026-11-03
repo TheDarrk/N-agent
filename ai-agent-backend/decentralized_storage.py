@@ -104,6 +104,33 @@ async def upload_research_report(report: Dict[str, Any]) -> str:
     return cid
 
 
+async def upload_moderator_report(report: Dict[str, Any]) -> str:
+    """
+    Store a Moderator Watchdog master fleet evaluation report.
+    Returns the CID (IPFS/local) and strictly preserves the most recent 10 evaluations.
+    Stored in a dedicated directory so it never contaminates Trader reasoning logs.
+    """
+    cid = _generate_cid(report)
+    report["cid"] = cid
+    now_utc = datetime.now(timezone.utc)
+    report["stored_at"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    report["stored_at_iso"] = now_utc.isoformat()
+    report["date_utc"] = now_utc.strftime("%Y-%m-%d")
+    report["time_utc"] = now_utc.strftime("%H:%M:%S UTC")
+    report["timestamp_utc"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+    report["created_at_utc"] = now_utc.isoformat()
+
+    # Save to local recent 10
+    timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(MODERATOR_DIR, f"eval_{timestamp}_{cid[:10]}.json")
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+
+    _prune_directory(MODERATOR_DIR, MAX_MODERATOR_REPORTS)
+    print(f"[STORAGE] Moderator master evaluation saved: {cid} (recent {MAX_MODERATOR_REPORTS} preserved)")
+    return cid
+
+
 def get_recent_trade_traces(limit: int = 24) -> List[Dict[str, Any]]:
     """Retrieve up to the recent 24 trade traces."""
     items = []
@@ -114,9 +141,12 @@ def get_recent_trade_traces(limit: int = 24) -> List[Dict[str, Any]]:
             if f.endswith(".json")
         ]
         files.sort(key=os.path.getmtime, reverse=True)
-        for filepath in files[:limit]:
+        for filepath in files:
             with open(filepath, "r", encoding="utf-8") as f:
                 item = json.load(f)
+                # Skip any stray moderator evaluations in reasoning_logs
+                if "total_mean_score" in item or "node_1_trader" in item:
+                    continue
                 if not item.get("chart_image") and item.get("indicators", {}).get("candles"):
                     try:
                         from chart_visualizer import render_chart_image
@@ -140,6 +170,8 @@ def get_recent_trade_traces(limit: int = 24) -> List[Dict[str, Any]]:
                     except Exception:
                         pass
                 items.append(item)
+                if len(items) >= limit:
+                    break
     except Exception as e:
         print(f"[STORAGE] Error reading traces: {e}")
     return items

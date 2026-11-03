@@ -494,9 +494,7 @@ export default function AgentWalletManagerModal({
 
   const agentsList = [
     { id: "trader", name: "Titan Quantitative Trader", role: "Scalping & Swing Trading via NEAR Intents", icon: TrendingUp },
-    { id: "rebalancer", name: "Portfolio Rebalancer", role: "Target Allocation & Drift Management", icon: Scale },
-    { id: "research", name: "Deep Alpha Researcher", role: "On-Chain Intelligence & RAG Retrieval", icon: FileText },
-    { id: "moderator", name: "Fleet Risk Watchdog", role: "Kill-Switch & Guard Governance", icon: Shield }
+    { id: "rebalancer", name: "Portfolio Rebalancer", role: "Target Allocation & Drift Management", icon: Scale }
   ];
 
   return (
@@ -805,8 +803,6 @@ export default function AgentWalletManagerModal({
                       >
                         <option value="trader">Titan Trader Agent (Cross-chain Arbitrum target)</option>
                         <option value="rebalancer">Portfolio Rebalancer Agent</option>
-                        <option value="research">Deep Research Agent</option>
-                        <option value="moderator">Risk Watchdog Agent</option>
                         <option value="none">Keep in Pool (Unassigned)</option>
                       </select>
                     </div>
@@ -834,7 +830,7 @@ export default function AgentWalletManagerModal({
                         </label>
                         <div className="flex items-center gap-1">
                           <span className="text-[10px] text-muted-foreground">Presets:</span>
-                          {["trader", "rebalancer", "alpha", "watchdog"].map((preset) => (
+                          {["trader", "rebalancer"].map((preset) => (
                             <button
                               key={preset}
                               onClick={() => {
@@ -874,8 +870,6 @@ export default function AgentWalletManagerModal({
                         >
                           <option value="trader">Titan Trader Agent</option>
                           <option value="rebalancer">Portfolio Rebalancer Agent</option>
-                          <option value="research">Deep Research Agent</option>
-                          <option value="moderator">Risk Watchdog Agent</option>
                           <option value="none">Keep in Pool (Unassigned)</option>
                         </select>
                       </div>
@@ -1294,7 +1288,7 @@ export default function AgentWalletManagerModal({
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <AgentAvatar name={agent.name} size={32} />
+                        <AgentAvatar agentId={agent.id} size={32} />
                         <div className="min-w-0">
                           <h5 className="text-xs font-bold text-foreground truncate">{agent.name}</h5>
                           <p className="text-[10px] text-muted-foreground truncate">{agent.role}</p>

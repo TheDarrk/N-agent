@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List, Optional
 import httpx
 import json
@@ -175,22 +176,35 @@ def is_cross_chain_swap(token_in: str, token_out: str) -> bool:
         return False
 
 
+def _is_transient_error(exc: BaseException) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return False
+
 @retry(
-    stop=stop_after_attempt(8),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+    retry=_is_transient_error,
     reraise=True
 )
-def _fetch_quote_with_retry(url: str, payload: Dict, attempt_num: int = 1) -> httpx.Response:
+def _fetch_quote_with_retry(url: str, payload: Dict, attempt_num: int = 1, headers: Optional[Dict[str, str]] = None) -> httpx.Response:
     """
     Internal function to fetch quote with retry logic.
-    Decorated with tenacity retry for 5-8 attempts with exponential backoff.
+    Only retries on 5xx server errors or timeouts. Fails fast on 4xx client errors.
     """
-    print(f"[TOOL] Fetching quote attempt {attempt_num}/8...")
-    response = httpx.post(url, json=payload, timeout=10.0)
-    if response.status_code >= 400:
-        print(f"[TOOL] API Error ({response.status_code}): {response.text}")
-    response.raise_for_status()
+    print(f"[TOOL] Fetching quote attempt {attempt_num}...")
+    req_headers = {"Content-Type": "application/json"}
+    jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
+    if jwt_key:
+        req_headers["Authorization"] = f"Bearer {jwt_key}"
+    if headers:
+        req_headers.update(headers)
+    response = httpx.post(url, json=payload, headers=req_headers, timeout=10.0)
+    if response.status_code >= 500:
+        print(f"[TOOL] Server Error ({response.status_code}): {response.text[:200]}")
+        response.raise_for_status()
     return response
 
 def get_swap_quote(
@@ -202,7 +216,10 @@ def get_swap_quote(
     is_cross_chain: bool = False,
     refund_address: str = None,
     source_chain: str = None,
-    dest_chain: str = None
+    dest_chain: str = None,
+    dry: bool = False,
+    slippage_tolerance_bps: int = 50,
+    deadline_minutes: int = 5
 ) -> Dict[str, Any]:
     """
     Fetches a real swap quote from Defuse 1-Click API.
@@ -224,7 +241,6 @@ def get_swap_quote(
     from knowledge_base import get_token_by_symbol
     tokens = knowledge_base._token_cache if knowledge_base._token_cache else []
     if not tokens:
-        import httpx
         try:
             res = httpx.get("https://1click.chaindefuser.com/v0/tokens", timeout=5.0)
             if res.status_code == 200:
@@ -300,6 +316,18 @@ def get_swap_quote(
         refund_type = "INTENTS"
     
     recipient = recipient_id or refund_to
+    
+    # 1-Click is a Mainnet protocol. If user is on testnet, sanitize recipient for simulations
+    if isinstance(recipient, str) and recipient.endswith(".testnet"):
+        if dry:
+            recipient = recipient.replace(".testnet", ".near")
+            if isinstance(refund_to, str) and refund_to.endswith(".testnet"):
+                refund_to = refund_to.replace(".testnet", ".near")
+        else:
+            return {
+                "error": "1-Click Defuse swaps operate on NEAR Mainnet. Please switch your connected wallet to Mainnet for live execution."
+            }
+
     dest_chain_name = token_out_data.get("blockchain", "near").lower()
     is_recipient_near = (
         isinstance(recipient, str) and (
@@ -315,6 +343,9 @@ def get_swap_quote(
     else:
         recipient_type = "DESTINATION_CHAIN" 
 
+    # Dynamic deadline based on deadline_minutes
+    deadline = (server_now + datetime.timedelta(minutes=deadline_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     payload = {
         "swapType": "EXACT_INPUT",
         "originAsset": asset_in,
@@ -325,13 +356,13 @@ def get_swap_quote(
         "recipient": recipient,
         "recipientType": recipient_type,
         "refundTo": refund_to,
-        "slippageTolerance": 10,
-        "dry": False,
+        "slippageTolerance": slippage_tolerance_bps,
+        "dry": dry,
         "deadline": deadline,
         "quoteWaitingTimeMs": 0
     }
     
-    print(f"[TOOL] Quote Request Payload: {json.dumps(payload, indent=2)}")
+    print(f"[TOOL] Quote Request Payload (dry={dry}): {json.dumps(payload, indent=2)}")
     
     try:
         # Use retry logic - attempt up to 8 times
@@ -345,24 +376,65 @@ def get_swap_quote(
                     return {"error": "Unable to fetch quote after multiple attempts. Please try again later."}
                 print(f"[TOOL] Attempt {attempt} failed, retrying... ({str(e)})")
                 continue
+        if response.status_code >= 400:
+            err_data = response.json() if "application/json" in response.headers.get("content-type", "") else {}
+            err_msg = err_data.get("message") or response.text[:200]
+            print(f"[TOOL] 1-Click Client Error ({response.status_code}): {err_msg}")
+            return {"error": f"1-Click Quote Error: {err_msg}"}
+
         data = response.json()
-        
-        print(f"[TOOL] Quote Response: {json.dumps(data, indent=2)}")
+        print(f"[TOOL] Quote Response: {json.dumps(data, indent=2)[:500]}")
         
         # Check for error in body
         if "message" in data:
              return {"error": data["message"]}
              
         quote = data.get("quote") or data
+        signature = data.get("signature", "")
+        decimals_out = token_out_data.get("decimals", 18)
+        
+        # For dry-run simulation quotes (no depositAddress generated)
+        if dry:
+            amount_out_atomic = int(quote.get("amountOut", 0) or 0)
+            amount_out_fmt = amount_out_atomic / (10 ** decimals_out) if decimals_out else float(amount_out_atomic)
+            min_atomic = int(quote.get("minAmountOut", 0) or 0)
+            min_out_fmt = min_atomic / (10 ** decimals_out) if decimals_out else float(min_atomic)
+            
+            amt_in_usd = float(quote.get("amountInUsd", 0.0) or 0.0)
+            amt_out_usd = float(quote.get("amountOutUsd", 0.0) or 0.0)
+            slippage_calc_bps = int(((amt_in_usd - amt_out_usd) / amt_in_usd * 10000)) if amt_in_usd > 0 else 0
+
+            return {
+                "token_in": t_in,
+                "token_out": t_out,
+                "amount_in": amount,
+                "amount_out": amount_out_fmt,
+                "amount_in_usd": amt_in_usd,
+                "amount_out_usd": amt_out_usd,
+                "min_amount_out": min_out_fmt,
+                "estimated_slippage_bps": max(0, slippage_calc_bps),
+                "withdraw_fee": quote.get("withdrawFee", "0"),
+                "signature": signature,
+                "timestamp": data.get("timestamp", ""),
+                "correlation_id": data.get("correlationId", ""),
+                "dry": True,
+                "chain": chain_id,
+                "defuse_asset_in": asset_in,
+                "defuse_asset_out": asset_out,
+                "raw_response": data
+            }
+
+        # For live execution quotes (depositAddress required)
         if not quote.get("depositAddress"):
-             return {"error": "No deposit address found in quote"}
+             return {"error": "No deposit address found in live quote"}
              
         # Format output amount using dynamic decimals
         amount_out_atomic = int(quote["amountOut"])
-        decimals_out = token_out_data.get("decimals", 18)
         amount_out_fmt = amount_out_atomic / (10 ** decimals_out)
+        min_atomic = int(quote.get("minAmountOut", 0) or 0)
+        min_out_fmt = min_atomic / (10 ** decimals_out) if decimals_out else float(min_atomic)
         
-        print(f"[TOOL] Quote received: {amount} {t_in} -> {amount_out_fmt} {t_out}")
+        print(f"[TOOL] Live Quote received: {amount} {t_in} -> {amount_out_fmt} {t_out}")
         print(f"[TOOL] Deposit address: {quote['depositAddress']}")
         
         return {
@@ -370,11 +442,16 @@ def get_swap_quote(
             "token_out": t_out,
             "amount_in": amount,
             "amount_out": amount_out_fmt,
+            "min_amount_out": min_out_fmt,
             "rate": amount_out_fmt / amount if amount > 0 else 0,
             "chain": chain_id,
             "deposit_address": quote["depositAddress"],
             "defuse_asset_in": asset_in,
-            "defuse_asset_out": asset_out
+            "defuse_asset_out": asset_out,
+            "signature": signature,
+            "deadline": quote.get("deadline", deadline),
+            "quote_id": quote.get("quoteId", ""),
+            "raw_response": data
         }
         
     except Exception as e:
@@ -1047,3 +1124,55 @@ async def get_wallet_portfolio(wallet_address: str, chain: str = "near") -> dict
         print(f"[TOOL] Error fetching portfolio for {wallet_address}: {e}")
         
     return portfolio
+
+
+async def poll_1click_status(
+    deposit_address: Optional[str] = None,
+    tx_hash: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Polls the 1Click status endpoint:
+    GET https://1click.chaindefuser.com/v0/status?depositAddress=...
+    Handles: SUCCESS, EXECUTED, REFUNDED, FAILED, EXPIRED, PENDING_DEPOSIT, PROCESSING.
+    """
+    import httpx
+    params = {}
+    if deposit_address:
+        params["depositAddress"] = deposit_address
+    elif tx_hash:
+        params["txHash"] = tx_hash
+    else:
+        return {"error": "Must provide deposit_address or tx_hash to poll status"}
+
+    headers = {"Content-Type": "application/json"}
+    jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
+    if jwt_key:
+        headers["Authorization"] = f"Bearer {jwt_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get("https://1click.chaindefuser.com/v0/status", params=params, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                status = data.get("status", "UNKNOWN")
+                swap_details = data.get("swapDetails", {})
+                quote_resp = data.get("quoteResponse", {})
+                return {
+                    "success": True,
+                    "status": status,
+                    "is_terminal": status in ["SUCCESS", "EXECUTED", "REFUNDED", "FAILED", "EXPIRED"],
+                    "is_success": status in ["SUCCESS", "EXECUTED"],
+                    "is_refunded": status == "REFUNDED",
+                    "is_failed": status in ["FAILED", "EXPIRED"],
+                    "refund_reason": swap_details.get("refundReason"),
+                    "refunded_amount": swap_details.get("refundedAmountFormatted"),
+                    "deposited_amount": swap_details.get("depositedAmountFormatted"),
+                    "amount_out": swap_details.get("amountOutFormatted"),
+                    "near_tx_hashes": swap_details.get("nearTxHashes", []),
+                    "destination_chain_tx_hashes": swap_details.get("destinationChainTxHashes", []),
+                    "signature": quote_resp.get("signature", ""),
+                    "raw_status": data
+                }
+            return {"success": False, "status": "HTTP_ERROR", "code": resp.status_code, "text": resp.text[:200]}
+    except Exception as e:
+        return {"success": False, "status": "NETWORK_ERROR", "error": str(e)}

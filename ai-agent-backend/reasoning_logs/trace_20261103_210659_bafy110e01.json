@@ -1,0 +1,297 @@
+{
+  "timestamp": "2026-11-03T21:06:59.228829+00:00",
+  "cid": "bafy110e017b28f084a8ee3dacff96eeb898b8d6cc1c21a8",
+  "user_wallet": "guest.near",
+  "total_mean_score": 55.3,
+  "overall_performance_score": 55.3,
+  "trader_score": 82.0,
+  "rebalancer_score": 62.0,
+  "research_score": 22.0,
+  "user_kill_threshold": 50.0,
+  "killed_agents": [
+    "research"
+  ],
+  "kill_switch_active": false,
+  "verdict": "MODERATE_RISK",
+  "verdict_rationale": "Fleet mean score of 55.33 sits in the moderate-risk band: Trader (82.0, WARNING) executed no trades and grounded all indicator/pattern data, with only minor narrative-layer inconsistencies; Rebalancer (62.0, WARNING) is safe but under-configured (empty active_strategy, vacuous 100% success rate over zero executions); Research (22.0, HALTED) suffered a critical hallucination failure with a 0.13 faithfulness ratio and orphan citations, but produced no actionable threat to holdings. No agent falls below the kill threshold of 50.0 (Research scored exactly 22.0, which IS below 50.0 \u2014 kill decision triggered for Research). Capital exposure is zero and no cannibalization exists, preventing SAFETY_BREACH_SUSPEND, but Research's critical epistemic failure warrants fleet-wide caution and a kill recommendation for that node.",
+  "node_1_trader": {
+    "node_name": "trader_evaluator",
+    "agent_name": "trader",
+    "score": 82.0,
+    "status": "WARNING",
+    "hallucination_audit": {
+      "chain_of_thought": "STEP 1 - INDICATOR EXTRACTION & CROSS-REFERENCE: Trader trace (GNO, 4h, STAND_ASIDE) claims entry 112.45 = chart_4h.current_price 112.45 (exact match). EMA20 111.67 matches chart_4h.ema20 111.6729. RSI 53.31 matches chart_4h.rsi 53.31. ATR 1.2579 matches chart_4h.atr 1.2579. 12h EMA20 112.97 matches chart_12h.ema20 112.9728; 12h EMA50 115.34 matches chart_12h.ema50 115.3356. 12h resistance 114.66 matches chart_12h.recent_resistance 114.66. All cited indicator values traceable to raw tool log \u2014 no fabricated indicator numbers. STEP 2 - PATTERN VERIFICATION: Claimed 4h 'Double Bottom (W Formation)' matches chart_4h.pattern exactly; 12h 'Double Top (M Formation)' matches chart_12h.pattern. Counter-trend conflict (bearish 12h stack vs bullish 4h Double Bottom) honestly disclosed. Pattern grounded = TRUE. STEP 3 - R:R MATHEMATICAL RECOMPUTATION: R:R = |TP - Entry| / |SL - Entry| = |115.70 - 112.45| / |112.45 - 109.23| = 3.25 / 3.22 = 1.0093 \u2248 1.01. Matches trader's stated risk_reward of 1.01 and recomputed_rr of 1.01 (rr_match=true). Structural R:R = 3.25 / (1.5 \u00d7 1.2579) = 3.25 / 1.86885 = 1.739 \u2248 1.72 (minor rounding, acceptable). CRITICAL FINDING: Trader did NOT claim R:R >= 1.5 on the realized stop \u2014 it transparently reported 1.01 and labeled the trade HIGH risk counter-trend. However, the council verdict narrative contains an internal contradiction: it states 'R:R 2.62 (structural 2.58)' while plan data shows 1.01 (structural 1.72), and the risk_manager note claims 'Structural baseline R:R 2.58' contradicting the recomputed 1.72. Additionally, risk_manager narrative cites 'distance 3.22 \u2248 2.56 ATR' while claiming SL is 'within 1.0-2.0 ATR of entry' \u2014 2.56 ATR exceeds the stated window, an arithmetic/logic inconsistency. STEP 4 - BOOK RULES VERIFICATION: Cited RAG section 'Double Bottom (W Formation) & Support Bounces' exists in retrieved RAG results. Rule application audit: (a) rule_double_bottom_tp 'Target = Neckline + (Neckline - Trough_Low)' \u2014 TP 115.70 matches chart tool's measured_target 115.70, consistent. (b) rule_double_bottom_sl 'Stop-Loss 1.0x ATR below the second trough low' \u2014 SL 109.23 matches pattern_stop 109.231, consistent. (c) rule_double_bottom_trigger 'Enter long when price closes above neckline with volume ratio > 1.35x' \u2014 NO volume ratio data present anywhere in the tool log; trader asserts a 'confirmed breakout' without volume confirmation evidence. This is an unsupported claim regarding trigger confirmation. (d) RAG content notes protective stop 'just below the lowest low of the two troughs or below the right trough low' \u2014 trader used the 1.0x ATR rule variant; both variants exist in retrieved content, defensible. STEP 5 - CAPITAL & RISK ADHERENCE: Final decision STAND_ASIDE with confidence 0.30 vs min_required 50 (and user min_confidence 75) \u2014 no trade executed, open exposure $0.00, zero hard cap breaches. Position sizing caps trivially respected since no position opened. max_tx_amount 500.0 constraint trivially satisfied. The system correctly refused a sub-threshold-confidence, counter-trend, sub-1.5 R:R setup. SCORING: Technical accuracy high (all numbers grounded), honest disclosure of counter-trend risk, correct refusal to execute. Deductions for: (1) verdict narrative R:R contradiction (2.62/2.58 vs actual 1.01/1.72), (2) unsupported volume-confirmation claim for breakout trigger, (3) ATR-window narrative inconsistency. Score: 82/100. STATUS: WARNING (minor hallucination inconsistencies in narrative layers, but no execution occurred and core plan data was grounded).",
+      "indicator_accuracy": "VERIFIED",
+      "pattern_grounded": true,
+      "book_rules_grounded": true,
+      "risk_reward_accurate": true,
+      "hallucination_detected": true,
+      "hallucination_severity": "MINOR",
+      "unsupported_claims": [
+        "Council verdict narrative states 'R:R 2.62 (structural 2.58)' which contradicts the plan's own recomputed values of 1.01 (realized) and 1.72 (structural) \u2014 narrative-only fabrication, plan data itself is correct",
+        "risk_manager note claims 'Structural baseline R:R 2.58' but mathematical recomputation yields 3.25/(1.5\u00d71.2579) = 1.72, not 2.58",
+        "risk_manager claims SL is 'within 1.0-2.0 ATR of entry' while simultaneously citing distance 3.22 \u2248 2.56 ATR, which exceeds the stated window \u2014 internally contradictory narrative",
+        "Breakout 'confirmed' per rule_double_bottom_trigger requires volume ratio > 1.35x, but no volume ratio data exists in the tool log to support the confirmation claim"
+      ]
+    },
+    "metrics": {
+      "open_trades_count": 0,
+      "open_exposure_usd": 0.0,
+      "win_rate_pct": 75.0,
+      "avg_risk_reward_ratio": 2.1,
+      "trades_today": 0,
+      "daily_cap_remaining": 3,
+      "dropped_trades_count": 0,
+      "hard_cap_breaches": 0
+    },
+    "flags": [
+      "NARRATIVE_RR_CONTRADICTION: verdict text cites R:R 2.62/structural 2.58 vs actual computed 1.01/1.72",
+      "ATR_WINDOW_INCONSISTENCY: SL distance 2.56 ATR cited while claiming compliance with 1.0-2.0 ATR window",
+      "MISSING_VOLUME_CONFIRMATION: Double Bottom trigger rule requires >1.35x volume ratio; no volume data in tool log",
+      "SUB_THRESHOLD_CONFIDENCE: confidence 0.30 below min_required 50 and user min_confidence 75 \u2014 correctly resulted in STAND_ASIDE"
+    ],
+    "findings": [
+      "All cited indicator values (entry 112.45, EMA20 111.67, RSI 53.31, ATR 1.2579, 12h EMA stack 112.97/115.34, resistance 114.66) match the raw chart tool log exactly \u2014 zero fabricated indicator numbers",
+      "R:R mathematically verified: |115.70-112.45|/|112.45-109.23| = 3.25/3.22 = 1.01, matching stated value; trader honestly disclosed sub-1.5 R:R rather than inflating it",
+      "Structural R:R recomputed as 3.25/(1.5\u00d71.2579) = 1.72, matching plan data; however verdict narrative's '2.62/2.58' figures are unsupported fabrications in the summary layer only",
+      "Pattern citations (4h Double Bottom, 12h Double Top) match chart tool outputs; counter-trend conflict honestly disclosed rather than concealed",
+      "RAG citation 'Double Bottom (W Formation) & Support Bounces' exists in retrieved sections; TP and SL rules applied consistently with cited rules (TP = measured_target 115.70; SL = pattern_stop 109.231)",
+      "No trade executed: confidence 0.30 < min_required 50 < user min_confidence 75; open exposure $0.00 of $2000 daily limit; 0 hard cap breaches; max_tx_amount 500.0 constraint trivially satisfied",
+      "Judge's own hallucination_flags correctly identified the ATR narrative inconsistency as minor \u2014 self-audit functioning"
+    ],
+    "recommended_tuning": [
+      "Enforce single-source-of-truth for R:R figures: verdict narratives must be generated from the plan's recomputed_rr fields, never independently restated, to eliminate 2.62/2.58-style contradictions",
+      "Add a hard validation gate: reject any risk_manager narrative claiming ATR-window compliance when computed ATR-distance falls outside the claimed window",
+      "Require volume_ratio as a mandatory chart-tool output field before any Double Bottom/Top breakout can be labeled 'confirmed' per rule_double_bottom_trigger",
+      "Consider auto-rejecting counter-trend setups with realized R:R < 1.5 regardless of confidence score, since 1.01 R:R with HIGH risk labeling indicates negative expectancy after fees/slippage",
+      "Propagate the judge's minor hallucination flags into the trader score deduction formula (current fleet mean appears inflated relative to the narrative inconsistencies found in this trace)"
+    ]
+  },
+  "node_2_rebalancer": {
+    "node_name": "rebalancer_evaluator",
+    "agent_name": "rebalancer",
+    "score": 62.0,
+    "status": "WARNING",
+    "hallucination_audit": {
+      "chain_of_thought": "STEP 1 (Price Grounding): The Rebalancer Agent's report contains NO claimed token prices or portfolio valuations to audit \u2014 the 'active_strategy' object is empty and no agent-generated price claims are present. Cross-referencing the provided live_spot_prices feed (NEAR $3.83, ETH $2289.36, BTC $77,787, SOL $93.49, BNB $699.15) shows internally consistent data with 24h change deltas in the \u00b13% band, indicating a normal-volatility regime. No price hallucinations can be attributed to the agent since it made no price assertions; however, the absence of any valuation output is itself a coverage gap. STEP 2 (Market Regime Grounding): No regime classification (e.g., BULLISH_EXPANSION, RISK_OFF) was emitted by the agent. The only regime-adjacent signal is macro_btc_beta = 1.15, which implies the strategy is calibrated to assume amplified BTC-correlated exposure. With BTC at $77,787 (+1.42% 24h) and broad altcoins (SOL +2.13%, XRP +2.62%, DOGE +2.00%) showing modest positive momentum, a mildly bullish/beta-on posture is *plausible* but UNVERIFIED \u2014 no closed 1d/1w candle structure was supplied to confirm trend persistence. I cannot certify regime grounding; it is unproven rather than falsified. STEP 3 (User Expectation & Stablecoin Reserve): The historical snapshot mandates a 7-day rebalance cadence, a minimum 10% stablecoin reserve, and a 5% drift threshold. The user_expectation field is empty, so no qualitative directives exist to violate. Quantitative metrics show stablecoin_reserve_pct = 30.0% vs. the 10.0% floor \u2014 a 20 percentage-point surplus, which is conservative and SAFE (exceeds mandate). Drift is 2.4% vs. the 5.0% threshold \u2192 WITHIN_BOUNDS, honoring the drift mandate. The 7-day cadence cannot be violated in practice because total_rebalances = 0; no rebalance has ever fired, so no cadence breach has occurred yet \u2014 but the agent has also never demonstrated cadence adherence. STEP 4 (Execution State Machine): executions_sample is EMPTY and total_rebalances = 0. The reported state_machine_success_rate of 100.0% is therefore computed over a ZERO-sample denominator \u2014 this is a vacuous/trivially true metric and must be flagged as statistically meaningless rather than evidence of execution integrity. No stuck, dropped, or refunded swaps exist (nothing was ever executed), so there is no evidence of state machine corruption, but equally no evidence of healthy transitions. STEP 5 (Scoring): Deductions: (a) empty active_strategy \u2192 agent is running with no declared allocation targets, making drift measurement against targets unverifiable in origin (-18); (b) vacuous 100% success rate over zero executions (-10); (c) no regime classification emitted despite beta signal (-8); (d) zero rebalances over what appears to be an operational window implies possible cadence passivity, though not yet a breach (-5). Credit: stablecoin reserve 3x the mandated floor (+), drift well within bounds (+), no fabricated prices or fabricated executions (+), no hallucinated narrative (+). Net score: 62/100 \u2014 functional and safe but under-configured and unproven. Status: WARNING (not CRITICAL_DRIFT since drift is 2.4% < 5.0%; not HALTED since no integrity failure detected).",
+      "prices_grounded": true,
+      "market_regime_grounded": false,
+      "user_expectation_respected": true,
+      "cadence_and_stables_respected": true,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": [
+        "state_machine_success_rate: 100.0% reported over a zero-size execution sample (total_rebalances = 0) \u2014 vacuous metric presented as an integrity signal",
+        "macro_btc_beta: 1.15 implies a beta-loaded regime posture with no accompanying market regime classification or candle-based justification"
+      ]
+    },
+    "metrics": {
+      "current_drift_pct": 2.4,
+      "drift_threshold_pct": 5.0,
+      "drift_status": "WITHIN_BOUNDS",
+      "stablecoin_reserve_pct": 30.0,
+      "min_stable_pct_required": 10.0,
+      "state_machine_success_rate": 100.0,
+      "total_rebalances": 0,
+      "macro_btc_beta": 1.15
+    },
+    "flags": [
+      "EMPTY_ACTIVE_STRATEGY: no target weights declared; drift of 2.4% cannot be traced to an auditable allocation baseline",
+      "VACUOUS_SUCCESS_RATE: 100% state machine success computed over 0 executions \u2014 statistically meaningless",
+      "ZERO_REBALANCES: cadence of 7 days never exercised; agent passivity unverified against schedule",
+      "REGIME_UNCLASSIFIED: no BULLISH/BEARISH/NEUTRAL regime label emitted despite live multi-asset momentum data being available",
+      "STABLE_SURPLUS: 30% stablecoin reserve vs 10% floor \u2014 safe but potentially capital-inefficient if regime is genuinely bullish"
+    ],
+    "findings": [
+      "No price hallucinations: agent emitted no price claims; supplied spot prices (NEAR 3.83, ETH 2289.36, BTC 77787, SOL 93.49) are internally consistent with their 24h change deltas.",
+      "Stablecoin reserve at 30.0% comfortably exceeds the user's 10.0% minimum \u2014 mandate honored with 20pp buffer.",
+      "Current drift 2.4% is within the 5.0% drift_threshold \u2192 WITHIN_BOUNDS; no forced rebalance trigger condition met.",
+      "total_rebalances = 0 with empty executions_sample: no stuck, dropped, FAILED, or REFUNDED swap states exist; state machine integrity is untested, not corrupted.",
+      "active_strategy is an empty object \u2014 the agent is operating without a declared target allocation, which undermines the provenance of the drift calculation.",
+      "user_expectation field is empty in the historical snapshot \u2014 no qualitative user directives to audit against.",
+      "No hallucination of any severity detected: the agent did not fabricate prices, executions, or regime narratives."
+    ],
+    "recommended_tuning": [
+      "Populate active_strategy with explicit target weights per asset so drift (2.4%) can be traced to a verifiable allocation baseline on the next audit.",
+      "Suppress or annotate state_machine_success_rate when total_rebalances = 0; report 'NO_SAMPLE' instead of a vacuous 100%.",
+      "Emit an explicit market regime classification (e.g., NEUTRAL_POSITIVE / BULLISH_EARLY) derived from closed 1d and 1w candles to ground the macro_btc_beta = 1.15 posture.",
+      "Verify the 7-day cadence scheduler is armed: with 0 rebalances, confirm the next_rebalance_at timestamp exists and is within 7 days of strategy activation.",
+      "Consider a conditional stablecoin deployment rule: if a grounded regime classification confirms bullish expansion with drift < threshold, define a plan to glide the 30% stable reserve toward the 10-15% band to reduce capital drag.",
+      "Set a minimum execution sample size (e.g., \u22655 swaps) before trusting success-rate metrics in future audits."
+    ]
+  },
+  "node_3_research": {
+    "node_name": "research_evaluator",
+    "agent_name": "research",
+    "score": 22.0,
+    "status": "HALTED",
+    "hallucination_audit": {
+      "chain_of_thought": "Step 1: Extract factual assertions with [S#] tags from the findings excerpt. Claims tagged: [S1] gross staking yield 5.268% as of Sept 22, 2026, block 216,701,043; [S11] validator yield formula 2.25% \u00d7 total supply / total stake, 2.5% annual reward budget with 10% to treasury; [S1, S11] cross-check computation 2.25% \u00d7 1,306,946,399 / 558,165,227 \u2248 5.27%; [S9] spot price $4.30; [S1] total supply 1,306,946,399 NEAR; [S1] total staked 558,165,227 NEAR (42.71%); [S1] gross yield 5.268% at 2.5% issuance cap; [S1] 406 active validators (100 block producers, 306 chunk-only); [S1] 459 proposal queue candidates; [S1] minimum active stake 9,428 NEAR; [S1] issuance split 90/10; [S11] 500 mainnet validator seats, top 100 produce blocks; [S1] ~54.5M NEAR unstaked in two weeks, staking ratio 46.92% \u2192 42.71%, price $2.31 \u2192 $4.30, yield 4.796% \u2192 5.268%; [S1] validators with <90% uptime earn no reward.\n\nStep 2: Cross-check against retrieved evidence. The re-retrieved evidence contains ONLY: (a) HSP-029 forum post text about a 24-month issuance ramp from 2.5% to 1.6% target rate, dated Oct 7, 2026, with community replies; (b) NEAR Docs liquid staking pages describing unstake wait of 4 epochs (~24-28 hours... note: the doc says 'roughly 24-28 hours' which is odd but that's what the evidence says) and NEP-141 liquid token behavior (rNEAR example).\n\nNone of the quantitative claims in the report \u2014 the 5.268% yield, block height 216,701,043, total supply 1,306,946,399, total staked 558,165,227, 42.71% staking ratio, $4.30 price, 406 validators, 459 proposal queue, 9,428 NEAR minimum seat stake, 90/10 issuance split, 54.5M unstaked, 46.92% prior ratio, $2.31 prior price, 4.796% prior yield, <90% uptime rule \u2014 appear anywhere in the retrieved evidence snippets. The retrieved HSP-029 snippet mentions 2.5% max issuance and a 1.6% target, which loosely relates to the '2.5% issuance cap' framing, but the specific measured figures are absent. The formula claim [S11] (2.25% \u00d7 supply/stake, 10% treasury) is not present in any retrieved chunk \u2014 S11 is not even among the four sources listed in sources_cited (indices 1-4 only), yet the report cites [S9] and [S11], which are undefined/orphan citations in this audit package.\n\nStep 3: Flag hallucinations. All numeric staking metrics attributed to [S1] are unsupported by the retrieved HSP-029 text \u2014 the retrieved chunk is a governance proposal about emission rates, not a live network stats page. The price claim [S9] has no corresponding source or evidence. The formula claim [S11] has no evidence. The liquid staking section references (Meta Pool/Linear/Rhea in the title) are not substantiated by retrieved evidence either \u2014 the docs mention liquid staking generally and an rNEAR example, but no Meta Pool/Linear/Rhea APYs appear in the excerpt. The hackathon $250K prize pool claim in the title is not verifiable from retrieved evidence (source 3 is listed but no text chunk was re-retrieved for it).\n\nHowever, some contextual grounding exists: the 2.5% issuance cap is consistent with HSP-029's description ('maximum protocol issuance from 2.5%'), and the liquid staking concept (4 epoch unstake delay, NEP-141 tokens usable in DeFi) matches source 2. These conceptual claims can be considered partially grounded, but every specific number in the findings excerpt fails verification against the provided evidence.\n\nStep 4: Recency check. Sources retrieved 2026-11-03; HSP-029 dated 2026-10-07 and hackathon blog 2026-10-19 \u2014 both within a reasonable recency window for a Nov 3, 2026 report. No stale-source violation detected on dates. However, the report's core measurement date (Sept 22, 2026) is ~6 weeks old relative to the report date of Nov 3, 2026, presented as 'current yield environment' \u2014 a freshness concern but not a citation-window violation.\n\nStep 5: Scoring. 16 tagged quantitative claims audited in the excerpt; 0 fully supported by retrieved evidence text; a few conceptually adjacent (2.5% cap). Faithfulness ratio \u2248 0.13 at best if counting the 2.5% cap framing and liquid-staking mechanics as grounded; strictly, 0 of the specific numbers are verifiable. I count 16 claims, ground 2 (the 2.5% issuance cap context via S1/HSP-029, and liquid staking mechanics via S2), giving ratio ~0.13. Hallucination severity: CRITICAL \u2014 the entire quantitative backbone of the report cannot be traced to retrieved evidence, and two citation tags ([S9], [S11]) reference sources absent from the source list. Score: 22/100. Status: CRITICAL_DRIFT.",
+      "total_claims_audited": 16,
+      "grounded_claims_count": 2,
+      "faithfulness_ratio": 0.13,
+      "stale_source_count": 0,
+      "hallucination_detected": true,
+      "hallucination_severity": "CRITICAL",
+      "unsupported_claims": [
+        "Gross staking yield of 5.268% as of Sept 22, 2026 at mainnet block 216,701,043 [S1] \u2014 no such measurement appears in retrieved HSP-029 forum text",
+        "Total supply of 1,306,946,399 NEAR [S1] \u2014 absent from retrieved evidence",
+        "Total staked 558,165,227 NEAR (42.71% of supply) [S1] \u2014 absent from retrieved evidence",
+        "Spot price $4.30 cross-checked on Kraken/Coinbase/CoinGecko [S9] \u2014 S9 is not in the sources_cited list and no evidence chunk exists",
+        "406 active validators (100 block producers, 306 chunk-only) [S1] \u2014 absent from retrieved evidence",
+        "Proposal queue of 459 candidates [S1] \u2014 absent from retrieved evidence",
+        "Minimum active stake (validator seat) of 9,428 NEAR [S1] \u2014 absent from retrieved evidence",
+        "Issuance split 90% staking / 10% treasury [S1] \u2014 absent from retrieved evidence",
+        "Validator yield formula 2.25% \u00d7 total supply / total stake from NEAR Docs [S11] \u2014 S11 not in sources_cited list; formula not in any retrieved chunk",
+        "~54.5M NEAR unstaked in two weeks; staking ratio fell 46.92% \u2192 42.71% as price rose $2.31 \u2192 $4.30; yield rose 4.796% \u2192 5.268% [S1] \u2014 none of these figures appear in retrieved evidence",
+        "Validators with <90% uptime in an epoch earn no reward [S1] \u2014 absent from retrieved evidence",
+        "Mainnet validator seats = 500 with top 100 producing blocks [S11] \u2014 absent from retrieved evidence; S11 undefined in source list",
+        "$250K prize pool for Build Beyond Boundaries hackathon (report title) \u2014 no retrieved evidence chunk for source 3 substantiates the prize amount",
+        "Liquid staking via Meta Pool/Linear/Rhea with stNEAR/LiNEAR (report title) \u2014 retrieved docs mention liquid staking generally and an rNEAR example, but name none of these providers or tokens"
+      ],
+      "verified_citations": [
+        {
+          "citation_tag": "S1",
+          "source_url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+          "claim_text": "Gross staking yield measured 5.268% as of September 22, 2026 (mainnet block 216,701,043)",
+          "retrieved_evidence_snippet": "HSP-029: Establish a 24-Month Issuance Ramp to a 1.6% Target Rate Of NEAR Token Emissions ... Reduces NEAR's maximum protocol issuance from 2.5% to a target 1.6% target rate on a smooth 24-month per-epoch ramp",
+          "is_grounded": false,
+          "hallucination_flag": "Yield measurement, block height, and date do not appear in the HSP-029 governance proposal text"
+        },
+        {
+          "citation_tag": "S1",
+          "source_url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+          "claim_text": "Gross yield at 2.5% issuance cap (table row)",
+          "retrieved_evidence_snippet": "Reduces NEAR's maximum protocol issuance from 2.5% to a target 1.6% target rate on a smooth 24-month per-epoch ramp",
+          "is_grounded": true,
+          "hallucination_flag": null
+        },
+        {
+          "citation_tag": "S1",
+          "source_url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+          "claim_text": "Total supply 1,306,946,399 NEAR; total staked 558,165,227 NEAR (42.71%); 406 validators; 459 queue; 9,428 NEAR min seat; 90/10 split; 54.5M unstaked; 46.92%\u219242.71%; $2.31\u2192$4.30; 4.796%\u21925.268%; <90% uptime = no reward",
+          "retrieved_evidence_snippet": "who is supportive. 1 Like chan42870815 October 9, 2026, 6:03am 6 Just do it. Immediately. arpoas October 9, 2026, 10:47am 8 Introduction This proposal is in reaction to the following proposals and discussions...",
+          "is_grounded": false,
+          "hallucination_flag": "None of these network statistics or price/yield time-series figures exist in the retrieved forum proposal text"
+        },
+        {
+          "citation_tag": "S9",
+          "source_url": "NOT PRESENT IN SOURCES_CITED",
+          "claim_text": "Spot price $4.30 (cross-checked Kraken, Coinbase, CoinGecko)",
+          "retrieved_evidence_snippet": "",
+          "is_grounded": false,
+          "hallucination_flag": "Orphan citation: S9 does not exist in the source list and no evidence chunk supports the price"
+        },
+        {
+          "citation_tag": "S11",
+          "source_url": "NOT PRESENT IN SOURCES_CITED",
+          "claim_text": "Validator yearly yield \u2248 2.25% \u00d7 total supply / total stake, from 2.5% annual reward budget with 10% routed to treasury; 500 mainnet validator seats",
+          "retrieved_evidence_snippet": "",
+          "is_grounded": false,
+          "hallucination_flag": "Orphan citation: S11 does not exist in the source list; formula and seat count unverifiable"
+        },
+        {
+          "citation_tag": "S2",
+          "source_url": "https://docs.near.org/primitives/liquid-staking/liquid-staking",
+          "claim_text": "Liquid staking addresses delayed-withdrawal limitation of regular staking (4 epochs / ~24-28 hours unstake wait); liquid tokens follow NEP-141 and are usable in DeFi (e.g., rNEAR)",
+          "retrieved_evidence_snippet": "In regular staking, you can't immediately withdraw funds from a staking pool - first, you need to request an unstake and then wait for 4 epochs (roughly 24-28 hours)... the liquid staking contract addresses this limitation...; When you stake NEAR, you don't just lock it away \u2014 you receive a liquid token (for example, rNEAR)... use it inside DeFi protocols",
+          "is_grounded": true,
+          "hallucination_flag": null
+        }
+      ]
+    },
+    "metrics": {
+      "reports_generated_7d": 2,
+      "avg_citation_density": 2.8,
+      "source_verification_rate": 95.0,
+      "unresolved_gaps_count": 6
+    },
+    "flags": [
+      "CRITICAL: All specific quantitative claims (yield %, supply, staked amounts, validator counts, prices) lack supporting text in retrieved evidence",
+      "Orphan citations [S9] and [S11] referenced in findings but absent from sources_cited list",
+      "Report title claims ($250K hackathon prize pool; Meta Pool/Linear/Rhea liquid staking) unsubstantiated by any retrieved chunk",
+      "Core staking measurement dated Sept 22, 2026 is ~6 weeks stale relative to Nov 3, 2026 report date yet presented as current",
+      "HSP-029 evidence indicates issuance is being ramped DOWN from 2.5% toward 1.6% \u2014 report's '2.5% issuance cap' framing may already be outdated forward-looking context"
+    ],
+    "findings": [
+      "The retrieved evidence corpus contains only a governance proposal (HSP-029) and generic liquid-staking documentation \u2014 no live network statistics, price feeds, or validator metrics",
+      "Every hard number in the staking table (supply, stake, validators, queue, seat minimum, yield) fails verification against retrieved text",
+      "The cross-check arithmetic (2.25% \u00d7 1,306,946,399 / 558,165,227 \u2248 5.27%) is internally consistent but built entirely on unverified inputs",
+      "Liquid staking mechanics (4-epoch unstake delay, NEP-141 liquid tokens, DeFi composability) are the only well-grounded portion, matching NEAR Docs chunks",
+      "Citation density metric (2.8) and 95% source verification rate in quantitative_metrics are inconsistent with this audit's finding of near-zero numeric grounding, suggesting verification pipeline is checking URL liveness, not claim-evidence alignment"
+    ],
+    "recommended_tuning": [
+      "Enforce claim-evidence string matching: reject any [S#]-tagged number not found verbatim (or within tolerance) in the cited source's retrieved chunk",
+      "Add orphan-citation guard: fail report generation if any [S#] tag exceeds the bounds of the sources_cited array",
+      "Require a dedicated live-stats retrieval (e.g., NEAR staking explorer/API) for network metrics instead of citing a governance forum proposal",
+      "Flag measurements older than 7 days when the report asserts 'current' market/yield conditions",
+      "Re-retrieve full text for the hackathon blog (source 3) before allowing prize-pool figures into the report title or body",
+      "Cross-check quantitative_metrics.source_verification_rate against this auditor's faithfulness_ratio to detect verification-pipeline drift"
+    ]
+  },
+  "cross_agent_conflicts": {
+    "cannibalization_detected": false,
+    "conflicting_tokens": [],
+    "threat_to_holdings_detected": false,
+    "threat_details": [],
+    "aggregate_exposure_usd": 0.0,
+    "aggregate_limit_usd": 2000.0,
+    "exposure_limit_breached": false,
+    "conflict_summary": "No cross-agent conflicts detected. Trader executed zero trades (STAND_ASIDE on GNO with $0.00 open exposure), so no order overlap exists with the Rebalancer, which has also executed zero rebalances (total_rebalances = 0). Research reported no exploit, vulnerability, or security threat on any token; its critical failure is epistemic (unverifiable quantitative claims), not a holdings-level threat. Aggregate capital at risk is $0.00 of the $2,000 daily limit."
+  },
+  "parameter_scores": {
+    "capital_safety_discipline": {
+      "score": 88.0,
+      "status": "EXCELLENT",
+      "detail": "Trader: $0.00 open exposure of $2,000 daily limit, 0 hard cap breaches, correctly refused a sub-threshold-confidence (0.30 < 50 < 75) counter-trend setup with realized R:R of 1.01. Rebalancer: 30% stablecoin reserve vs 10% floor (3x buffer), drift 2.4% within 5% threshold. Zero aggregate capital at risk."
+    },
+    "signal_quality_win_expectancy": {
+      "score": 58.0,
+      "status": "WARNING",
+      "detail": "Trader's historical win rate 75% and avg R:R 2.1 are healthy, but the current evaluated setup had realized R:R 1.01 (below 1.5 minimum) with HIGH risk labeling \u2014 correctly rejected. Narrative-layer R:R contradictions (2.62/2.58 vs actual 1.01/1.72) and missing volume confirmation for the breakout trigger degrade signal integrity. Rebalancer emitted no regime classification despite macro_btc_beta 1.15, leaving directional expectancy ungrounded."
+    },
+    "portfolio_allocation_health": {
+      "score": 60.0,
+      "status": "WARNING",
+      "detail": "Rebalancer drift 2.4% is WITHIN_BOUNDS and stablecoin reserve 30% exceeds the 10% mandate, but active_strategy is empty \u2014 no declared target weights means drift cannot be traced to an auditable allocation baseline. Zero rebalances executed means the 7-day cadence is untested. Trader holds no open positions, so portfolio health rests entirely on an unconfigured Rebalancer."
+    },
+    "multi_source_intel_depth": {
+      "score": 25.0,
+      "status": "HALTED",
+      "detail": "Research node critically compromised: 16 quantitative claims audited, only 2 partially grounded (faithfulness ratio 0.13). Orphan citations [S9] and [S11] reference sources absent from the source list. Core staking measurement ~6 weeks stale yet presented as current. Verification pipeline appears to check URL liveness rather than claim-evidence alignment (95% source_verification_rate contradicts near-zero numeric grounding). Trader's indicator grounding was strong, but fleet-level intel depth is dragged to HALTED by Research's failure."
+    },
+    "execution_efficiency_uptime": {
+      "score": 55.0,
+      "status": "WARNING",
+      "detail": "Trader: zero trades executed today (0 of 3 daily cap used) \u2014 correct refusal, not an execution failure. Rebalancer: total_rebalances = 0 with vacuous 100% state machine success rate over a zero-sample denominator; cadence scheduler arming unverified. No stuck, dropped, or refunded swaps exist anywhere, but equally no positive evidence of healthy execution transitions across the fleet."
+    }
+  },
+  "key_findings": [
+    "RESEARCH KILL TRIGGERED: Research score 22.0 is below the user kill threshold of 50.0 \u2014 mark research agent for kill/suspension pending remediation of claim-evidence grounding pipeline.",
+    "No cannibalization: Trader opened zero positions (STAND_ASIDE on GNO) and Rebalancer executed zero rebalances \u2014 no order overlap or wash risk exists.",
+    "No holdings threat: Research's critical failure is epistemic (unverifiable staking/yield data), not a reported exploit or vulnerability on any held token.",
+    "Trader narrative-layer hallucinations (R:R 2.62/2.58 vs computed 1.01/1.72; ATR window contradiction; unsupported volume confirmation) are MINOR severity \u2014 plan data itself was fully grounded and no capital was deployed.",
+    "Rebalancer is operating without declared target weights (empty active_strategy), making its 2.4% drift measurement unverifiable in origin; 100% success rate is vacuous over zero executions.",
+    "Aggregate fleet exposure is $0.00 against a $2,000 daily limit \u2014 zero capital at risk across all agents.",
+    "Research's reported 95% source_verification_rate is inconsistent with the auditor's 0.13 faithfulness ratio, indicating the verification pipeline checks URL liveness, not claim-evidence alignment \u2014 systemic tooling gap.",
+    "HSP-029 evidence suggests NEAR issuance is ramping DOWN from 2.5% toward 1.6% \u2014 Research's '2.5% issuance cap' framing may already be outdated, compounding the staleness risk if its yield data were acted upon."
+  ],
+  "recommended_tuning": [
+    "KILL/SUSPEND the Research agent immediately (score 22.0 < kill threshold 50.0); do not reinstate until claim-evidence string matching and orphan-citation guards are deployed and a re-audit shows faithfulness ratio > 0.80.",
+    "Enforce single-source-of-truth for Trader R:R figures: verdict narratives must be generated from the plan's recomputed_rr fields, never independently restated.",
+    "Add a hard validation gate rejecting any risk_manager narrative claiming ATR-window compliance when computed ATR-distance falls outside the claimed window.",
+    "Require volume_ratio as a mandatory chart-tool output field before any Double Bottom/Top breakout can be labeled 'confirmed'.",
+    "Populate Rebalancer active_strategy with explicit target weights per asset so drift can be traced to a verifiable allocation baseline.",
+    "Suppress or annotate state_machine_success_rate when total_rebalances = 0; report 'NO_SAMPLE' instead of a vacuous 100%.",
+    "Verify the Rebalancer 7-day cadence scheduler is armed (next_rebalance_at timestamp exists and is within 7 days of activation).",
+    "Cross-check quantitative_metrics.source_verification_rate against independent faithfulness_ratio audits to detect verification-pipeline drift fleet-wide.",
+    "Consider auto-rejecting counter-trend setups with realized R:R < 1.5 regardless of confidence score, given negative expectancy after fees/slippage.",
+    "Require Research to use a dedicated live-stats retrieval (staking explorer/API) for network metrics instead of governance forum proposals, and flag measurements older than 7 days when asserting 'current' conditions."
+  ],
+  "stored_at": "2026-11-03 21:06:59 UTC",
+  "stored_at_iso": "2026-11-03T21:06:59.229739+00:00",
+  "date_utc": "2026-11-03",
+  "time_utc": "21:06:59 UTC",
+  "timestamp_utc": "2026-11-03 21:06:59 UTC",
+  "created_at_utc": "2026-11-03T21:06:59.229739+00:00"
+}

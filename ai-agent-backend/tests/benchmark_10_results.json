@@ -1,0 +1,927 @@
+[
+  {
+    "id": 1,
+    "domain": "NEAR Liquid Staking & DeFi Yields",
+    "topic": "NEAR Ecosystem Yields: Liquid Staking (stNEAR, LiNEAR) vs Native Validator Delegation & DeFi Lending",
+    "pages_indexed": 0,
+    "node1_mechanisms": [
+      "native validator delegation",
+      "liquid staking tokens",
+      "DeFi money-market lending",
+      "AMM liquidity provision",
+      "unstaking lockup periods",
+      "protocol fee structures",
+      "slashing and validator risk"
+    ],
+    "retrieval_calls_used": 3,
+    "selected_chunks_count": 18,
+    "unique_sources_count": 12,
+    "avg_vector_distance": 0.463,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "linear",
+      "validator",
+      "ref",
+      "stake",
+      "yield",
+      "unbonding"
+    ],
+    "missed_keywords": [
+      "stnear",
+      "apy",
+      "burrow"
+    ],
+    "caught_mechanisms": [
+      "native validator delegation",
+      "liquid staking tokens",
+      "DeFi money-market lending",
+      "AMM liquidity provision",
+      "unstaking lockup periods",
+      "protocol fee structures",
+      "slashing and validator risk"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [
+      "Current native delegation APY (~9-11% claim unverified; no live rate found)",
+      "Meta Pool stNEAR: APY, protocol fee, unstaking/unbond delay, underlying validator slashing exposure",
+      "LiNEAR: APY, fees, unstaking period, slashing pass-through",
+      "Burrow money-market lending: supply APY, utilization, borrow/spread fees, liquidation and smart-contract risk",
+      "Ref Finance lending and AMM liquidity provision: pool APYs, LP fee tiers, impermanent loss data",
+      "Protocol fee structures for all four options",
+      "Slashing/validator-risk exposure for liquid staking and lending routes",
+      "Any data dated within the 1-month window (cutoff 2026-10-03); all retrieved evidence is undated documentation"
+    ],
+    "catches": "6/9 critical domain terms caught; 12 unique sources referenced.",
+    "misses": "Missed terms: ['stnear', 'apy', 'burrow']",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "near_rpc_snapshot",
+        "args": {
+          "finality": "final",
+          "network": "near"
+        },
+        "thought": "Reading live chain state and validator metrics."
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "NEAR native validator delegation staking APY unstaking period slashing",
+          "n_results": 6
+        },
+        "thought": "Searching: NEAR native validator delegation staking APY unstaking period slashing"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "Native NEAR staking: slashing is NOT enabled in nearcore 2.13.4 \u2014 validators are not slashed for being offline",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "DeFi money-market lending",
+          "n_results": 5
+        },
+        "thought": "Searching: DeFi money-market lending"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "No usable lending-market evidence in this result set \u2014 chunks 10-11 are NEAR drop tutorial contract code, chunk 12 is a DEX primitives page that only mentions the ref-finance token contract ('token.v2",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "near liquid staking stNEAR LiNEAR Meta Pool validator APY TVL yield rewards",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: native validator delegation"
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "domain": "Cross-Chain Intents & Chain Signatures (Account Aggregation)",
+    "topic": "Cross-Chain Intent Protocols & NEAR Chain Signatures (MPC Multichain Execution)",
+    "pages_indexed": 0,
+    "node1_mechanisms": [
+      "MPC threshold signature networks",
+      "distributed key generation and key derivation",
+      "bridgeless cross-chain transaction signing",
+      "cross-chain intent execution",
+      "account abstraction via smart contracts",
+      "latency and security trade-off analysis"
+    ],
+    "retrieval_calls_used": 3,
+    "selected_chunks_count": 15,
+    "unique_sources_count": 10,
+    "avg_vector_distance": 0.484,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "chain signature",
+      "mpc",
+      "key derivation",
+      "multichain",
+      "bitcoin",
+      "ethereum",
+      "threshold"
+    ],
+    "missed_keywords": [],
+    "caught_mechanisms": [
+      "MPC threshold signature networks",
+      "distributed key generation and key derivation",
+      "bridgeless cross-chain transaction signing",
+      "cross-chain intent execution",
+      "account abstraction via smart contracts",
+      "latency and security trade-off analysis"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [],
+    "catches": "7/7 critical domain terms caught; 10 unique sources referenced.",
+    "misses": "No major domain terms missed.",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "NEAR Chain Signatures MPC threshold signature key derivation sign Bitcoin Ethereum Cosmos transactions",
+          "n_results": 8
+        },
+        "thought": "Searching: NEAR Chain Signatures MPC threshold signature key derivation sign Bitcoin Ethereum Cosmos transactions"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "Signing flow: users call `sign` method on v1.signer smart contract; MPC service listens",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "near chain signatures intents MPC multichain execution bridge",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: MPC threshold signature networks"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "near distributed key generation and key derivation current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: distributed key generation and key derivation"
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "domain": "Ethereum Layer-2 Rollups & Modular Data Availability",
+    "topic": "Ethereum L2 Rollup Scaling: Optimistic vs ZK Rollups with Modular Data Availability (Celestia & EigenDA)",
+    "pages_indexed": 57,
+    "node1_mechanisms": [
+      "optimistic rollups",
+      "zk rollups",
+      "modular data availability",
+      "blob space and EIP-4844 proto-danksharding",
+      "proof generation and verification latency",
+      "L2 transaction fee markets",
+      "data availability sampling",
+      "rollup security and trust assumptions"
+    ],
+    "retrieval_calls_used": 3,
+    "selected_chunks_count": 15,
+    "unique_sources_count": 9,
+    "avg_vector_distance": 0.562,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "rollup",
+      "blob",
+      "data availability",
+      "celestia",
+      "proof",
+      "l2",
+      "scaling"
+    ],
+    "missed_keywords": [
+      "eip-4844"
+    ],
+    "caught_mechanisms": [
+      "optimistic rollups",
+      "zk rollups",
+      "modular data availability",
+      "blob space and EIP-4844 proto-danksharding",
+      "proof generation and verification latency",
+      "L2 transaction fee markets",
+      "data availability sampling",
+      "rollup security and trust assumptions"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [],
+    "catches": "7/8 critical domain terms caught; 9 unique sources referenced.",
+    "misses": "Missed terms: ['eip-4844']",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "ethereum optimistic rollups current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: optimistic rollups"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "ethereum zk rollups current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: zk rollups"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "ethereum modular data availability current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: modular data availability"
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "domain": "Solana High-Throughput DeFi & Liquid Staking",
+    "topic": "Solana DeFi Ecosystem: MEV-Boosted Liquid Staking (JitoSOL, Marinade) & DEX AMM Liquidity",
+    "pages_indexed": 0,
+    "node1_mechanisms": [
+      "MEV-boosted liquid staking",
+      "MEV tip distribution to stakers",
+      "stake auction marketplace",
+      "validator commission limits",
+      "liquid staking tokens",
+      "DEX AMM liquidity pools",
+      "instant unstake liquidity"
+    ],
+    "retrieval_calls_used": 3,
+    "selected_chunks_count": 17,
+    "unique_sources_count": 10,
+    "avg_vector_distance": 0.473,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "solana",
+      "stake",
+      "validator",
+      "unbonding",
+      "apy"
+    ],
+    "missed_keywords": [
+      "jito",
+      "mev",
+      "marinade"
+    ],
+    "caught_mechanisms": [
+      "MEV-boosted liquid staking",
+      "MEV tip distribution to stakers",
+      "stake auction marketplace",
+      "validator commission limits",
+      "liquid staking tokens",
+      "DEX AMM liquidity pools",
+      "instant unstake liquidity"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [],
+    "catches": "5/8 critical domain terms caught; 10 unique sources referenced.",
+    "misses": "Missed terms: ['jito', 'mev', 'marinade']",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "near_rpc_snapshot",
+        "args": {
+          "finality": "final",
+          "network": "solana"
+        },
+        "thought": "Reading live chain state and validator metrics."
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "Jito MEV tips distribution JitoSOL stakers real yield APY",
+          "n_results": 8
+        },
+        "thought": "Searching: Jito MEV tips distribution JitoSOL stakers real yield APY"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "No Jito-specific evidence yet. Tangential: MetaPool (metapool.app",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "solana liquid staking stNEAR LiNEAR Meta Pool validator APY TVL yield rewards",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: MEV-boosted liquid staking"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "solana MEV tip distribution to stakers current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: MEV tip distribution to stakers"
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "domain": "Zero-Knowledge Proofs & zkEVM / zkVM Infrastructure",
+    "topic": "Zero-Knowledge Virtual Machines (zkVM vs zkEVM): Proving Architectures, Verification Costs, and State Validation",
+    "pages_indexed": 44,
+    "node1_mechanisms": [
+      "zero-knowledge virtual machines (zkVM)",
+      "zkEVMs",
+      "STARK proof systems",
+      "SNARK proof systems",
+      "on-chain proof verification",
+      "proof recursion and aggregation",
+      "state transition validation",
+      "RISC-V general-purpose execution"
+    ],
+    "retrieval_calls_used": 2,
+    "selected_chunks_count": 15,
+    "unique_sources_count": 11,
+    "avg_vector_distance": 0.32,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "zk",
+      "snark",
+      "stark",
+      "proof",
+      "verifier",
+      "gas",
+      "risc",
+      "rollup"
+    ],
+    "missed_keywords": [],
+    "caught_mechanisms": [
+      "zero-knowledge virtual machines (zkVM)",
+      "zkEVMs",
+      "STARK proof systems",
+      "SNARK proof systems",
+      "on-chain proof verification",
+      "proof recursion and aggregation",
+      "state transition validation",
+      "RISC-V general-purpose execution"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [
+      "zkEVMs: no zkEVM-specific evidence retrieved \u2014 no EVM opcode equivalence taxonomy (type 1-4), no zkSync/Polygon/Scroll data, so the zkVM-vs-zkEVM contrast rests only on RISC Zero and generic rollup material",
+      "STARK vs SNARK proof generation performance: qualitative tradeoffs only; no prover runtimes, proof sizes, or hardware benchmarks",
+      "On-chain verification gas cost: no numeric gas figures; only the qualitative claim that SNARK verification is cheap and L1 verification dominates rollup operating cost",
+      "Proof recursion and aggregation: no evidence retrieved",
+      "State transition validation: only generic rollup state-reconstruction mentions; no zkVM-specific state-transition proving mechanics",
+      "Recency: all retrieved chunks are undated/evergreen; nothing confirmed as published within the 6-month window ending 2026-05-06"
+    ],
+    "catches": "8/8 critical domain terms caught; 11 unique sources referenced.",
+    "misses": "No major domain terms missed.",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "near_rpc_snapshot",
+        "args": {
+          "finality": "final",
+          "network": "ethereum"
+        },
+        "thought": "Reading live chain state and validator metrics."
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "STARK vs SNARK zkVM proof generation performance comparison RISC Zero zkEVM prover speed verification gas cost",
+          "n_results": 8
+        },
+        "thought": "Searching: STARK vs SNARK zkVM proof generation performance comparison RISC Zero zkEVM prover speed verification gas cost"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "ethereum.org zk-rollups: ZK-SNARKs favored for small proof sizes and constant-time verification; L1 proof verification is the largest operating cost of a ZK-rollup",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "zkEVMs",
+          "n_results": 5
+        },
+        "thought": "Searching: zkEVMs"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "Chunk 12 (ethereum.org zk-rollups",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "domain": "Real World Assets (RWA) & Tokenized Treasuries",
+    "topic": "Tokenized US Treasuries & Real World Assets (RWA): Institutional Yields, Regulatory Compliance, and Settlement",
+    "pages_indexed": 18,
+    "node1_mechanisms": [
+      "tokenized US Treasuries",
+      "real world asset (RWA) tokenization",
+      "KYC/AML permissioned token whitelisting",
+      "bankruptcy-remote SPV legal wrappers",
+      "yield pass-through and accrual mechanics",
+      "secondary market liquidity for permissioned tokens",
+      "institutional regulatory compliance"
+    ],
+    "retrieval_calls_used": 3,
+    "selected_chunks_count": 19,
+    "unique_sources_count": 12,
+    "avg_vector_distance": 0.542,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "treasury",
+      "rwa",
+      "yield",
+      "compliance",
+      "accredited",
+      "settlement",
+      "redemption",
+      "ondo"
+    ],
+    "missed_keywords": [],
+    "caught_mechanisms": [
+      "tokenized US Treasuries",
+      "real world asset (RWA) tokenization",
+      "KYC/AML permissioned token whitelisting",
+      "bankruptcy-remote SPV legal wrappers",
+      "yield pass-through and accrual mechanics",
+      "secondary market liquidity for permissioned tokens",
+      "institutional regulatory compliance"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [
+      "Centrifuge: no evidence retrieved \u2014 SPV legal wrapper structure, TinPool/drop token mechanics, KYC permissioned pools, and secondary liquidity all missing",
+      "OUSG: no product-specific evidence (yield, redemption rails, transfer restrictions)",
+      "KYC/AML whitelisting controls: only partial \u2014 USDY marketed as permissionless/freely transferable; no transfer-agent or whitelisting mechanics documented",
+      "Bankruptcy-remote SPV legal detail: only the marketing claim retrieved; no entity/jurisdiction/structure specifics",
+      "Secondary liquidity venues for permissioned tokens: only 'daily liquidity' mentioned; no ATS/primary-secondary venue detail",
+      "Regulatory changes in the 3-month window: only DTCC infrastructure launch captured; no SEC/OSC/regulatory rule changes"
+    ],
+    "catches": "8/8 critical domain terms caught; 12 unique sources referenced.",
+    "misses": "No major domain terms missed.",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "Ondo USDY OUSG tokenized US Treasury yield accrual mechanics KYC whitelisting bankruptcy remote SPV",
+          "n_results": 8
+        },
+        "thought": "Searching: Ondo USDY OUSG tokenized US Treasury yield accrual mechanics KYC whitelisting bankruptcy remote SPV"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "Centrifuge tokenized US Treasuries SPV legal wrapper KYC whitelisting secondary liquidity pools",
+          "n_results": 8
+        },
+        "thought": "Searching: Centrifuge tokenized US Treasuries SPV legal wrapper KYC whitelisting secondary liquidity pools"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "Centrifuge credit pools TinPool drop token KYC permissioned liquidity",
+          "n_results": 8
+        },
+        "thought": "Searching: Centrifuge credit pools TinPool drop token KYC permissioned liquidity"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "Chunks 1-3 (ondo.finance/usdy",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "domain": "AI Agent-to-Agent Economy & Decentralized Compute",
+    "topic": "Autonomous AI Agents in Web3: Agent-to-Agent Micropayments, Incentive Alignment, and Decentralized Inference",
+    "pages_indexed": 47,
+    "node1_mechanisms": [
+      "agent-to-agent micropayments",
+      "smart contract fee settlement",
+      "agent peer/service discovery",
+      "token-incentivized machine learning subnets",
+      "decentralized GPU compute marketplaces",
+      "decentralized inference networks",
+      "incentive alignment via token emissions",
+      "AI agent wallets and on-chain identities"
+    ],
+    "retrieval_calls_used": 2,
+    "selected_chunks_count": 18,
+    "unique_sources_count": 14,
+    "avg_vector_distance": 0.445,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "agent",
+      "inference",
+      "compute",
+      "subnet",
+      "bittensor",
+      "near ai"
+    ],
+    "missed_keywords": [
+      "micropayment"
+    ],
+    "caught_mechanisms": [
+      "agent-to-agent micropayments",
+      "smart contract fee settlement",
+      "agent peer/service discovery",
+      "token-incentivized machine learning subnets",
+      "decentralized GPU compute marketplaces",
+      "decentralized inference networks",
+      "incentive alignment via token emissions",
+      "AI agent wallets and on-chain identities"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [
+      "agent-to-agent micropayments (no sources retrieved)",
+      "smart contract fee settlement for research/trading fees (no sources retrieved)",
+      "agent peer/service discovery protocol specifics on NEAR (only generic mention)",
+      "Bittensor token-incentivized ML subnets, dTAO, and emission mechanics (no sources retrieved)",
+      "Akash decentralized GPU compute marketplace \u2014 current pricing, providers, utilization (no sources retrieved)",
+      "incentive alignment via token emissions across the three networks (no sources retrieved)",
+      "AI agent wallets and on-chain identities (no sources retrieved)",
+      "live/current metrics for NEAR AI inference: per-token prices, model list, usage volume (only qualitative claims)"
+    ],
+    "catches": "6/7 critical domain terms caught; 14 unique sources referenced.",
+    "misses": "Missed terms: ['micropayment']",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "near_rpc_snapshot",
+        "args": {
+          "finality": "final",
+          "network": "bittensor-akash-near-ai"
+        },
+        "thought": "Reading live chain state and validator metrics."
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "autonomous AI agents Web3 micropayments Bittensor Akash NEAR AI GPU compute inference",
+          "n_results": 10
+        },
+        "thought": "Searching: autonomous AI agents Web3 micropayments Bittensor Akash NEAR AI GPU compute inference"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "{",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "bittensor-akash-near-ai agent-to-agent micropayments current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: agent-to-agent micropayments"
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "domain": "Web3 Developer Grants, Bounties & Hackathons",
+    "topic": "Web3 Developer Capital: Ecosystem Grants, Hackathon Prize Pools, and Retroactive Funding Pathways",
+    "pages_indexed": 8,
+    "node1_mechanisms": [
+      "developer grant programs",
+      "hackathon prize pools",
+      "retroactive public goods funding",
+      "quadratic funding rounds"
+    ],
+    "retrieval_calls_used": 5,
+    "selected_chunks_count": 17,
+    "unique_sources_count": 10,
+    "avg_vector_distance": 0.558,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "grant",
+      "hackathon",
+      "prize",
+      "bounty",
+      "developer",
+      "milestone",
+      "funding",
+      "devhub"
+    ],
+    "missed_keywords": [],
+    "caught_mechanisms": [
+      "developer grant programs",
+      "hackathon prize pools",
+      "retroactive public goods funding",
+      "quadratic funding rounds"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [
+      "Gitcoin quadratic funding rounds: no active round names, matching pool sizes, or dates retrieved",
+      "Hackathon tracks and prize pools: no specific prizes, tracks, or submission deadlines found",
+      "Retroactive public goods funding: no evidence retrieved",
+      "NEAR DevHub grant specifics: only directory-level program names; no amounts, eligibility criteria, deadlines, or evaluation milestones",
+      "Submission deadlines and evaluation milestones for the next 3 months: no dated information retrieved for any program"
+    ],
+    "catches": "8/8 critical domain terms caught; 10 unique sources referenced.",
+    "misses": "No major domain terms missed.",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "NEAR DevHub developer grant program application guidelines milestones",
+          "n_results": 5
+        },
+        "thought": "Searching: NEAR DevHub developer grant program application guidelines milestones"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "[\"near.org/funding is NEAR's funding directory listing: Ecosystem Grants, Protocol Rewards (metrics-based rewards tied to dev activity/user adoption), Devhub Grants (tooling funding), Potlock (impact ",
+          "coverage": "{'developer_grant_programs': 'partial', 'hackathon_prize_pools': 'missing', 'retroactive_public_goods_funding': 'missing', 'quadratic_funding_rounds': 'missing'}",
+          "new_hints": "['Potlock', 'Meta Pool Grants', 'Protocol Rewards', 'near.org/funding']",
+          "enough": false,
+          "next_query": "Gitcoin Grants active rounds quadratic funding matching pool dates 2026"
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: Gitcoin Grants active rounds quadratic funding matching pool dates 2026"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "near hackathons developer grants bounties prizes submission deadlines",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: developer grant programs"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "near hackathons developer grants bounties prizes submission deadlines",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: hackathon prize pools"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "near retroactive public goods funding current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: retroactive public goods funding"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "near quadratic funding rounds current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: quadratic funding rounds"
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "domain": "Decentralized Stablecoins & Delta-Neutral Yields",
+    "topic": "Decentralized Stablecoin Architectures: Overcollateralized vs Synthetic Delta-Neutral (Ethena USDe) Mechanics & Depeg Vectors",
+    "pages_indexed": 3,
+    "node1_mechanisms": [
+      "synthetic delta-neutral stablecoins",
+      "perpetual futures funding rates and basis trades",
+      "liquid staking tokens as collateral",
+      "overcollateralized CDP stablecoins",
+      "collateral liquidations and auctions",
+      "peg stability and depeg risk"
+    ],
+    "retrieval_calls_used": 3,
+    "selected_chunks_count": 18,
+    "unique_sources_count": 9,
+    "avg_vector_distance": 0.556,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "ethena",
+      "usde",
+      "funding rate",
+      "basis",
+      "stablecoin",
+      "collateral"
+    ],
+    "missed_keywords": [
+      "depeg",
+      "hedging"
+    ],
+    "caught_mechanisms": [
+      "synthetic delta-neutral stablecoins",
+      "perpetual futures funding rates and basis trades",
+      "liquid staking tokens as collateral",
+      "overcollateralized CDP stablecoins",
+      "collateral liquidations and auctions",
+      "peg stability and depeg risk"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [
+      "Overcollateralized CDP stablecoin mechanics (MakerDAO/Sky DAI): no retrieved evidence",
+      "Collateral liquidations and auction cascades for CDPs: no retrieved evidence",
+      "Perpetual futures funding-rate levels / basis-trade yield data over the past 3 months: no retrieved evidence",
+      "Liquid staking tokens (stETH) as collateral specifics: only named, not evidenced",
+      "Peg stability / depeg events for USDe or DAI in the 3-month window: no retrieved evidence",
+      "Ethena Risk section contents (negative funding, counterparty, slashing risks): referenced but not retrieved"
+    ],
+    "catches": "6/8 critical domain terms caught; 9 unique sources referenced.",
+    "misses": "Missed terms: ['depeg', 'hedging']",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "Ethena USDe delta-neutral basis trade stETH long short ETH perpetual funding rate mechanism",
+          "n_results": 8
+        },
+        "thought": "Searching: Ethena USDe delta-neutral basis trade stETH long short ETH perpetual funding rate mechanism"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "Ethena docs (docs.ethena.fi",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "ethereum synthetic delta-neutral stablecoins current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: synthetic delta-neutral stablecoins"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "ethereum perpetual futures funding rates and basis trades current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: perpetual futures funding rates and basis trades"
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "domain": "Restaking & Shared Security Infrastructure",
+    "topic": "Restaking Ecosystems: Actively Validated Services (AVS), Shared Security Pools, and Slashing Cascades",
+    "pages_indexed": 16,
+    "node1_mechanisms": [
+      "restaking",
+      "actively validated services (AVS)",
+      "shared security pools",
+      "slashing and correlated slashing risk",
+      "node operator requirements",
+      "dual-token staking"
+    ],
+    "retrieval_calls_used": 3,
+    "selected_chunks_count": 19,
+    "unique_sources_count": 16,
+    "avg_vector_distance": 0.67,
+    "mechanism_coverage_pct": 100.0,
+    "caught_keywords": [
+      "restaking",
+      "slashing",
+      "operator",
+      "ethereum",
+      "security"
+    ],
+    "missed_keywords": [
+      "eigenlayer",
+      "avs"
+    ],
+    "caught_mechanisms": [
+      "restaking",
+      "actively validated services (AVS)",
+      "shared security pools",
+      "slashing and correlated slashing risk",
+      "node operator requirements",
+      "dual-token staking"
+    ],
+    "missed_mechanisms": [],
+    "coverage_gaps": [
+      "EigenLayer-specific restaking mechanics (EigenPods, LST restaking, delegation flow) \u2014 not found",
+      "AVS specifics: which AVSs are live, registration, security commitments \u2014 not found",
+      "Shared security pools composition and economics \u2014 not found",
+      "Correlated slashing cascade analysis across multiple AVS protocols (only generic 'each application adds its own slashing conditions' framing) \u2014 partial/missing",
+      "Node operator qualification requirements (registration, stake thresholds, operational obligations) \u2014 not found",
+      "Dual-token staking structure (EIGEN/bEIGEN interleaved with ETH restaking) \u2014 not found",
+      "Last-3-months ecosystem data: TVL, operator counts, slashing incidents, AVS launches, reward rates \u2014 no time-bound evidence retrieved"
+    ],
+    "catches": "5/7 critical domain terms caught; 16 unique sources referenced.",
+    "misses": "Missed terms: ['eigenlayer', 'avs']",
+    "needs_improvement": "RAG context is dense, highly grounded, and comprehensive",
+    "tool_calls_trace": [
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "EigenLayer restaking mechanics AVS slashing risk operators",
+          "n_results": 8
+        },
+        "thought": "Searching: EigenLayer restaking mechanics AVS slashing risk operators"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "Search returned mostly generic staking content",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "restaking",
+          "n_results": 5
+        },
+        "thought": "Searching: restaking"
+      },
+      {
+        "tool": "checkpoint",
+        "args": {
+          "learned": "Chunk 9 (ethereum.org/en/staking",
+          "coverage": "",
+          "new_hints": "",
+          "enough": false,
+          "next_query": ""
+        },
+        "thought": "Coverage checkpoint: enough=False | Next: None"
+      },
+      {
+        "tool": "rag_search",
+        "args": {
+          "query": "eigenlayer restaking current metrics official documentation",
+          "n_results": 6
+        },
+        "thought": "Relentless discovery for: restaking"
+      }
+    ]
+  }
+]

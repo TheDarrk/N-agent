@@ -1,7 +1,7 @@
 /**
  * Neptune AI v2 — Autonomy API Proxy
- * Catch-all route that proxies /api/autonomy/* requests to the Python backend.
- * Handles: settings, strategies, logs, kill-switch, autonomy-status, storage-status, reasoning-trace
+ * Catch-all route that proxies /api/* requests to the Python backend.
+ * Handles: settings, strategies, logs, kill-switch, autonomy-status, storage-status, reasoning-trace, research streaming
  */
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
@@ -20,6 +20,18 @@ export async function GET(
             method: "GET",
             headers: { "Content-Type": "application/json" },
         });
+
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("text/event-stream") || contentType.includes("application/x-ndjson") || backendPath.includes("/stream")) {
+            return new Response(response.body, {
+                status: response.status,
+                headers: {
+                    "Content-Type": contentType || "text/event-stream",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive"
+                }
+            });
+        }
 
         const data = await response.json();
         return Response.json(data, { status: response.status });
@@ -54,6 +66,18 @@ export async function POST(
             headers: { "Content-Type": "application/json" },
             ...(body ? { body: JSON.stringify(body) } : {}),
         });
+
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("text/event-stream") || contentType.includes("application/x-ndjson") || backendPath.includes("/stream")) {
+            return new Response(response.body, {
+                status: response.status,
+                headers: {
+                    "Content-Type": contentType || "application/x-ndjson",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive"
+                }
+            });
+        }
 
         const data = await response.json();
         return Response.json(data, { status: response.status });

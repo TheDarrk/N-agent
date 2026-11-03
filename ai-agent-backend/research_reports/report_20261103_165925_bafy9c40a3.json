@@ -1,0 +1,376 @@
+{
+  "reasoning": "1. User Intent: User wants NEAR yield opportunities \u2014 best staking pools, best liquid staking (stNEAR/LiNEAR), DeFi yield pools, and recent hackathons/grants/bounties for participation.\n2. Quantitative Evidence: Gross staking yield 5.268% (Sept 22, 2026, block 216,701,043); formula ~2.25% \u00d7 supply/stake [S1][S11]; 558.17M of 1,306.9M NEAR staked (42.71%); 406 validators (100 BP/306 chunk); min active stake 9,428 NEAR; spot $4.30 [S1][S9]. HSP-029 would ramp emissions 2.5%\u21921.6% over 24 months, cutting gross yield to 3.372% [S1][S9]. Hackathon: $250,000 pool, Nov 1\u201314 build, judging Nov 16\u201318, 13 tracks [S3][S16]. Liquid providers: Meta Pool (meta-pool.near), Rhea Finance (lst.rhealab.near), Linear (linear-protocol.near); 4-epoch unstake (~24\u201328h) or instant DEX swap on Rhea.finance [S2][S13].\n3. Trade-offs: Native staking maximizes yield but concentrates validator uptime risk (<90% uptime forfeits epoch rewards [S11]) and imposes 4-epoch exit; liquid staking diversifies across top validators with instant DEX exit but slightly lower average rate plus contract/slippage risk [S2][S13].\n4. Actionable: Stake via \u226599%-uptime validators now (~5.27% gross), use Meta Pool/Linear for liquidity, enter hackathon before Nov 14, apply via near.org/funding channels, watch HSP-029.\n5. Gaps: Per-validator APY ranking (RPC snapshots retrieved were testnet-only [S7]), live stNEAR/LiNEAR APYs, DeFi pool APYs/TVLs, DEX fee data, hackathon per-place prize breakdown, grant amounts/deadlines.",
+  "title": "NEAR Staking Yield at 5.27% Gross, Liquid Staking via Meta Pool/Linear/Rhea, and Build Beyond Boundaries Hackathon ($250K Prize Pool)",
+  "user_expectations_summary": "The user sought NEAR ecosystem investment opportunities: the highest-yield staking pools, the best liquid staking options (stNEAR/LiNEAR), DeFi yield pools, and any recent hackathons, grants, or bounties as ways to participate.",
+  "findings": "# NEAR Ecosystem Yield & Participation Report (as of November 3, 2026)\n\n## 1. Native Staking: Current Yield Environment\n\nNEAR's **gross staking yield measured 5.268%** as of September 22, 2026 (mainnet block 216,701,043) [S1]. This is consistent with the protocol formula in NEAR Docs: validator yearly yield \u2248 **2.25% \u00d7 total supply / total stake**, derived from the 2.5% annual reward budget with 10% routed to the treasury [S11]. Cross-check: 2.25% \u00d7 1,306,946,399 / 558,165,227 \u2248 5.27% [S1, S11].\n\n| Metric | Value (measured Sept 22, 2026) | Source |\n|---|---|---|\n| Spot price | $4.30 (cross-checked Kraken, Coinbase, CoinGecko) | [S9] |\n| Total supply | 1,306,946,399 NEAR | [S1] |\n| Total staked | 558,165,227 NEAR (42.71% of supply) | [S1] |\n| Gross staking yield | 5.268% (at 2.5% issuance cap) | [S1] |\n| Active validators | 406 (100 block producers, 306 chunk-only) | [S1] |\n| Proposal queue | 459 candidates waiting for a seat | [S1] |\n| Minimum active stake (validator seat) | 9,428 NEAR | [S1] |\n| Issuance split | 90% staking participants / 10% treasury | [S1] |\n| Mainnet validator seats | 500 (top 100 produce blocks) | [S11] |\n\n**Key dynamic:** In the two weeks before measurement, ~54.5M NEAR was unstaked as the staking ratio fell from 46.92% to 42.71% during a price rise from $2.31 to $4.30 \u2014 yet gross yield *rose* from 4.796% to 5.268% because the staked denominator shrank [S1].\n\n**Validator selection criteria:** Validators with <90% uptime in an epoch earn **no reward** for that epoch; rewards are reduced between 90\u201399% uptime [S11]. Active validator lists are viewable on platforms like NEAR-STAKING [S11]. Note: 269 of 424 validator pools do not cover operating costs from commission alone at spot (302 at 1.6% issuance), indicating long-tail attrition risk [S14].\n\n### Forward Yield Risk: HSP-029 Issuance Ramp\nGovernance proposal **HSP-029** (posted Oct 7, 2026) would ramp maximum annual emissions from 2.5% to **1.6% over 24 months**, cutting gross staking yield from 5.268% to **3.372%** at the 1.6% target [S1]. The proposal argues stake responds to price and liquidity opportunity cost rather than emission rate, and cites Solana's ratification of an equivalent change (SGP-0002, 67.001% of stake) on Aug 28, 2026 [S9]. At the 1.6% target, 24 of 405 pools would lose economic self-sufficiency at spot [S9]. This proposal is **not yet ratified** \u2014 it is the dominant forward-looking risk to NEAR staking yields.\n\n## 2. Liquid Staking: Providers, Mechanics & Trade-offs\n\nNEAR Docs list three major mainnet liquid staking providers [S2]:\n\n| Provider | Mainnet Contract | Exit Paths | Notes |\n|---|---|---|---|\n| Meta Pool | `meta-pool.near` | 4-epoch unstake OR instant DEX swap | MetaPool's node studio credited in governance discussion as supporting validator set health [S14] |\n| Rhea Finance | `lst.rhealab.near` | 4-epoch unstake OR instant DEX swap | Rhea.finance DEX is the documented swap venue for liquid-token exits [S2] |\n| Linear | `linear-protocol.near` | 4-epoch unstake OR instant DEX swap | Same liquid-staking interface [S2] |\n\n**Mechanics:** Call `deposit_and_stake` with NEAR attached to receive the liquid token; rewards accrue through the underlying validators [S2]. To exit natively: `unstake_all`, wait the standard **4 epochs (~24\u201328 hours per NEAR Docs)**, then `withdraw_all` [S2]. For immediate liquidity, swap the liquid token for NEAR on a DEX like **Rhea.finance** without waiting [S2].\n\n**Risk/return trade-off:** Liquid contracts delegate across multiple top-performing, actively monitored validators, making reward loss from a single validator outage extremely unlikely \u2014 but the **average reward rate is typically slightly lower** than delegating directly to a single high-performing validator [S2, S13].\n\n### Native vs. Liquid Staking Comparison\n\n| Dimension | Native Validator Delegation | Liquid Staking (stNEAR / LiNEAR / Rhea LST) |\n|---|---|---|\n| Gross yield | Up to ~5.27% via a top validator [S1, S11] | Slightly lower average rate [S13] |\n| Exit liquidity | 4-epoch unstake delay (~24\u201328h) [S2] | Instant via DEX swap on Rhea.finance [S2] |\n| Validator risk | Concentrated in one pool; uptime penalties [S11] | Diversified across top validators [S13] |\n| Incremental risk | None beyond validator performance | Smart contract risk; DEX slippage/price deviation [S2, S13] |\n\n**Live stNEAR/LiNEAR APYs are not published in the retrieved evidence**; both track the underlying validator reward rate (~5.27% gross, marginally lower net of diversification) [S1, S13].\n\n## 3. DeFi Yield Pools & DEX Liquidity\n\nRhea.finance is documented as the DEX venue for swapping liquid staking tokens back to NEAR [S2]. However, **no specific NEAR DeFi pool APYs, TVLs, or LP fee-tier data appear in the retrieved evidence** \u2014 this remains a coverage gap.\n\n## 4. NEAR HACKATHON: Build Beyond Boundaries \u2014 $250,000 Prize Pool\n\n| Item | Detail |\n|---|---|\n| Total prize pool | **$250,000** [S3] |\n| Build window | Nov 1, 2026 00:00 UTC \u2013 Nov 14, 23:59 UTC [S3] |\n| Judging / results | Nov 16\u201318; results announced by Nov 18, 23:59 UTC [S3] |\n| Sign-up | None required in advance; solo or team [S3] |\n| Submission requirements | Public repository + public demo post on X (video or screenshots, mention NEAR HACKATHON); form asks for project name, 20\u20132,000 char description, team lead + email, team size, preferred track, NEAR account address for prizes [S3] |\n| Tracks (13 total) | Unstoppable DeFi, Investment Thesis, Privacy & Private AI, Autonomous Business, AI Swarms, AI Security & Defense, Agent Economy (list continues in source) [S16] |\n| Tooling | NEAR Intents, Chain Signatures, chain abstraction, NEAR AI Cloud, TEEs, 1-Click Swap SDK, function-call keys, meta transactions, sub-accounts [S16] |\n| Support | HACKATHON.md guidance, NEAR Discord for questions, @NEAR_hckthn for updates [S15, S16] |\n\n**Per-place prize breakdown (grand prize, 1st place, etc.) is not disclosed in the retrieved sources** \u2014 only the $250,000 total is documented [S3]. As of this report date (Nov 3, 2026), the build window is **open with 11 days remaining**.\n\n## 5. Grants & Ecosystem Participation\n\nThe NEAR funding portal (near.org/funding) lists five channels [S4]:\n\n| Program | Focus |\n|---|---|\n| Ecosystem Grants | Apply for NEAR grants to fund your project [S4] |\n| Protocol Rewards | Metrics-based rewards tied to development activity and user adoption [S4] |\n| Devhub Grants | Funding and support for tooling [S4] |\n| Potlock | Discover impact projects, donate directly, join funding rounds [S4] |\n| Meta Pool Grants | Meta Pool growth initiatives: DeFi, Education, TVL Generation, Brand Awareness [S4] |\n\nGrant amounts, deadlines, and eligibility criteria are not published in the retrieved evidence.\n\n## 6. Coverage Gaps\n- **Per-validator APY/commission ranking:** only the aggregate 5.268% gross yield is documented [S1]; the RPC snapshots retrieved were NEAR **testnet** endpoints (27 validators), not mainnet staking data [S7].\n- **Live stNEAR/LiNEAR APYs:** only provider contracts and mechanics documented [S2].\n- **DeFi pool APYs/TVLs and DEX LP fee data:** absent from evidence.\n- **Hackathon per-place prize breakdown:** only the $250,000 total is documented [S3].\n- **Grant amounts, deadlines, eligibility:** not published [S4].",
+  "risk_factors": [
+    "If governance proposal HSP-029 ratifies the 24-month ramp to 1.6% emissions, gross NEAR staking yield falls from 5.268% to 3.372% [S1].",
+    "Delegating to a validator with <90% epoch uptime forfeits that epoch's rewards entirely, with reduced rewards between 90\u201399% uptime [S11].",
+    "Native and liquid staking redemptions carry a 4-epoch unstaking delay (~24\u201328 hours per NEAR Docs) before funds become withdrawable [S2].",
+    "Instant exits from liquid staking require swapping stNEAR/LiNEAR on a DEX, exposing holders to smart contract risk, slippage, and potential market-price deviation from redemption value [S2][S13].",
+    "Liquid staking yields are typically slightly lower than delegating directly to a single high-performing validator [S13].",
+    "Hackathon prize eligibility requires a public repository and a public demo post on X submitted before Nov 14, 2026 23:59 UTC; non-compliant or late submissions forfeit eligibility [S3].",
+    "Yield and price figures are measured as of Sept 22, 2026 at a $4.30 spot price; current market conditions may differ materially [S9].",
+    "269 of 424 validator pools do not cover operating costs from commission at spot, implying long-tail validator attrition risk for delegators [S14]."
+  ],
+  "signals": [
+    {
+      "signal": "Stake NEAR natively with high-uptime validators (\u226599% uptime) to capture ~5.27% gross protocol yield before any HSP-029 emission cut",
+      "direction": "STAKE",
+      "asset_or_target": "NEAR Protocol validator delegation",
+      "confidence": 82,
+      "timeframe": "Immediate; yield steps down to 3.372% only if HSP-029's 24-month ramp to 1.6% emissions is ratified",
+      "rationale": "Gross staking yield measured at 5.268% (Sept 22, 2026), consistent with the 2.25% \u00d7 supply/stake formula; uptime below 90% forfeits epoch rewards, so validator selection via NEAR-STAKING is critical; monitor HSP-029 as the dominant forward yield risk.",
+      "supporting_sources": [
+        1,
+        9,
+        11
+      ]
+    },
+    {
+      "signal": "Deploy NEAR into liquid staking via Meta Pool (stNEAR), Linear (LiNEAR), or Rhea Finance LSTs for yield with instant exit liquidity through Rhea.finance",
+      "direction": "STAKE",
+      "asset_or_target": "Meta Pool stNEAR / Linear LiNEAR / Rhea Finance LST",
+      "confidence": 75,
+      "timeframe": "Ongoing; 4-epoch unstake (~24\u201328 hours) for native redemption or instant DEX swap for immediate exit",
+      "rationale": "All three are NEAR Docs-listed mainnet providers with diversified delegation across top validators, reducing outage risk; instant DEX exit solves the 4-epoch lock; trade-off is a slightly lower average rate than a single top validator, and live stNEAR/LiNEAR APYs are unverified in evidence.",
+      "supporting_sources": [
+        2,
+        13,
+        14
+      ]
+    },
+    {
+      "signal": "Enter NEAR HACKATHON: Build Beyond Boundaries before the Nov 14, 2026 23:59 UTC submission deadline ($250,000 total prize pool)",
+      "direction": "PARTICIPATE",
+      "asset_or_target": "NEAR ecosystem (NEAR Intents, NEAR AI Cloud, Chain Signatures)",
+      "confidence": 90,
+      "timeframe": "Build window Nov 1\u201314, 2026; judging Nov 16\u201318; results by Nov 18, 23:59 UTC",
+      "rationale": "Time-sensitive: the window is open now with 11 days remaining; no advance sign-up required, 13 tracks including Unstoppable DeFi and Autonomous Business, and eligibility requires a public repo plus a public demo post on X.",
+      "supporting_sources": [
+        3,
+        15,
+        16
+      ]
+    },
+    {
+      "signal": "Watch the HSP-029 governance vote \u2014 ratification cuts NEAR staking emissions from 2.5% to 1.6% over 24 months (gross yield 5.268% \u2192 3.372%)",
+      "direction": "WATCH",
+      "asset_or_target": "NEAR Protocol token emissions / staking yield",
+      "confidence": 80,
+      "timeframe": "Proposal posted Oct 7, 2026; ramp would run 24 months upon ratification",
+      "rationale": "The proposal is the single largest documented determinant of future NEAR staking yield; Solana ratified an equivalent change (SGP-0002) on Aug 28, 2026, suggesting regional precedent; staking yield assumptions should be stress-tested to 3.372%.",
+      "supporting_sources": [
+        1,
+        9,
+        14
+      ]
+    },
+    {
+      "signal": "Apply to NEAR grant channels (Ecosystem Grants, Devhub Grants, Meta Pool Grants, Protocol Rewards, Potlock) if building a project on NEAR",
+      "direction": "PARTICIPATE",
+      "asset_or_target": "NEAR ecosystem grant programs",
+      "confidence": 60,
+      "timeframe": "Rolling applications; no deadlines published in retrieved evidence",
+      "rationale": "near.org/funding documents five active funding channels, including Meta Pool Grants focused on DeFi, Education, TVL Generation, and Brand Awareness, and metrics-based Protocol Rewards; specific amounts and eligibility criteria are not disclosed in evidence.",
+      "supporting_sources": [
+        4
+      ]
+    }
+  ],
+  "primary_signal": {
+    "signal": "Stake NEAR natively with high-uptime validators (\u226599% uptime) to capture ~5.27% gross protocol yield before any HSP-029 emission cut",
+    "direction": "STAKE",
+    "asset_or_target": "NEAR Protocol validator delegation",
+    "confidence": 82,
+    "timeframe": "Immediate; yield steps down to 3.372% only if HSP-029's 24-month ramp to 1.6% emissions is ratified",
+    "rationale": "This is the user's core investment ask, backed by the strongest quantitative evidence: 5.268% gross staking yield measured on mainnet (Sept 22, 2026) and a transparent protocol formula; validator uptime discipline (\u226599%) preserves full epoch rewards, and HSP-029 monitoring manages the forward yield-cut risk.",
+    "supporting_sources": [
+      1,
+      9,
+      11
+    ]
+  },
+  "ecosystem_opportunities": [
+    {
+      "title": "Native NEAR Staking via Validators (~5.27% Gross Yield)",
+      "category": "Yield / Staking",
+      "target_asset_or_protocol": "NEAR Protocol (validator delegation)",
+      "reward_or_yield": "5.268% gross staking yield at the current 2.5% issuance cap (measured Sept 22, 2026); formula ~2.25% \u00d7 total supply / total stake; falls to 3.372% if HSP-029 ramps issuance to 1.6%",
+      "timeframe_or_deadlines": "Ongoing; unstaking requires a 4-epoch delay (~24\u201328 hours per NEAR Docs); HSP-029 proposes a 24-month emissions ramp (posted Oct 7, 2026, not yet ratified)",
+      "how_to_participate": "1) Review active validators on NEAR-STAKING and select one with \u226599% uptime (epochs below 90% uptime earn zero rewards). 2) Delegate NEAR through your wallet's staking interface to the chosen staking pool. 3) Rewards accrue proportionally to stake from the 2.5% annual budget (90% to stakers, 10% treasury). 4) To exit, request unstake and withdraw after the 4-epoch delay.",
+      "supporting_sources": [
+        1,
+        9,
+        11
+      ]
+    },
+    {
+      "title": "Meta Pool Liquid Staking (stNEAR)",
+      "category": "Yield / Staking \u2014 Liquid Staking",
+      "target_asset_or_protocol": "Meta Pool / stNEAR (meta-pool.near)",
+      "reward_or_yield": "Tracks underlying validator rewards (~5.27% gross protocol yield; liquid rate typically slightly below top single-validator delegation); live stNEAR APY not published in retrieved evidence",
+      "timeframe_or_deadlines": "Instant exit via Rhea.finance DEX swap, or 4-epoch unstake (~24\u201328 hours) for full native redemption",
+      "how_to_participate": "1) Call deposit_and_stake on meta-pool.near (or use Meta Pool's app) with NEAR attached. 2) Receive the liquid token representing a position diversified across top-performing validators. 3) Hold to accrue rewards via the exchange rate, or swap instantly to NEAR on Rhea.finance for immediate liquidity. 4) For native redemption, call unstake_all then withdraw_all after the 4-epoch wait.",
+      "supporting_sources": [
+        2,
+        13,
+        14
+      ]
+    },
+    {
+      "title": "Linear Liquid Staking (LiNEAR)",
+      "category": "Yield / Staking \u2014 Liquid Staking",
+      "target_asset_or_protocol": "Linear protocol / LiNEAR (linear-protocol.near)",
+      "reward_or_yield": "Tracks underlying validator rewards (~5.27% gross protocol yield; average rate slightly lower than a single top validator due to multi-validator diversification); live LiNEAR APY not published in retrieved evidence",
+      "timeframe_or_deadlines": "Instant exit via DEX swap (Rhea.finance documented venue), or 4-epoch unstake (~24\u201328 hours) for native redemption",
+      "how_to_participate": "1) Call deposit_and_stake on linear-protocol.near with NEAR attached. 2) Receive LiNEAR representing your staked position across multiple maintained validators. 3) Hold for exchange-rate accrual or swap LiNEAR\u2192NEAR on a DEX for instant liquidity. 4) For native redemption, unstake_all then withdraw_all after 4 epochs.",
+      "supporting_sources": [
+        2,
+        13
+      ]
+    },
+    {
+      "title": "NEAR HACKATHON: Build Beyond Boundaries ($250,000 Prize Pool)",
+      "category": "Developer Hackathon",
+      "target_asset_or_protocol": "NEAR Protocol (NEAR Intents, NEAR AI Cloud, Chain Signatures)",
+      "reward_or_yield": "$250,000 total prize pool (per-place breakdown not disclosed in retrieved sources)",
+      "timeframe_or_deadlines": "Build Nov 1\u201314, 2026 (00:00 UTC Nov 1 \u2013 23:59 UTC Nov 14); judging Nov 16\u201318; results announced by Nov 18, 23:59 UTC",
+      "how_to_participate": "1) Go solo or assemble a team \u2014 no advance sign-up required. 2) Build a working prototype during Nov 1\u201314 using NEAR Intents, Chain Signatures, NEAR AI Cloud, TEEs, or the 1-Click Swap SDK; follow the HACKATHON.md guidance. 3) Make your repository public and post a demo on X with video/screenshots, mentioning NEAR HACKATHON. 4) Submit the form with project name, 20\u20132,000 character description, team lead email, team size, preferred track (13 available, e.g. Unstoppable DeFi, Autonomous Business), and a NEAR account address for prizes; ask questions in the NEAR Discord and follow @NEAR_hckthn.",
+      "supporting_sources": [
+        3,
+        15,
+        16
+      ]
+    },
+    {
+      "title": "NEAR Ecosystem Grant Programs (Ecosystem Grants, Devhub, Meta Pool Grants, Protocol Rewards, Potlock)",
+      "category": "Developer Grants",
+      "target_asset_or_protocol": "NEAR Protocol ecosystem",
+      "reward_or_yield": "Funding amounts not disclosed in retrieved evidence; Meta Pool Grants target DeFi, Education, TVL Generation, and Brand Awareness; Protocol Rewards are metrics-based, tied to development activity and user adoption; Devhub Grants fund tooling",
+      "timeframe_or_deadlines": "Rolling applications; no deadlines or eligibility criteria published in retrieved evidence",
+      "how_to_participate": "1) Identify the fitting channel at near.org/funding: Ecosystem Grants for project funding, Devhub Grants for tooling, Meta Pool Grants for growth initiatives, Potlock for community funding rounds and impact donations. 2) Prepare a proposal aligned to the channel's focus (e.g., DeFi/TVL for Meta Pool Grants). 3) Apply via the Ecosystem Grants 'Apply here' link or the respective program page. 4) For ongoing rewards without a grant, track the metrics-based Protocol Rewards system.",
+      "supporting_sources": [
+        4
+      ]
+    }
+  ],
+  "sources_cited": [
+    {
+      "index": 1,
+      "url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+      "title": "HSP-029: Establish a 24-Month Issuance Ramp to a 1.6% Target Rate Of NEAR Token Emissions - Proposals - NEAR Forum",
+      "date": "2026-10-07",
+      "distance": 0.399,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+        "retrieved_at": "2026-11-03T16:52:54.545089+00:00"
+      }
+    },
+    {
+      "index": 2,
+      "url": "https://docs.near.org/primitives/liquid-staking/liquid-staking",
+      "title": "Using Liquid Staking - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.367,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/primitives/liquid-staking/liquid-staking",
+        "retrieved_at": "2026-11-03T16:52:54.545154+00:00"
+      }
+    },
+    {
+      "index": 3,
+      "url": "https://near.org/blog/near-hackathon-build-beyond-boundaries",
+      "title": "NEAR HACKATHON: Build Beyond Boundaries",
+      "date": "2026-10-19",
+      "distance": 0.474,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/near-hackathon-build-beyond-boundaries",
+        "retrieved_at": "2026-11-03T16:54:07.089745+00:00"
+      }
+    },
+    {
+      "index": 4,
+      "url": "https://near.org/funding",
+      "title": "NEAR House of Stake: A New Governance Model",
+      "date": "unknown",
+      "distance": 0.586,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/funding",
+        "retrieved_at": "2026-11-03T16:54:07.089781+00:00"
+      }
+    },
+    {
+      "index": 7,
+      "url": "https://rpc.testnet.near.org",
+      "title": "NEAR RPC \u2014 validators (final)",
+      "date": "2026-11-03",
+      "distance": 0.0,
+      "source_type": "on_chain",
+      "provenance": {
+        "source_type": "on_chain",
+        "endpoint": "https://rpc.testnet.near.org",
+        "query": {
+          "epoch_id": "Bm6KZDKy85LQrJ3YSqCd2Cs8BbNcbMMZZsD5WAbwSBEA"
+        },
+        "as_of": "2026-11-03T16:52:34.461594+00:00",
+        "block_height": null,
+        "finality": "final"
+      }
+    },
+    {
+      "index": 9,
+      "url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+      "title": "HSP-029: Establish a 24-Month Issuance Ramp to a 1.6% Target Rate Of NEAR Token Emissions - Proposals - NEAR Forum",
+      "date": "2026-10-07",
+      "distance": 0.426,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+        "retrieved_at": "2026-11-03T16:52:54.545182+00:00"
+      }
+    },
+    {
+      "index": 11,
+      "url": "https://docs.near.org/protocol/network/validators",
+      "title": "Validators - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.449,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/protocol/network/validators",
+        "retrieved_at": "2026-11-03T16:52:54.545230+00:00"
+      }
+    },
+    {
+      "index": 13,
+      "url": "https://docs.near.org/primitives/liquid-staking/liquid-staking",
+      "title": "Using Liquid Staking - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.489,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/primitives/liquid-staking/liquid-staking",
+        "retrieved_at": "2026-11-03T16:54:57.898688+00:00"
+      }
+    },
+    {
+      "index": 14,
+      "url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+      "title": "HSP-029: Establish a 24-Month Issuance Ramp to a 1.6% Target Rate Of NEAR Token Emissions - Proposals - NEAR Forum",
+      "date": "2026-10-07",
+      "distance": 0.499,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://gov.near.org/t/hsp-029-establish-a-24-month-issuance-ramp-to-a-1-6-target-rate-of-near-token-emissions/42644",
+        "retrieved_at": "2026-11-03T16:54:57.898726+00:00"
+      }
+    },
+    {
+      "index": 15,
+      "url": "https://near.org/blog/near-hackathon-build-beyond-boundaries",
+      "title": "NEAR HACKATHON: Build Beyond Boundaries",
+      "date": "2026-10-19",
+      "distance": 0.606,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/near-hackathon-build-beyond-boundaries",
+        "retrieved_at": "2026-11-03T16:54:07.089804+00:00"
+      }
+    },
+    {
+      "index": 16,
+      "url": "https://near.org/blog/near-hackathon-build-beyond-boundaries",
+      "title": "NEAR HACKATHON: Build Beyond Boundaries",
+      "date": "2026-10-19",
+      "distance": 0.609,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/near-hackathon-build-beyond-boundaries",
+        "retrieved_at": "2026-11-03T16:54:07.089835+00:00"
+      }
+    }
+  ],
+  "coverage_gaps": [
+    "Live per-validator staking pool APY ranking (only aggregate gross yield ~5.27% available)",
+    "Current stNEAR and LiNEAR liquid staking APYs (only generic provider docs, no live rates)",
+    "Specific DeFi yield pool APYs and TVLs on NEAR",
+    "DEX liquidity provision pool/fee data",
+    "Hackathon prize amounts and bounty track details",
+    "Grant program amounts, deadlines, and eligibility criteria"
+  ],
+  "tool_calls_used": 3,
+  "cid": "bafy9c40a33366ee4c7c5159d27161c284c9d5bd31a9dcbd",
+  "fee_paid_near": 0.1,
+  "requester": "neptune1.testnet",
+  "created_at": "2026-11-03T16:59:25.431034+00:00",
+  "cot_step_cards": [],
+  "summary": "# NEAR Ecosystem Yield & Participation Report (as of November 3, 2026)\n\n## 1. Native Staking: Current Yield Environment\n\nNEAR's **gross staking yield measured 5.268%** as of September 22, 2026 (mainnet block 216,701,043) [S1]. This is consistent with the protocol formula in NEAR Docs: validator year...",
+  "regime": "ACCUMULATION",
+  "staking_and_yield_matrix": [
+    {
+      "protocol": "Native NEAR Staking via Validators (~5.27% Gross Yield)",
+      "asset": "NEAR Protocol (validator delegation)",
+      "estimated_apy": "5.268% gross staking yield at the current 2.5% issuance cap (measured Sept 22, 2026); formula ~2.25% \u00d7 total supply / total stake; falls to 3.372% if HSP-029 ramps issuance to 1.6%",
+      "liquidity_type": "Yield / Staking",
+      "notes": "Ongoing; unstaking requires a 4-epoch delay (~24\u201328 hours per NEAR Docs); HSP-029 proposes a 24-month emissions ramp (posted Oct 7, 2026, not yet ratified). 1) Review active validators on NEAR-STAKING and select one with \u226599% uptime (epochs below 90% uptime earn zero rewards). 2) Delegate NEAR through your wallet's staking interface to the chosen staking pool. 3) Rewards accrue proportionally to stake from the 2.5% annual budget (90% to stakers, 10% treasury). 4) To exit, request unstake and withdraw after the 4-epoch delay."
+    },
+    {
+      "protocol": "Meta Pool Liquid Staking (stNEAR)",
+      "asset": "Meta Pool / stNEAR (meta-pool.near)",
+      "estimated_apy": "Tracks underlying validator rewards (~5.27% gross protocol yield; liquid rate typically slightly below top single-validator delegation); live stNEAR APY not published in retrieved evidence",
+      "liquidity_type": "Yield / Staking \u2014 Liquid Staking",
+      "notes": "Instant exit via Rhea.finance DEX swap, or 4-epoch unstake (~24\u201328 hours) for full native redemption. 1) Call deposit_and_stake on meta-pool.near (or use Meta Pool's app) with NEAR attached. 2) Receive the liquid token representing a position diversified across top-performing validators. 3) Hold to accrue rewards via the exchange rate, or swap instantly to NEAR on Rhea.finance for immediate liquidity. 4) For native redemption, call unstake_all then withdraw_all after the 4-epoch wait."
+    },
+    {
+      "protocol": "Linear Liquid Staking (LiNEAR)",
+      "asset": "Linear protocol / LiNEAR (linear-protocol.near)",
+      "estimated_apy": "Tracks underlying validator rewards (~5.27% gross protocol yield; average rate slightly lower than a single top validator due to multi-validator diversification); live LiNEAR APY not published in retrieved evidence",
+      "liquidity_type": "Yield / Staking \u2014 Liquid Staking",
+      "notes": "Instant exit via DEX swap (Rhea.finance documented venue), or 4-epoch unstake (~24\u201328 hours) for native redemption. 1) Call deposit_and_stake on linear-protocol.near with NEAR attached. 2) Receive LiNEAR representing your staked position across multiple maintained validators. 3) Hold for exchange-rate accrual or swap LiNEAR\u2192NEAR on a DEX for instant liquidity. 4) For native redemption, unstake_all then withdraw_all after 4 epochs."
+    }
+  ],
+  "hackathons_and_opportunities": [
+    {
+      "name": "NEAR HACKATHON: Build Beyond Boundaries ($250,000 Prize Pool)",
+      "prize_pool": "$250,000 total prize pool (per-place breakdown not disclosed in retrieved sources)",
+      "dates": "Build Nov 1\u201314, 2026 (00:00 UTC Nov 1 \u2013 23:59 UTC Nov 14); judging Nov 16\u201318; results announced by Nov 18, 23:59 UTC",
+      "tracks": "NEAR Protocol (NEAR Intents, NEAR AI Cloud, Chain Signatures)",
+      "how_to_participate": "1) Go solo or assemble a team \u2014 no advance sign-up required. 2) Build a working prototype during Nov 1\u201314 using NEAR Intents, Chain Signatures, NEAR AI Cloud, TEEs, or the 1-Click Swap SDK; follow the HACKATHON.md guidance. 3) Make your repository public and post a demo on X with video/screenshots, mentioning NEAR HACKATHON. 4) Submit the form with project name, 20\u20132,000 character description, team lead email, team size, preferred track (13 available, e.g. Unstoppable DeFi, Autonomous Business), and a NEAR account address for prizes; ask questions in the NEAR Discord and follow @NEAR_hckthn."
+    },
+    {
+      "name": "NEAR Ecosystem Grant Programs (Ecosystem Grants, Devhub, Meta Pool Grants, Protocol Rewards, Potlock)",
+      "prize_pool": "Funding amounts not disclosed in retrieved evidence; Meta Pool Grants target DeFi, Education, TVL Generation, and Brand Awareness; Protocol Rewards are metrics-based, tied to development activity and user adoption; Devhub Grants fund tooling",
+      "dates": "Rolling applications; no deadlines or eligibility criteria published in retrieved evidence",
+      "tracks": "NEAR Protocol ecosystem",
+      "how_to_participate": "1) Identify the fitting channel at near.org/funding: Ecosystem Grants for project funding, Devhub Grants for tooling, Meta Pool Grants for growth initiatives, Potlock for community funding rounds and impact donations. 2) Prepare a proposal aligned to the channel's focus (e.g., DeFi/TVL for Meta Pool Grants). 3) Apply via the Ecosystem Grants 'Apply here' link or the respective program page. 4) For ongoing rewards without a grant, track the metrics-based Protocol Rewards system."
+    }
+  ],
+  "actionable_signal": {
+    "action": "STAKE",
+    "target_asset": "NEAR Protocol validator delegation",
+    "confidence": 82,
+    "recommended_timeframe": "Immediate; yield steps down to 3.372% only if HSP-029's 24-month ramp to 1.6% emissions is ratified",
+    "key_levels_or_actions": "This is the user's core investment ask, backed by the strongest quantitative evidence: 5.268% gross staking yield measured on mainnet (Sept 22, 2026) and a transparent protocol formula; validator uptime discipline (\u226599%) preserves full epoch rewards, and HSP-029 monitoring manages the forward yield-cut risk."
+  },
+  "stored_at": "2026-11-03 16:59:25 UTC",
+  "stored_at_iso": "2026-11-03T16:59:25.432281+00:00",
+  "date_utc": "2026-11-03",
+  "time_utc": "16:59:25 UTC",
+  "timestamp_utc": "2026-11-03 16:59:25 UTC",
+  "created_at_utc": "2026-11-03T16:59:25.432281+00:00"
+}
