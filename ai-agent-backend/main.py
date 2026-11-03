@@ -254,6 +254,13 @@ async def list_models():
 # EXISTING ENDPOINTS (unchanged)
 # ==================================================================
 
+@app.get("/")
+@app.head("/")
+async def root_health():
+    """Root health check for cloud deployment platforms like Render."""
+    return {"status": "healthy", "service": "Neptune AI Backend", "version": "2.0.0"}
+
+
 @app.get("/api/health")
 async def api_health_check():
     """

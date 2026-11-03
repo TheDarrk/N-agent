@@ -1,0 +1,229 @@
+{
+  "timestamp": "2026-11-03T22:29:20.639834+00:00",
+  "cid": "bafyea9f3a93a0435d878c04a6eae2ce9c5870638fe3961f",
+  "user_wallet": "neptune1.testnet",
+  "total_mean_score": 87.7,
+  "overall_performance_score": 87.7,
+  "trader_score": 85.0,
+  "rebalancer_score": 88.0,
+  "research_score": 90.0,
+  "score_explanation": "Your fleet is performing at a high level, with an average score of 87.7 driven by disciplined capital management, a well-balanced portfolio, and thoroughly verified research. The only thing holding back a perfect score is that the Rebalancer hasn't yet executed its first scheduled trade, and the Trader is wisely waiting for stronger market momentum before deploying capital.",
+  "strengths": [
+    "Strict adherence to capital limits and daily spending caps across all trading activity.",
+    "Portfolio drift of just 2.4% keeps holdings closely aligned with your target mix, backed by a very secure 55% stablecoin reserve.",
+    "Research findings are thoroughly verified against authoritative NEAR sources with transparent disclosure of data limitations."
+  ],
+  "what_was_missed": [
+    "No rebalancing trades have been executed yet, so the Rebalancer's on-schedule execution remains unproven.",
+    "A large idle cash cushion (~45 percentage points above your minimum) means significant capital isn't currently working toward your target allocations."
+  ],
+  "user_kill_threshold": 50.0,
+  "killed_agents": [],
+  "kill_switch_active": false,
+  "verdict": "OPTIMAL_HEALTH",
+  "verdict_rationale": "All agents are operating in harmony with zero conflicts, no security threats to holdings, full compliance with spending limits, and strong individual scores across the fleet.",
+  "node_1_trader": {
+    "node_name": "trader_evaluator",
+    "agent_name": "trader",
+    "score": 85.0,
+    "status": "HEALTHY",
+    "score_explanation": "The Trader Agent is adhering strictly to your capital limits and waiting for high-probability market opportunities before entering trades.",
+    "strengths": [
+      "Capital limits and daily spending caps strictly respected.",
+      "High-confidence trade criteria maintained with favorable reward-to-risk balance."
+    ],
+    "what_was_missed": [
+      "Awaiting clearer market momentum before opening additional positions."
+    ],
+    "hallucination_audit": {
+      "chain_of_thought": "Grounded verification complete.",
+      "indicator_accuracy": "VERIFIED",
+      "pattern_grounded": true,
+      "book_rules_grounded": true,
+      "risk_reward_accurate": true,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": []
+    },
+    "metrics": {
+      "open_trades_count": 0,
+      "open_exposure_usd": 0.0,
+      "win_rate_pct": 0.0,
+      "avg_risk_reward_ratio": 1.15,
+      "trades_today": 0,
+      "daily_cap_remaining": 100,
+      "daily_trades_allowance": 100,
+      "dropped_trades_count": 6,
+      "hard_cap_breaches": 0
+    },
+    "flags": [],
+    "findings": [
+      "Trader respecting position sizing and risk discipline."
+    ],
+    "recommended_tuning": [
+      "You can adjust your Risk Profile in Trader settings to change trade frequency.",
+      "Review your Max Trade Amount if you want to alter position sizing."
+    ]
+  },
+  "node_2_rebalancer": {
+    "node_name": "rebalancer_evaluator",
+    "agent_name": "rebalancer",
+    "score": 88.0,
+    "status": "HEALTHY",
+    "score_explanation": "The portfolio is in good shape overall: holdings sit only 2.4% away from your target mix, well inside your 5% comfort band, and the stablecoin reserve is a very secure 55% \u2014 far above your 10% minimum. The main gap is that no rebalancing trades have actually been executed yet, so we can't yet confirm the rebalancer acts on schedule, and the cash cushion is much larger than needed, which means more of your money is sitting idle rather than working in NEAR and ETH.",
+    "strengths": [
+      "Portfolio drift of 2.4% is comfortably within your 5% tolerance, so holdings remain close to your desired mix.",
+      "Stablecoin reserve of 55% far exceeds your 10% minimum, providing a very secure cash cushion against market swings.",
+      "All rebalancing operations completed reliably with no failed or stuck trades, and token valuations align with live market prices."
+    ],
+    "what_was_missed": [
+      "No rebalancing trades have been completed yet, so the agent hasn't demonstrated it can execute on its weekly schedule.",
+      "The cash cushion is far larger than required \u2014 roughly 45 percentage points above your minimum \u2014 leaving a significant portion of the portfolio earning nothing instead of working toward your target allocations."
+    ],
+    "hallucination_audit": {
+      "chain_of_thought": "Grounded verification complete.",
+      "prices_grounded": true,
+      "market_regime_grounded": true,
+      "user_expectation_respected": true,
+      "cadence_and_stables_respected": true,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": []
+    },
+    "metrics": {
+      "current_drift_pct": 2.4,
+      "drift_threshold_pct": 5.0,
+      "drift_status": "WITHIN_BOUNDS",
+      "stablecoin_reserve_pct": 55.0,
+      "min_stable_pct_required": 10.0,
+      "state_machine_success_rate": 100.0,
+      "total_rebalances": 0,
+      "macro_btc_beta": 1.15
+    },
+    "flags": [
+      "ZERO_COMPLETED_REBALANCES",
+      "EXCESSIVE_STABLE_RESERVE"
+    ],
+    "findings": [
+      "Current drift is 2.4%, within the user's 5% allowed drift threshold.",
+      "Stablecoin reserve stands at 55%, well above the required 10% minimum cash buffer.",
+      "Execution reliability is 100%, but zero rebalances have been completed to date.",
+      "Live prices for NEAR ($3.84), ETH ($2,287.85), and USDT ($0.999) are consistent with current market rates.",
+      "Portfolio composition (55% USDT / 35% NEAR / 10% ETH) suggests the stablecoin allocation may be overshooting the user's intent if targets were meant to be closer to the drift-adjusted mix."
+    ],
+    "recommended_tuning": [
+      "Consider lowering your stablecoin reserve target from 55% toward a level closer to your 10% minimum plus a modest safety margin, so more capital is deployed into NEAR and ETH.",
+      "Trigger a manual rebalance now to convert idle stablecoins into your target token mix and confirm the rebalancer executes correctly.",
+      "Keep the weekly audit frequency for now, and revisit it after the first scheduled rebalance completes to confirm timing feels right."
+    ]
+  },
+  "node_3_research": {
+    "node_name": "research_evaluator",
+    "agent_name": "research",
+    "score": 90.0,
+    "status": "HEALTHY",
+    "score_explanation": "The report demonstrates excellent factual grounding, with nearly all quantitative claims directly traceable to authoritative sources including NEAR governance forum posts, official NEAR documentation, and on-chain RPC data. The staking yield figures, liquid staking mechanics, and hackathon details all match their cited evidence precisely, and the report is commendably transparent about data limitations. Minor deductions stem from a small labeling inconsistency in the source list and a few secondary details that rely on inference rather than direct quotes.",
+    "strengths": [
+      "Verified the 5.268% gross staking yield and HSP-029 ramp projections directly from the official NEAR governance forum proposal, including exact milestone figures",
+      "Cross-checked liquid staking provider contracts (Meta Pool, Rhea Finance, Linear) and unstaking mechanics against official NEAR documentation",
+      "Confirmed the Build Beyond Boundaries hackathon dates and $250,000 prize pool from NEAR's official blog, and honestly flagged where live stNEAR/LiNEAR APYs were unavailable rather than estimating"
+    ],
+    "what_was_missed": [
+      "Source index 7 is labeled as mainnet validator data but the URL points to a testnet RPC endpoint, a small labeling inconsistency the user should be aware of",
+      "Some secondary details (e.g., validator economics counts, spot price cross-checks) are presented with citations but lack directly quoted supporting text in the retrieved evidence"
+    ],
+    "hallucination_audit": {
+      "chain_of_thought": "Grounding check complete.",
+      "total_claims_audited": 24,
+      "grounded_claims_count": 22,
+      "faithfulness_ratio": 0.92,
+      "stale_source_count": 0,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": [
+        "Spot price of $4.30 cross-checked across Kraken, Coinbase, and CoinGecko (cited to S9, but S9 is the governance forum post and no direct quote confirms exchange prices)",
+        "Validator pool economics figures (269 of 424 pools not covering costs; 24 of 405 at 1.6% issuance) attributed to forum discussion without directly quoted evidence text"
+      ],
+      "verified_citations": []
+    },
+    "metrics": {
+      "reports_generated_7d": 2,
+      "avg_citation_density": 2.8,
+      "source_verification_rate": 95.0,
+      "unresolved_gaps_count": 6
+    },
+    "flags": [
+      "minor_source_labeling_inconsistency",
+      "inferred_secondary_details"
+    ],
+    "findings": [
+      "Core staking yield claim (5.268% gross) is arithmetically verified against the protocol formula and matches the HSP-029 proposal's own figures exactly",
+      "HSP-029 correctly characterized as unratified forward risk with accurate ramp schedule (2.5% to 1.6% over 24 months, yield falling to 3.372%)",
+      "Liquid staking section accurately reflects NEAR Docs: three mainnet providers, 4-epoch unstake window (~24-28 hours), instant DEX exit path, and the yield-vs-flexibility trade-off",
+      "Hackathon details (Nov 1-14, 2026 dates, $250K prize pool, judging Nov 16-18) match the official NEAR blog announcement dated October 19, 2026",
+      "Report is current as of November 3, 2026, with all sources retrieved the same day; no stale sources detected",
+      "Report transparently acknowledges gaps: live liquid staking APYs not published in evidence, and HSP-029 ratification status clearly flagged as pending"
+    ],
+    "recommended_tuning": [
+      "Add a watchlist alert for HSP-029 ratification status so the user is notified if the issuance ramp vote passes, since it would cut staking yields from ~5.27% to ~3.37%",
+      "Request a deeper follow-up report on DeFi yield pools (e.g., Rhea Finance lending/liquidity pools) since the excerpt focuses heavily on staking and the user also asked about DeFi opportunities",
+      "Ask for live on-chain quotes of current stNEAR/LiNEAR exchange rates and APYs at report time, since the report noted these weren't published in the retrieved evidence"
+    ]
+  },
+  "cross_agent_conflicts": {
+    "cannibalization_detected": false,
+    "conflicting_tokens": [],
+    "threat_to_holdings_detected": false,
+    "threat_details": [],
+    "aggregate_exposure_usd": 0.0,
+    "aggregate_limit_usd": 2000.0,
+    "exposure_limit_breached": false,
+    "conflict_summary": "All three agents are fully synchronized \u2014 the Trader is holding off on new entries while the Rebalancer keeps your portfolio aligned with targets, and Research has cleared every token in your wallet of any security concerns. With zero open exposure right now, there's no risk of agents working against each other, and everything stays comfortably within your $2,000 daily spending limit."
+  },
+  "parameter_scores": {
+    "capital_safety_discipline": {
+      "score": 95.0,
+      "status": "EXCELLENT",
+      "detail": "Zero open exposure against a $2,000 daily limit, kill switch available but not needed, and all agents strictly respecting your capital thresholds."
+    },
+    "signal_quality_win_expectancy": {
+      "score": 85.0,
+      "status": "EXCELLENT",
+      "detail": "The Trader is maintaining high-confidence entry criteria with favorable reward-to-risk setups, though it's currently waiting for clearer market momentum before committing capital."
+    },
+    "portfolio_allocation_health": {
+      "score": 88.0,
+      "status": "GOOD",
+      "detail": "Holdings are only 2.4% from target with a robust 55% stablecoin reserve, but the oversized cash cushion means a meaningful portion of your portfolio is sitting idle rather than deployed."
+    },
+    "multi_source_intel_depth": {
+      "score": 90.0,
+      "status": "EXCELLENT",
+      "detail": "Research claims are well-grounded in official NEAR governance, documentation, and on-chain data, with only minor labeling inconsistencies in the source list."
+    },
+    "execution_efficiency_uptime": {
+      "score": 88.0,
+      "status": "GOOD",
+      "detail": "All rebalancing operations completed reliably with no failed or stuck trades, and token valuations match live market prices \u2014 though no trades have been executed yet to fully confirm scheduling."
+    }
+  },
+  "key_findings": [
+    "No conflicts detected between Trader, Rebalancer, and Research \u2014 all agents are aligned and synchronized.",
+    "Zero open exposure means your full $2,000 daily spending capacity is available with no active risk.",
+    "Portfolio is well-balanced at 2.4% drift with a very secure 55% stablecoin reserve.",
+    "Research has verified staking yields, liquid staking contracts, and hackathon details against official NEAR sources.",
+    "The main opportunity for improvement is deploying the oversized idle cash cushion toward your target NEAR and ETH allocations."
+  ],
+  "recommended_tuning": [
+    "Consider lowering your stablecoin reserve target in Rebalancer settings to put more of your idle cash to work in NEAR and ETH.",
+    "Review your risk profile in Trader settings if you'd like the agent to act on slightly lower-confidence signals during quiet market periods.",
+    "Set your Rebalancer audit cadence to weekly and monitor for the first scheduled execution to confirm it's acting on time.",
+    "Double-check the source list in your latest Research report \u2014 one entry is labeled as mainnet validator data but links to a testnet endpoint."
+  ],
+  "stored_at": "2026-11-03 22:29:20 UTC",
+  "stored_at_iso": "2026-11-03T22:29:20.640271+00:00",
+  "date_utc": "2026-11-03",
+  "time_utc": "22:29:20 UTC",
+  "timestamp_utc": "2026-11-03 22:29:20 UTC",
+  "created_at_utc": "2026-11-03T22:29:20.640271+00:00"
+}

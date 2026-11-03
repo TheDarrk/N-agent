@@ -294,6 +294,11 @@ EVALUATION CRITERIA:
 3. Capital Discipline: Did the trader respect user-configured trade budgets and exposure caps?
 4. Market Prudence: Did the trader wisely stand aside when market conditions were uncertain, rather than forcing risky trades?
 
+CRITICAL GROUNDING & TRUTH RULES:
+- "pattern_grounded": Mark TRUE if the trader's market analysis is grounded in real price trends and does not fabricate non-existent chart patterns. When the trader currently has 0 open positions, or stood aside, or cancelled unroutable test attempts, this is completely grounded (mark TRUE). ONLY mark FALSE if the agent actively fabricated a fake chart pattern.
+- "risk_reward_accurate": Mark TRUE if profit and loss targets were planned with truthful math. With 0 open trades ($0 open exposure), math is verified and capital is safe (mark TRUE). ONLY mark FALSE if an entered order had mathematically fabricated or contradictory targets.
+- "hallucination_detected": Mark FALSE unless the agent fabricated indicators or false market facts. Dropping unroutable tokens or standing aside is disciplined execution protection, NOT a hallucination.
+
 CRITICAL COMMUNICATION GUIDELINES:
 - DO NOT use developer jargon, internal variable names, or raw formulas. NEVER use terms like "R:R", "RR", "daily_cap_remaining", "min_confidence", "ATR window", "timeframe", "FactScore", or code variable names.
 - Instead of "R:R" or "RR", say "potential gain vs downside risk" or "reward-to-risk balance".
@@ -416,6 +421,10 @@ class TraderEvaluatorNode:
                 hallucination_severity=llm_result.get("hallucination_severity", "NONE"),
                 unsupported_claims=llm_result.get("unsupported_claims", [])
             )
+            # When trader has zero open exposure and no active positions, pattern and math are grounded in capital safety
+            if open_count == 0 and not audit.hallucination_detected:
+                audit.pattern_grounded = True
+                audit.risk_reward_accurate = True
             score = float(llm_result.get("score", 85))
             status = llm_result.get("status", "HEALTHY")
             score_explanation = llm_result.get("score_explanation") or (

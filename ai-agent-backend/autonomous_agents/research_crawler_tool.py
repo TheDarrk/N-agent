@@ -11,16 +11,20 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-# Ensure scrapper module can be imported
-WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
-SCRAPPER_DIR = WORKSPACE_ROOT / "scrapper"
-if str(SCRAPPER_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRAPPER_DIR))
+# Ensure scrapper module can be imported from local backend or parent workspace
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+WORKSPACE_ROOT = BACKEND_DIR.parent
 
+for candidate_dir in [BACKEND_DIR / "scrapper", WORKSPACE_ROOT / "scrapper"]:
+    if candidate_dir.exists() and str(candidate_dir) not in sys.path:
+        sys.path.insert(0, str(candidate_dir))
+
+scrapper_import_error = None
 try:
     import scrapper
-except ImportError:
+except Exception as e:
     scrapper = None
+    scrapper_import_error = str(e)
 
 
 def calculate_min_date(date_range: str) -> str:
@@ -56,7 +60,8 @@ class ResearchCrawlerTool:
     def __init__(self):
         self.scrapper = scrapper
         if self.scrapper is None:
-            print("[RESEARCH TOOL] Warning: scrapper module could not be imported")
+            err_msg = f": {scrapper_import_error}" if scrapper_import_error else ""
+            print(f"[RESEARCH TOOL] Warning: scrapper module could not be imported{err_msg}")
 
     def crawl_url(
         self,
