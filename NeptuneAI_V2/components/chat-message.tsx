@@ -585,7 +585,7 @@ export default function ChatMessage({ message, onSignAction, index }: Props) {
             />
           </div>
           <div className="flex-1 space-y-3">
-            <div className="px-4 py-3.5 rounded-2xl rounded-tl-sm bg-card border border-[hsl(225,18%,14%)] shadow-lg shadow-black/10">
+            <div className="px-4 py-3.5 rounded-2xl rounded-tl-sm bg-card border border-border shadow-lg shadow-black/10">
               <MarkdownContent text={message.content} />
             </div>
 
@@ -629,7 +629,7 @@ export default function ChatMessage({ message, onSignAction, index }: Props) {
                   </div>
 
                   {!!message.payload.price_impact && (
-                    <div className="mt-3 pt-3 border-t border-[hsl(225,18%,14%)] flex items-center justify-between">
+                    <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
                       <span className="text-[11px] text-muted-foreground">Price Impact</span>
                       <span className="text-[11px] font-mono text-foreground">
                         {String(message.payload.price_impact)}

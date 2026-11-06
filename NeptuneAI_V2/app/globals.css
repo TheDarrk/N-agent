@@ -1225,3 +1225,72 @@
 .light .agent3d-role {
   color: color-mix(in oklab, hsl(var(--glow)) 50%, black);
 }
+
+/* Performance: pause every running animation while the tab is in the background */
+html[data-tab-hidden="true"] *,
+html[data-tab-hidden="true"] *::before,
+html[data-tab-hidden="true"] *::after {
+  animation-play-state: paused !important;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dash-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--border) 70%, transparent) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(to left, black, transparent 70%);
+  -webkit-mask-image: linear-gradient(to left, black, transparent 70%);
+}
+
+@keyframes tick-up {
+  from {
+    color: #34d399;
+    text-shadow: 0 0 18px rgba(52, 211, 153, 0.55);
+  }
+  to {
+    color: var(--foreground);
+    text-shadow: none;
+  }
+}
+
+@keyframes tick-down {
+  from {
+    color: #fb7185;
+    text-shadow: 0 0 18px rgba(251, 113, 133, 0.55);
+  }
+  to {
+    color: var(--foreground);
+    text-shadow: none;
+  }
+}
+
+.tick-up {
+  animation: tick-up 0.9s ease-out both;
+}
+
+.tick-down {
+  animation: tick-down 0.9s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .tick-up,
+  .tick-down {
+    animation: none;
+  }
+}

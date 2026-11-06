@@ -1,5 +1,6 @@
 "use client";
 
+import { tilt3d } from "./trader/tilt-3d";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Scale,
@@ -490,7 +491,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   return (
     <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-5xl mx-auto space-y-5 suite-stagger">
       {/* ─── HEADER WITH DYNAMIC ACTIVE AGENT BADGE ─── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-card border border-border shadow-md shadow-black/20">
+      <div className="tilt3d flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-card border border-border" {...tilt3d(1.5)}>
         <div>
           <div className="flex flex-wrap items-center gap-2.5 mb-1.5">
             <span className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -526,7 +527,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           <button
             onClick={fetchStrategyAndStatus}
             disabled={isLoadingStatus || !accountId}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs transition-all active:scale-95 disabled:opacity-50"
+            className="key3d flex items-center gap-2 px-3.5 py-2 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs disabled:opacity-50"
             title="Refresh active strategy and live drift"
           >
             <RotateCw size={14} className={isLoadingStatus ? "animate-spin text-primary" : ""} />
@@ -536,7 +537,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           <button
             onClick={handleEvaluateAndRebalance}
             disabled={isRebalancing || isLoadingStatus || !accountId}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/20 disabled:opacity-50"
+            className="key3d-solid flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs shadow-primary/20 disabled:opacity-50"
           >
             {isRebalancing ? <RotateCw size={14} className="animate-spin" /> : <Play size={14} />}
             <span>Evaluate &amp; Execute Swaps</span>
@@ -558,7 +559,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           </p>
           <button
             onClick={onConnectWallet}
-            className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs hover:opacity-90 transition-all shadow-md shadow-primary/20"
+            className="key3d-solid px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs shadow-primary/20"
           >
             Connect Wallet
           </button>
@@ -570,7 +571,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         {/* Left Column: Target Allocation & Strategy Inputs (7 cols) */}
         <div className="lg:col-span-7 space-y-5">
           {/* 1. Target Portfolio Coins with Runtime 1-Click Dropdown */}
-          <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
+          <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <Coins size={17} className="text-primary" />
@@ -630,7 +631,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               <button
                 type="button"
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-secondary/50 hover:bg-secondary/70 border border-border text-xs text-foreground transition-all shadow-sm"
+                className="key3d w-full flex items-center justify-between p-3 rounded-xl bg-secondary/50 hover:bg-secondary/70 border border-border text-xs text-foreground"
               >
                 <div className="flex items-center gap-2">
                   <Search size={15} className="text-muted-foreground" />
@@ -750,7 +751,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           </div>
 
           {/* 2. User Expectation & Strategy Prompt Box */}
-          <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
+          <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <FileText size={17} className="text-primary" />
@@ -774,7 +775,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
                 <button
                   key={idx}
                   onClick={() => setUserExpectation(p.text)}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border transition-all"
+                  className="key3d px-2.5 py-1 rounded-lg text-[11px] font-medium bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border"
                 >
                   {p.label}
                 </button>
@@ -801,11 +802,11 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
                     <button
                       key={days}
                       onClick={() => setCadenceDays(days)}
-                      className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                        cadenceDays === days
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-secondary/70 hover:bg-secondary text-foreground border-border"
-                      }`}
+                      className={`key3d py-1.5 rounded-lg text-xs font-semibold border ${
+ cadenceDays === days
+ ? "bg-primary text-primary-foreground border-primary"
+ : "bg-secondary/70 hover:bg-secondary text-foreground border-border"
+ }`}
                     >
                       {days === 30 ? "1 Mo" : `${days}d`}
                     </button>
@@ -885,7 +886,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
             <button
               onClick={handleGenerateStrategy}
               disabled={isGenerating || !accountId}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 active:scale-[0.99] transition-all disabled:opacity-50"
+              className="key3d-solid w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs active:scale-[0.99] disabled:opacity-50"
             >
               {isGenerating ? (
                 <>
@@ -905,7 +906,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         {/* Right Column: Real Wallet Holdings & Live Status (5 cols) */}
         <div className="lg:col-span-5 space-y-5">
           {/* Real Wallet Holdings (Zero Dummy Data) */}
-          <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
+          <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <Wallet size={17} className="text-emerald-400" />
@@ -986,7 +987,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               />
               <button
                 onClick={handleAddCustomHolding}
-                className="px-3 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs transition-all"
+                className="key3d px-3 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs"
               >
                 + Add
               </button>
@@ -994,7 +995,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           </div>
 
           {/* Live Portfolio Status Telemetry (Zero Dummy Data) */}
-          <div className="p-5 rounded-2xl bg-card border border-border space-y-4">
+          <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
             <div className="flex items-center justify-between border-b border-border pb-3">
               <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
                 <Shield size={17} className="text-blue-400" />
@@ -1046,7 +1047,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
 
       {/* ─── ACTIVE STRATEGY PRESENTATION (GENERATED BY LLM & RAG) ─── */}
       {activeStrategy && (
-        <div className="p-5 rounded-2xl bg-card border border-border space-y-5 shadow-lg">
+        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-5" {...tilt3d(1.5)}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
             <div>
               <div className="flex items-center gap-2">
@@ -1068,7 +1069,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
 
             <button
               onClick={() => setShowHistory(!showHistory)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs transition-all self-start sm:self-center"
+              className="key3d flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs self-start sm:self-center"
             >
               <History size={13} />
               <span>History ({history.length})</span>

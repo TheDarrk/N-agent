@@ -424,7 +424,7 @@ export default function FullScreenHistoryModal({
       role="dialog"
       aria-modal="true"
       aria-label="Fleet operational history"
-      className="fixed inset-0 z-50 bg-sidebar-background/95 backdrop-blur-2xl flex flex-col overflow-hidden animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 bg-sidebar-background flex flex-col overflow-hidden animate-in fade-in duration-200"
     >
       {/* ── Top Header ── */}
       <div className="px-4 md:px-8 py-4 border-b border-border bg-card/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -519,7 +519,7 @@ export default function FullScreenHistoryModal({
           </div>
 
           {/* Tabs & filters (sticky) */}
-          <div className="sticky top-0 z-20 -mx-4 md:-mx-8 px-4 md:px-8 py-3 bg-sidebar-background/85 backdrop-blur-xl border-y border-border flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div className="sticky top-0 z-20 -mx-4 md:-mx-8 px-4 md:px-8 py-3 bg-sidebar-background border-y border-border flex flex-col xl:flex-row xl:items-center justify-between gap-3">
             <div role="tablist" className="flex flex-wrap items-center gap-2 rounded-3xl border border-border bg-secondary/50 p-1.5">
               {tabs.map((t) => {
                 const Icon = t.icon;

@@ -101,7 +101,7 @@ const PERIODS: { id: Period; label: string }[] = [
 ];
 
 const choice = (active: boolean, big = false) =>
-  `tilt3d ${big ? "" : "pop3d"} rounded-xl border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+  `${big ? "tilt3d" : "key3d"} rounded-xl border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
     active
       ? "border-primary bg-primary/15 text-foreground"
       : "border-border bg-secondary/50 text-muted-foreground hover:border-primary/40 hover:text-foreground"
@@ -163,7 +163,6 @@ function Switch({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      {...tilt3d(4)}
       className={`flex w-full items-center gap-3 p-3 text-left ${choice(checked)}`}
     >
       <Icon size={15} className={checked ? "text-primary" : "text-muted-foreground"} />
@@ -272,7 +271,6 @@ export default function TraderSetup(p: Props) {
               role="radio"
               aria-checked={p.coinMode === "auto"}
               onClick={() => p.setCoinMode("auto")}
-              {...tilt3d(6)}
               className={`flex flex-col gap-0.5 p-2.5 text-left ${choice(p.coinMode === "auto")}`}
             >
               <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
@@ -285,7 +283,6 @@ export default function TraderSetup(p: Props) {
               role="radio"
               aria-checked={p.coinMode === "custom"}
               onClick={() => p.setCoinMode("custom")}
-              {...tilt3d(6)}
               className={`flex flex-col gap-0.5 p-2.5 text-left ${choice(p.coinMode === "custom")}`}
             >
               <span className="flex items-center gap-1.5 text-sm font-bold text-foreground">
@@ -310,8 +307,7 @@ export default function TraderSetup(p: Props) {
                 <button
                   type="button"
                   onClick={p.onAddCoin}
-                  {...tilt3d(6)}
-                  className="tilt3d pop3d flex items-center gap-1 rounded-lg border border-border bg-secondary px-3 py-1.5 text-sm font-bold text-foreground"
+                  className="key3d flex items-center gap-1 rounded-lg border border-border bg-secondary px-3 py-1.5 text-sm font-bold text-foreground"
                 >
                   <Plus size={12} /> Add
                 </button>
@@ -361,10 +357,9 @@ export default function TraderSetup(p: Props) {
                   role="radio"
                   aria-checked={p.timeframe === tf.id}
                   onClick={() => p.setTimeframe(tf.id)}
-                  {...tilt3d(8)}
                   className={`py-2 text-center font-mono text-sm font-bold ${
                     p.timeframe === tf.id
-                      ? "tilt3d pop3d rounded-xl border border-primary bg-primary text-primary-foreground"
+                      ? "key3d rounded-xl border border-primary bg-primary text-primary-foreground"
                       : choice(false)
                   }`}
                 >
@@ -445,7 +440,6 @@ export default function TraderSetup(p: Props) {
                   type="button"
                   onClick={() => p.setMaxTxAmount(v)}
                   aria-pressed={p.maxTxAmount === v}
-                  {...tilt3d(8)}
                   className={`flex-1 py-1.5 text-center font-mono text-[13px] font-bold ${choice(p.maxTxAmount === v)}`}
                 >
                   ${v}
@@ -462,8 +456,7 @@ export default function TraderSetup(p: Props) {
                   type="button"
                   aria-label="Fewer trades"
                   onClick={() => p.setTradeLimitCount(clampTrades(p.tradeLimitCount - 1))}
-                  {...tilt3d(10)}
-                  className="tilt3d pop3d grid h-9 w-9 place-items-center rounded-xl border border-border bg-secondary/60 text-muted-foreground hover:text-foreground"
+                  className="key3d grid h-9 w-9 place-items-center rounded-xl border border-border bg-secondary/60 text-muted-foreground hover:text-foreground"
                 >
                   <Minus size={14} />
                 </button>
@@ -474,8 +467,7 @@ export default function TraderSetup(p: Props) {
                   type="button"
                   aria-label="More trades"
                   onClick={() => p.setTradeLimitCount(clampTrades(p.tradeLimitCount + 1))}
-                  {...tilt3d(10)}
-                  className="tilt3d pop3d grid h-9 w-9 place-items-center rounded-xl border border-border bg-secondary/60 text-muted-foreground hover:text-foreground"
+                  className="key3d grid h-9 w-9 place-items-center rounded-xl border border-border bg-secondary/60 text-muted-foreground hover:text-foreground"
                 >
                   <Plus size={13} />
                 </button>
@@ -489,7 +481,6 @@ export default function TraderSetup(p: Props) {
                     role="radio"
                     aria-checked={p.tradeLimitPeriod === per.id}
                     onClick={() => p.setTradeLimitPeriod(per.id)}
-                    {...tilt3d(8)}
                     className={`py-2 text-center text-sm font-bold ${choice(p.tradeLimitPeriod === per.id)}`}
                   >
                     {per.label}

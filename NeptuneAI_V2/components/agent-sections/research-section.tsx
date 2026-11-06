@@ -1,5 +1,6 @@
 "use client";
 
+import { tilt3d } from "./trader/tilt-3d";
 import React, { useState, useEffect } from "react";
 import {
   FileText,
@@ -397,7 +398,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   return (
     <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-7xl mx-auto space-y-5 suite-stagger">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-card border border-border shadow-md shadow-black/20">
+      <div className="tilt3d flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-card border border-border" {...tilt3d(1.5)}>
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <span className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
@@ -418,7 +419,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       </div>
 
       {/* Research Configuration & Dispatch Studio */}
-      <div className="p-5 rounded-2xl bg-card border border-border space-y-4 shadow-sm">
+      <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
         <div className="flex items-center justify-between border-b border-border pb-3">
           <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
             <Sparkles size={16} className="text-primary" />
@@ -502,7 +503,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
                 <button
                   onClick={handleGenerate}
                   disabled={isLoading || !accountId}
-                  className="w-full px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
+                  className="key3d-solid w-full px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <>
@@ -524,7 +525,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
 
       {/* Simple research progress cards */}
       {(isLoading || activeReport) && (
-        <div className="p-4 rounded-2xl bg-card border border-border space-y-3">
+        <div className="tilt3d p-4 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(1.5)}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-2.5">
             <div className="flex items-center gap-2 text-xs font-bold text-foreground">
               <BrainCircuit size={16} className="text-purple-400" />
@@ -690,7 +691,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
         <div className="space-y-4">
 
           {/* Institutional Report View */}
-          <div className="p-5 rounded-2xl bg-card border border-border space-y-5 shadow-sm">
+          <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-5" {...tilt3d(1.5)}>
             {/* Report Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
               <div>
@@ -1043,7 +1044,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       )}
 
       {/* Historical Decentralized Research Reports */}
-      <div className="p-4 rounded-2xl bg-card border border-border space-y-4">
+      <div className="tilt3d p-4 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Layers size={16} className="text-primary" />

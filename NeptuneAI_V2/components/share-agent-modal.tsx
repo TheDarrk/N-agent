@@ -118,8 +118,8 @@ export default function ShareAgentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in-0">
-      <div className="relative w-full max-w-lg rounded-2xl border border-primary/30 bg-card/95 p-6 shadow-2xl backdrop-blur-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/85 animate-in fade-in-0">
+      <div className="relative w-full max-w-lg rounded-2xl border border-primary/30 bg-card p-6 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border pb-4">
           <div className="flex items-center gap-3">

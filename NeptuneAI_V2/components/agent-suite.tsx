@@ -1,5 +1,6 @@
 "use client";
 
+import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect } from "react";
 import {
   TrendingUp,
@@ -93,8 +94,7 @@ export default function NeptuneAgentSuite({
 
   useEffect(() => {
     fetchFleet();
-    const interval = setInterval(fetchFleet, 15000);
-    return () => clearInterval(interval);
+    return setVisibleInterval(fetchFleet, 15000);
   }, [accountId]);
 
   const handleToggleAgentActive = async (agentId: string, currentActive: boolean) => {

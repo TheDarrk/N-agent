@@ -112,7 +112,7 @@ export default function ChatSidebar({
     <>
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/65 lg:hidden"
           onClick={onClose}
         />
       )}

@@ -10,6 +10,7 @@ import {
   MessageSquare,
   TrendingUp,
   Store,
+  LayoutDashboard,
   Scale,
   FileText,
   ShieldAlert,
@@ -67,6 +68,7 @@ export default function ChatHeader({
     { id: "chat", label: "Chat", icon: MessageSquare },
     { id: "agent-suite", label: "Neptune Agent Suite", icon: Sparkles },
     { id: "marketplace", label: "Marketplace", icon: Store },
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   ];
 
   const handleToggleNetwork = async (net: "testnet" | "mainnet") => {

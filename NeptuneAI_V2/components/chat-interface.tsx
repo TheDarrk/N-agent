@@ -12,6 +12,7 @@ import RebalancerSection from "@/components/agent-sections/rebalancer-section";
 import ResearchSection from "@/components/agent-sections/research-section";
 import ModeratorSection from "@/components/agent-sections/moderator-section";
 import AgentMarketplace from "@/components/agent-marketplace";
+import AgentDashboard from "@/components/agent-dashboard";
 import NeptuneAgentSuite from "@/components/agent-suite";
 import AgentFleetModal from "@/components/agent-fleet-modal";
 
@@ -38,10 +39,15 @@ const SUGGESTIONS = [
 function DraggableAboutButton({ onClick }: { onClick: () => void }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const dragState = useRef({ dragging: false, wasDragged: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
-  const [pos, setPos] = useState({ left: 230, top: typeof window !== "undefined" ? window.innerHeight - 130 : 700 });
+  const [pos, setPos] = useState({ left: 230, top: 700 });
 
   useEffect(() => {
-    setPos({ left: 230, top: window.innerHeight - 130 });
+    // Docked sidebar only exists from lg (1024px); below that, park the button at the right edge above the input.
+    const isDocked = window.innerWidth >= 1024;
+    setPos({
+      left: isDocked ? 230 : window.innerWidth - 52,
+      top: isDocked ? window.innerHeight - 130 : window.innerHeight - 190,
+    });
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -108,6 +114,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
       const p = window.location.pathname;
       if (p.startsWith("/agent-suite")) return "agent-suite";
       if (p.startsWith("/marketplace")) return "marketplace";
+      if (p.startsWith("/dashboard")) return "dashboard";
     }
     return "chat";
   });
@@ -121,6 +128,8 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
         targetPath = subView ? `/agent-suite?agent=${subView}` : "/agent-suite";
       } else if (tab === "marketplace") {
         targetPath = "/marketplace";
+      } else if (tab === "dashboard") {
+        targetPath = "/dashboard";
       }
       if (window.location.pathname !== targetPath) {
         window.history.pushState(null, "", targetPath);
@@ -137,6 +146,8 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
         setAgentSuiteSubView(params.get("agent") || null);
       } else if (p.startsWith("/marketplace")) {
         setActiveTab("marketplace");
+      } else if (p.startsWith("/dashboard")) {
+        setActiveTab("dashboard");
       } else {
         setActiveTab("chat");
       }
@@ -349,7 +360,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <ChatSidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -390,20 +401,25 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
             accountId={accountId}
             onSelectAgentTab={(agentId) => navigateTab("agent-suite", agentId)}
           />
+        ) : activeTab === "dashboard" ? (
+          <AgentDashboard
+            accountId={accountId}
+            onSelectAgentTab={(agentId) => navigateTab("agent-suite", agentId)}
+          />
         ) : (
           <>
         {/* Chat Area */}
-        <div className={`flex-1 ${isEmpty ? "overflow-hidden" : "overflow-y-auto"}`}>
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {isEmpty ? (
             /* Empty State */
-            <div className="flex flex-col items-center justify-center h-full px-4">
+            <div className="flex flex-col items-center justify-center min-h-full px-4 py-6">
               <div className="max-w-lg w-full text-center">
                 <img
                   src="/neptune-logo.png"
                   alt="Neptune AI"
                   width={100}
                   height={100}
-                  className="mx-auto mb-1"
+                  className="mx-auto mb-1 w-20 h-20 sm:w-[100px] sm:h-[100px]"
                 />
                 <h2 className="text-xl font-bold text-foreground mb-2 text-balance">
                   What can Neptune AI do for you?
@@ -412,12 +428,12 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
                   Swap tokens, create payment links, explore chains — all powered by NEAR Intents & HOT Pay.
                 </p>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                   {SUGGESTIONS.map((s) => (
                     <button
                       key={s.label}
                       onClick={() => handleSend(s.label)}
-                      className="group flex items-center gap-3 px-4 py-3 rounded-xl border border-[hsl(225,18%,14%)] bg-card text-left hover:border-primary/30 hover:bg-primary/5 transition-all active:scale-[0.98]"
+                      className="group flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-card text-left hover:border-primary/30 hover:bg-primary/5 transition-all active:scale-[0.98]"
                     >
                       <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 group-hover:bg-primary/15 transition-colors">
                         <s.icon size={15} className="text-muted-foreground group-hover:text-primary transition-colors" />
@@ -452,7 +468,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
                     height={36}
                     className="rounded-lg flex-shrink-0 mt-0.5"
                   />
-                  <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-card border border-[hsl(225,18%,14%)]">
+                  <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-card border border-border">
                     <div className="flex items-center gap-1">
                       <span className="text-sm text-muted-foreground font-medium">Thinking</span>
                       <span className="flex items-center gap-[3px] mt-[2px]">
@@ -470,9 +486,9 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-[hsl(225,18%,14%)] px-4 py-3 md:px-6 bg-card/30 backdrop-blur-sm">
+        <div className="border-t border-border px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 md:px-6 bg-card/30 backdrop-blur-sm">
           <div className="mx-auto max-w-2xl">
-            <div className="flex items-center gap-2 rounded-xl border border-[hsl(225,18%,14%)] bg-card px-3 py-2.5 transition-colors focus-within:border-primary/40 focus-within:shadow-[0_0_0_1px_hsl(210,100%,56%,0.1)]">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 transition-colors focus-within:border-primary/40 focus-within:shadow-[0_0_0_1px_hsl(210,100%,56%,0.1)]">
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -508,7 +524,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
       {showAbout && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/65"
             onClick={() => setShowAbout(false)}
           />
           <div className="relative w-full max-w-md rounded-2xl border border-primary/15 bg-card shadow-2xl shadow-primary/5 animate-fade-in">

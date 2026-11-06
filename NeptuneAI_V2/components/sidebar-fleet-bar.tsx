@@ -1,5 +1,6 @@
 "use client";
 
+import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect } from "react";
 import { AgentAvatar } from "@/components/agent-avatars";
 import {
@@ -72,8 +73,7 @@ export default function SidebarFleetBar({
       }
     };
     fetchFleet();
-    const interval = setInterval(fetchFleet, 12000);
-    return () => clearInterval(interval);
+    return setVisibleInterval(fetchFleet, 12000);
   }, [accountId]);
 
   const agents = [

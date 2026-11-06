@@ -82,10 +82,10 @@ export default function TestnetWalletModal({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in-0">
-            <div className="relative w-full max-w-md rounded-2xl border border-[hsl(225,18%,18%)] bg-card/95 p-6 shadow-2xl backdrop-blur-xl transition-all space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/85 animate-in fade-in-0">
+            <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl space-y-4">
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-[hsl(225,18%,14%)] pb-4">
+                <div className="flex items-center justify-between border-b border-border pb-4">
                     <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-lg bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-orange-400">
                             <Flame size={18} className="fill-orange-400" />
@@ -154,7 +154,7 @@ export default function TestnetWalletModal({
 
                 {/* ── Divider ── */}
                 <div className="relative flex items-center justify-center">
-                    <div className="border-t border-[hsl(225,18%,14%)] w-full" />
+                    <div className="border-t border-border w-full" />
                     <span className="bg-card px-2 text-[10px] uppercase font-bold text-muted-foreground tracking-wider absolute">
                         OR DIRECT TESTNET ACCOUNT
                     </span>
@@ -176,11 +176,11 @@ export default function TestnetWalletModal({
                             if (e.key === "Enter") handleDirectConnect();
                         }}
                         placeholder="e.g. testagen.testnet or youraccount.testnet"
-                        className="w-full rounded-xl bg-background border border-[hsl(225,18%,16%)] px-3.5 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-emerald-500/50"
+                        className="w-full rounded-xl bg-background border border-border px-3.5 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-emerald-500/50"
                     />
 
                     {/* Quick test preset */}
-                    <div className="p-2.5 rounded-lg bg-secondary/30 border border-[hsl(225,18%,14%)] flex items-center justify-between">
+                    <div className="p-2.5 rounded-lg bg-secondary/30 border border-border flex items-center justify-between">
                         <span className="text-[11px] text-muted-foreground">Quick test with delegated account:</span>
                         <button
                             onClick={() => handleDirectConnect("testagen.testnet")}

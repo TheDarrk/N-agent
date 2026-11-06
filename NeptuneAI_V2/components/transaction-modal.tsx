@@ -73,7 +73,7 @@ export default function TransactionModal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-background/85"
         onClick={canClose ? onClose : undefined}
       />
 

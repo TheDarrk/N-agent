@@ -1,5 +1,6 @@
 "use client";
 
+import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect } from "react";
 import {
   Activity,
@@ -70,8 +71,7 @@ export default function SidebarAgentFeed({
 
   useEffect(() => {
     fetchLogs();
-    const interval = setInterval(fetchLogs, 12000);
-    return () => clearInterval(interval);
+    return setVisibleInterval(fetchLogs, 12000);
   }, [accountId]);
 
   const getAgentColor = (name: string) => {

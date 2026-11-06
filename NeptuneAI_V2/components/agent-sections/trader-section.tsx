@@ -1,5 +1,6 @@
 "use client";
 
+import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect } from "react";
 import {
   TrendingUp,
@@ -41,6 +42,11 @@ import TraderPnl from "@/components/agent-sections/trader/trader-pnl";
 import TraderSetup from "@/components/agent-sections/trader/trader-setup";
 import TraderReady from "@/components/agent-sections/trader/trader-ready";
 import { tilt3d } from "@/components/agent-sections/trader/tilt-3d";
+import TraceCard, {
+  describeVerdict,
+  symbolLabel,
+  type TraceData,
+} from "@/components/agent-sections/trader/trace-card";
 
 type Props = {
   accountId: string | null;
@@ -266,8 +272,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
   useEffect(() => {
     fetchTrades();
-    const interval = setInterval(fetchTrades, 30000); // Poller sync every 30s
-    return () => clearInterval(interval);
+    return setVisibleInterval(fetchTrades, 30000);
   }, [accountId]);
 
   // Handle adding custom coin (max 20)
@@ -416,7 +421,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           <button
             onClick={fetchTrades}
             disabled={isLoadingTrades}
-            className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-secondary/50 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="key3d grid h-9 w-9 place-items-center rounded-xl border border-border bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
             title="Refresh data"
             aria-label="Refresh data"
           >
@@ -425,7 +430,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           <button
             onClick={handleScanNow}
             disabled={isScanning || !accountId}
-            className="flex h-9 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+            className="key3d flex h-9 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {isScanning ? (
               <>
@@ -552,7 +557,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                     <h3 className="text-sm font-bold text-foreground">
                       Latest decision:{" "}
                       <span className={activeRun.success ? "text-emerald-400 font-mono font-bold" : "text-amber-400 font-mono font-bold"}>
-                        {activeRun.verdict || (activeRun.success ? "ENTER_LONG" : "STAND_ASIDE")}
+                        {describeVerdict({ verdict: activeRun.verdict, success: activeRun.success }).label}
                       </span>
                     </h3>
                     {activeRun.isAutonomousFeed && (
@@ -563,10 +568,11 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono px-2 py-0.5 rounded bg-secondary text-foreground">
-                      Candidate: <strong>{activeRun.symbol}</strong>
+                      Coin: <strong>{symbolLabel(activeRun.symbol)}</strong>
                     </span>
-                    <span className="text-xs font-mono text-muted-foreground">
-                      Conviction: <strong className="text-foreground">{activeRun.confidence_score}%</strong> / {minConfidence}%
+                    <span className="text-xs text-muted-foreground">
+                      Confidence: <strong className="font-mono text-foreground">{activeRun.confidence_score}%</strong>{" "}
+                      (needs {minConfidence}% to trade)
                     </span>
                   </div>
                 </div>
@@ -586,7 +592,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                             setModalChartTitle(`${activeRun.symbol} Technical Analysis & Forecast (${activeRun.pattern})`);
                             setIsChartExpanded(true);
                           }}
-                          className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 flex items-center gap-1 transition-colors"
+                          className="key3d text-[11px] px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 flex items-center gap-1"
                           title="Expand Fullscreen Chart"
                         >
                           <Maximize2 size={12} /> Expand
@@ -594,7 +600,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                         {activeRun.ascii_chart && (
                           <button
                             onClick={() => setShowAsciiChart(!showAsciiChart)}
-                            className="text-[11px] text-primary hover:underline flex items-center gap-1"
+                            className="key3d text-[11px] px-2.5 py-1 rounded-lg bg-secondary/50 text-primary hover:bg-secondary border border-border flex items-center gap-1"
                           >
                             <Eye size={12} /> {showAsciiChart ? "Hide ASCII" : "View ASCII Chart"}
                           </button>
@@ -934,10 +940,10 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               <div>
                 <h3 className="text-base font-bold text-foreground flex items-center gap-2.5">
                   <Brain size={18} className="text-primary" />
-                  Reasoning Traces &amp; Trade Execution History
+                  Agent Decisions &amp; Trades
                 </h3>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Inspect what the agent thinks in each evaluation run, step-by-step telemetry, and full trade history.
+                  See every time your agent checked the market, why it did or didn&apos;t trade, and the trades it made.
                 </p>
               </div>
 
@@ -978,7 +984,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   }`}
                 >
                   <Brain size={14} />
-                  <span>Agent Reasoning Traces</span>
+                  <span>Decisions</span>
                   <span className="text-xs px-1.5 py-0.5 rounded-full bg-background/20 font-mono">
                     {traces.length}
                   </span>
@@ -995,7 +1001,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   }`}
                 >
                   <Clock size={14} />
-                  <span>Trade History &amp; Orders</span>
+                  <span>Trades</span>
                   <span className="text-xs px-1.5 py-0.5 rounded-full bg-background/20 font-mono">
                     {openTrades.length + tradeHistory.length + droppedTrades.length}
                   </span>
@@ -1047,347 +1053,39 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
             {/* ── VIEW 1: AGENT REASONING TRACES (WITH STEP-BY-STEP EVAL BREAKDOWN) ── */}
             {activeTraceTab === "traces" && (
               <div className="space-y-3 pt-1">
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-border bg-background/40 px-3.5 py-2.5 text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Each card is one check of the market.</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /> Opened a trade
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-amber-400" /> Waited
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> Blocked
+                  </span>
+                </div>
                 {traces.length === 0 ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">
                     <Brain size={28} className="mx-auto mb-2 text-muted-foreground/40" />
-                    No reasoning traces recorded yet. Traces are automatically generated on every evaluation run.
+                    No decisions yet. Your agent logs one here every time it checks the market.
                   </div>
                 ) : (
-                  traces.map((tr, i) => {
-                    const isExpanded = expandedTraceCid === tr.cid;
-                    const isDropped = tr.stage?.includes("DROP") || tr.drop_reason || tr.verdict === "DROPPED";
-
-                    return (
-                      <div
-                        key={tr.cid || i}
-                        className={`rounded-xl border transition-all ${
-                          isDropped
-                            ? "border-rose-500/50 bg-rose-950/20 shadow-[0_0_15px_rgba(244,63,94,0.12)]"
-                            : "border-border bg-secondary/30 hover:border-primary/40"
-                        }`}
-                      >
-                        {/* Summary Header */}
-                        <div
-                          onClick={() => setExpandedTraceCid(isExpanded ? null : tr.cid)}
-                          className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-2.5 cursor-pointer select-none"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            {/* Verdict Pill */}
-                            {isDropped ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950/90 text-rose-300 border border-rose-500/50 ring-1 ring-rose-500/30 flex items-center gap-1 shadow-[0_0_10px_rgba(244,63,94,0.25)] shrink-0">
-                                <AlertTriangle size={10} className="text-rose-400" />
-                                <span>DROPPED RUN</span>
-                              </span>
-                            ) : tr.verdict === "ENTER_LONG" ? (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
-                                <CheckCircle2 size={10} />
-                                <span>ENTER LONG</span>
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-border shrink-0">
-                                {tr.verdict || tr.stage || "EVALUATION"}
-                              </span>
-                            )}
-
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-foreground text-xs">{tr.symbol || "NEAR"}</span>
-                                {tr.confidence_score !== undefined && (
-                                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-primary/15 text-primary border border-primary/25">
-                                    {tr.confidence_score}% Conf
-                                  </span>
-                                )}
-                                {tr.expected_roi_pct !== undefined && tr.expected_roi_pct > 0 && (
-                                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
-                                    +{tr.expected_roi_pct}% ROI
-                                  </span>
-                                )}
-                              </div>
-                              <p className={`text-[11px] truncate mt-0.5 ${isDropped ? "text-rose-300 font-medium" : "text-muted-foreground"}`}>
-                                {tr.drop_reason ? `Drop Reason: ${tr.drop_reason}` : tr.reasoning || tr.pattern_detected || "Market evaluated against RAG rules"}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
-                            <span className="font-mono text-[10px] text-primary truncate max-w-[100px]">
-                              {tr.cid.slice(0, 10)}...
-                            </span>
-                            <span className="text-[9px] text-muted-foreground font-mono">
-                              {tr.stored_at ? new Date(tr.stored_at).toLocaleTimeString() : "Recent"}
-                            </span>
-                            <div className="w-6 h-6 rounded-lg bg-secondary/80 flex items-center justify-center text-muted-foreground">
-                              {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* ── EXPANDED 8-STEP AGENT EVALUATION BREAKDOWN ── */}
-                        {isExpanded && (
-                          <div className="px-4 pb-4 pt-1 border-t border-border space-y-3 text-xs animate-in fade-in-0 duration-150">
-                            <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                              <span className="text-[11px] font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                                <Activity size={12} className="text-primary" />
-                                Agent Evaluation Run — What It Thought &amp; What Steps It Took
-                              </span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCopyTrace(JSON.stringify(tr, null, 2), tr.cid);
-                                }}
-                                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground font-mono"
-                              >
-                                {copiedCid === tr.cid ? (
-                                  <>
-                                    <Check size={10} className="text-emerald-400" />
-                                    <span className="text-emerald-400">Copied!</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy size={10} />
-                                    <span>Copy Trace JSON</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                              {/* Step 1: Market Scan */}
-                              <div className="p-3 rounded-xl bg-background/50 border border-border space-y-1">
-                                <span className="text-[10px] font-bold text-primary block">
-                                  Step 1: Market Scan &amp; Indicators
-                                </span>
-                                <div className="grid grid-cols-3 gap-1.5 text-[10px] pt-1">
-                                  <div>
-                                    <span className="text-muted-foreground block text-[9px]">Price</span>
-                                    <span className="font-mono font-bold text-foreground">
-                                      ${tr.indicators?.current_price ? tr.indicators.current_price.toFixed(4) : tr.entry_price || "—"}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-muted-foreground block text-[9px]">RSI (14)</span>
-                                    <span className="font-mono font-bold text-primary">
-                                      {tr.indicators?.rsi ? tr.indicators.rsi.toFixed(1) : "54.2"}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-muted-foreground block text-[9px]">EMA Trend</span>
-                                    <span className="font-mono font-bold text-emerald-400">
-                                      {tr.indicators?.ema_trend || "BULLISH"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Step 2: Geometric Pattern */}
-                              <div className="p-3 rounded-xl bg-background/50 border border-border space-y-1">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-bold text-primary block">
-                                    Step 2: Vision Chart Pattern Recognition
-                                  </span>
-                                  {tr.chart_image?.data_uri && (
-                                    <span className="text-[9px] font-mono text-cyan-400 bg-cyan-500/10 px-1.5 py-0.2 rounded border border-cyan-500/20">
-                                      Chart Attached
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="font-semibold text-foreground text-[11px] truncate">
-                                  {tr.pattern_detected || "Dynamic EMA Trend Support"}
-                                </p>
-                                <div className="flex items-center justify-between text-[10px] font-mono pt-0.5">
-                                  <span className="text-emerald-400">TP: ${tr.take_profit_price ? tr.take_profit_price.toFixed(4) : "—"}</span>
-                                  <span className="text-rose-400">SL: ${tr.stop_loss_price ? tr.stop_loss_price.toFixed(4) : "—"}</span>
-                                </div>
-                                {tr.chart_image?.data_uri && (
-                                  <div 
-                                    className="mt-2 rounded-lg overflow-hidden border border-border cursor-pointer group relative bg-[#0B0F19]"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setModalChartUri(tr.chart_image?.data_uri || null);
-                                      setModalChartTitle(`${tr.symbol} Run Audit Chart (${tr.pattern_detected || "Pattern Recognition"})`);
-                                      setIsChartExpanded(true);
-                                    }}
-                                  >
-                                    <img
-                                      src={tr.chart_image.data_uri}
-                                      alt="Trace Pattern Chart"
-                                      className="w-full h-auto max-h-[140px] object-contain rounded"
-                                    />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-[11px] text-white font-medium">
-                                      <Maximize2 size={12} /> Click to expand chart
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Step 3: Book RAG */}
-                              <div className="p-3 rounded-xl bg-background/50 border border-border space-y-1">
-                                <span className="text-[10px] font-bold text-primary block">
-                                  Step 3: Crypto Trading Book RAG Citation
-                                </span>
-                                <p className="font-mono text-foreground text-[11px]">
-                                  {tr.book_section_cited || "Chapter 3: Bull & Bear Flag Geometry (sec_bull_bear_flags)"}
-                                </p>
-                                <p className="text-[9px] text-muted-foreground leading-tight">
-                                  Breakout verified against 31-section indexed strategy rules.
-                                </p>
-                              </div>
-
-                              {/* Step 4: Social Sentiment & Researcher */}
-                              <div className="p-3 rounded-xl bg-background/50 border border-border space-y-1">
-                                <span className="text-[10px] font-bold text-primary block">
-                                  Step 4: Social Sentiment &amp; A2A Intel
-                                </span>
-                                <p className="text-[11px] text-foreground">
-                                  Bullish: {tr.twitter_sentiment?.bullish_pct || 50}% • Bearish: {tr.twitter_sentiment?.bearish_pct || 50}%
-                                </p>
-                                <p className="text-[9px] text-muted-foreground">
-                                  Researcher Agent Rental: {tr.researcher_intel ? "0.1 NEAR A2A Fee Settled" : "Standby"}
-                                </p>
-                              </div>
-
-                              {/* Step 5: LLM Council Deliberation & Confluence */}
-                              <div className="p-3 rounded-xl bg-background/50 border border-border space-y-2 sm:col-span-2">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-bold text-primary flex items-center gap-1.5">
-                                    <Users size={12} />
-                                    Step 5: LLM Council Deliberation &amp; Confluence (5 Advisors)
-                                  </span>
-                                  <span className="font-mono font-bold text-foreground text-[10px]">
-                                    Score: {tr.confidence_score || 77}% • Verdict: {tr.verdict || "ENTER_LONG"}
-                                  </span>
-                                </div>
-
-                                {/* 5 Advisors Deliberation if available */}
-                                {tr.advisors && (
-                                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 text-[9px] pt-1">
-                                    {tr.advisors.contrarian && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-rose-500/20">
-                                        <span className="font-bold text-rose-400 block text-[8px] uppercase">Contrarian</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.contrarian}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.first_principles && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-blue-500/20">
-                                        <span className="font-bold text-blue-400 block text-[8px] uppercase">First Principles</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.first_principles}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.expansionist && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-emerald-500/20">
-                                        <span className="font-bold text-emerald-400 block text-[8px] uppercase">Expansionist</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.expansionist}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.outsider && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-purple-500/20">
-                                        <span className="font-bold text-purple-400 block text-[8px] uppercase">Outsider</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.outsider}</p>
-                                      </div>
-                                    )}
-                                    {tr.advisors.executor && (
-                                      <div className="p-1.5 rounded bg-background/70 border border-amber-500/20">
-                                        <span className="font-bold text-amber-400 block text-[8px] uppercase">Executor</span>
-                                        <p className="text-muted-foreground line-clamp-3">{tr.advisors.executor}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Council Agreement & Clash */}
-                                {(tr.council_agreement || tr.council_clash) && (
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[9px] pt-1">
-                                    {tr.council_agreement && (
-                                      <div className="p-1.5 rounded bg-emerald-950/20 border border-emerald-500/20">
-                                        <span className="font-bold text-emerald-400 block">Where Council Agrees:</span>
-                                        <p className="text-emerald-200/80">{tr.council_agreement}</p>
-                                      </div>
-                                    )}
-                                    {tr.council_clash && (
-                                      <div className="p-1.5 rounded bg-amber-950/20 border border-amber-500/20">
-                                        <span className="font-bold text-amber-400 block">Where Council Clashes:</span>
-                                        <p className="text-amber-200/80">{tr.council_clash}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {tr.one_thing_first && (
-                                  <div className="p-1.5 rounded bg-secondary/40 border border-border text-[9px] flex items-center justify-between">
-                                    <span className="text-muted-foreground"><strong className="text-primary">Action Directive:</strong> {tr.one_thing_first}</span>
-                                  </div>
-                                )}
-
-                                {tr.binary_evidence_checks && (
-                                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-[9px] pt-0.5">
-                                    <div className={`p-1.5 rounded border text-center ${tr.binary_evidence_checks.has_trend_alignment ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
-                                      Trend Aligned {tr.binary_evidence_checks.has_trend_alignment ? "✓" : "✗"}
-                                    </div>
-                                    <div className={`p-1.5 rounded border text-center ${tr.binary_evidence_checks.has_volume_confirmation ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
-                                      Volume Surge {tr.binary_evidence_checks.has_volume_confirmation ? "✓" : "✗"}
-                                    </div>
-                                    <div className={`p-1.5 rounded border text-center ${tr.binary_evidence_checks.has_chart_pattern_support ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
-                                      Pattern Conf {tr.binary_evidence_checks.has_chart_pattern_support ? "✓" : "✗"}
-                                    </div>
-                                    <div className={`p-1.5 rounded border text-center ${tr.binary_evidence_checks.has_social_sentiment_support ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
-                                      Sentiment OK {tr.binary_evidence_checks.has_social_sentiment_support ? "✓" : "✗"}
-                                    </div>
-                                    <div className={`p-1.5 rounded border text-center ${tr.binary_evidence_checks.favorable_risk_reward ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-secondary text-muted-foreground"}`}>
-                                      Favorable R:R {tr.binary_evidence_checks.favorable_risk_reward ? "✓" : "✗"}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Step 6: Hard Function Validator (HIGH CONTRAST RED IF DROPPED) */}
-                              <div className={`p-3 rounded-xl border sm:col-span-2 ${
-                                isDropped
-                                  ? "bg-rose-950/40 border-rose-500/50 text-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.18)]"
-                                  : "bg-background/50 border-border"
-                              }`}>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className={`text-[10px] font-bold flex items-center gap-1.5 ${isDropped ? "text-rose-400" : "text-primary"}`}>
-                                    {isDropped ? <AlertTriangle size={11} className="text-rose-400" /> : <Shield size={11} className="text-primary" />}
-                                    Step 6: Hard Function Validator &amp; On-Chain Balance Guard
-                                  </span>
-                                  <span className={`text-[9px] font-bold uppercase font-mono px-1.5 py-0.2 rounded ${
-                                    isDropped ? "bg-rose-900/80 text-rose-300 border border-rose-500/40" : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
-                                  }`}>
-                                    {isDropped ? "VALIDATION BLOCKED / DROPPED" : "PASSED & AUTHORIZED"}
-                                  </span>
-                                </div>
-                                {isDropped ? (
-                                  <p className="text-[11px] font-mono text-rose-200 bg-rose-950/60 p-2 rounded-lg border border-rose-700/50">
-                                    {tr.drop_reason || "Assigned Agent Execution Wallet has 0 NEAR balance (unfunded)."}
-                                  </p>
-                                ) : (
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Authorized execution key verified in registered keys with positive on-chain RPC balance. Zero hard-cap breaches detected.
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Step 7 & 8: Intents Payload & IPFS */}
-                              <div className="p-3 rounded-xl bg-background/50 border border-border sm:col-span-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[10px]">
-                                <div>
-                                  <span className="font-bold text-primary block">
-                                    Steps 7 &amp; 8: NEAR Intents 1-Click Protocol &amp; Decentralized Audit
-                                  </span>
-                                  <span className="font-mono text-muted-foreground">
-                                    Tx Hash / Quote: {tr.tx_hash || "Simulated / Intents Payload"}
-                                  </span>
-                                </div>
-                                <div className="text-right">
-                                  <span className="text-muted-foreground block text-[9px]">Verified IPFS CID:</span>
-                                  <span className="font-mono text-cyan-400 text-[11px]">{tr.cid}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
+                  traces.map((tr, i) => (
+                    <TraceCard
+                      key={tr.cid || i}
+                      trace={tr as TraceData}
+                      expanded={expandedTraceCid === tr.cid}
+                      copied={copiedCid === tr.cid}
+                      onToggle={() => setExpandedTraceCid(expandedTraceCid === tr.cid ? null : tr.cid)}
+                      onCopy={handleCopyTrace}
+                      onOpenChart={(uri, title) => {
+                        setModalChartUri(uri);
+                        setModalChartTitle(title);
+                        setIsChartExpanded(true);
+                      }}
+                    />
+                  ))
                 )}
               </div>
             )}
@@ -1540,7 +1238,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           {/* Global Candlestick Pattern Lightbox Modal */}
           {isChartExpanded && modalChartUri && (
             <div
-              className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200"
+              className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200"
               onClick={() => setIsChartExpanded(false)}
             >
               <div
