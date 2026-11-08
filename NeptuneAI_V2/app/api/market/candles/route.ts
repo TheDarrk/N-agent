@@ -2,15 +2,20 @@ import { INTERVALS, normalizeSymbol, type Candle, type Interval } from "@/lib/ma
 
 export const dynamic = "force-dynamic";
 
-const BINANCE = "https://data-api.binance.vision/api/v3";
+const BINANCE_HOSTS = [
+  "https://data-api.binance.vision/api/v3",
+  "https://api.binance.com/api/v3",
+  "https://api1.binance.com/api/v3",
+  "https://api.binance.us/api/v3",
+];
 const COINBASE = "https://api.exchange.coinbase.com";
 
-async function fromBinance(symbol: string, interval: Interval, limit: number): Promise<Candle[]> {
-  const res = await fetch(`${BINANCE}/klines?symbol=${symbol}USDT&interval=${interval}&limit=${limit}`, {
+async function fromBinanceHost(base: string, symbol: string, interval: Interval, limit: number): Promise<Candle[]> {
+  const res = await fetch(`${base}/klines?symbol=${symbol}USDT&interval=${interval}&limit=${limit}`, {
     cache: "no-store",
-    signal: AbortSignal.timeout(6000),
+    signal: AbortSignal.timeout(4000),
   });
-  if (!res.ok) throw new Error(`binance ${res.status}`);
+  if (!res.ok) throw new Error(`${new URL(base).host} ${res.status}`);
   const rows = (await res.json()) as unknown[][];
   return rows.map((r) => ({
     time: Math.floor(Number(r[0]) / 1000),
@@ -46,16 +51,23 @@ export async function GET(request: Request) {
     return Response.json({ error: "Unsupported symbol or interval", candles: [] }, { status: 400 });
   }
 
-  for (const [source, load] of [
-    ["binance", fromBinance],
-    ["coinbase", fromCoinbase],
-  ] as const) {
+  const sources: [string, () => Promise<Candle[]>][] = [
+    ...BINANCE_HOSTS.map((base): [string, () => Promise<Candle[]>] => [new URL(base).host, () => fromBinanceHost(base, symbol, interval, limit)]),
+    ["coinbase", () => fromCoinbase(symbol, interval, limit)],
+  ];
+
+  const failures: string[] = [];
+  for (const [source, load] of sources) {
     try {
-      const candles = await load(symbol, interval, limit);
+      const candles = await load();
       if (candles.length > 0) return Response.json({ symbol, interval, source, candles });
-    } catch {
-      // try the next source
+      failures.push(`${source}: empty`);
+    } catch (e) {
+      failures.push(`${source}: ${e instanceof Error ? e.message : "failed"}`);
     }
   }
-  return Response.json({ error: `No market data for ${symbol}`, symbol, interval, source: "none", candles: [] }, { status: 404 });
+  return Response.json(
+    { error: `No market data for ${symbol}. Could not reach any exchange.`, failures, symbol, interval, source: "none", candles: [] },
+    { status: 404 },
+  );
 }

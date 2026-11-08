@@ -31,7 +31,7 @@ import FullScreenHistoryModal from "@/components/fullscreen-history-modal";
 import AgentWalletManagerModal from "@/components/agent-wallet-manager-modal";
 import TraderSection from "@/components/agent-sections/trader-section";
 import ModeratorSection from "@/components/agent-sections/moderator-section";
-import ResearchSection from "@/components/agent-sections/research-section";
+import ResearchSection from "@/components/agent-sections/research-panel";
 import RebalancerSection from "@/components/agent-sections/rebalancer-section";
 import { AgentAvatar } from "@/components/agent-avatars";
 import { AgentCardScene } from "@/components/agent-card-scene";

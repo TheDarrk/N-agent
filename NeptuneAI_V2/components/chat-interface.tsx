@@ -9,11 +9,12 @@ import TransactionModal, { type TxStep } from "@/components/transaction-modal";
 import { useWallet } from "@/providers/wallet-provider";
 import TraderSection from "@/components/agent-sections/trader-section";
 import RebalancerSection from "@/components/agent-sections/rebalancer-section";
-import ResearchSection from "@/components/agent-sections/research-section";
+import ResearchSection from "@/components/agent-sections/research-panel";
 import ModeratorSection from "@/components/agent-sections/moderator-section";
 import AgentMarketplace from "@/components/agent-marketplace";
 import AgentDashboard from "@/components/agent-dashboard";
 import NeptuneAgentSuite from "@/components/agent-suite";
+import { startPageTransition } from "@/components/page-loader";
 import AgentFleetModal from "@/components/agent-fleet-modal";
 
 type Message = {
@@ -120,25 +121,29 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
   });
 
   const navigateTab = useCallback((tab: string, subView: string | null = null) => {
+    const isBrowser = typeof window !== "undefined";
+    let targetPath = "/";
+    if (tab === "agent-suite") {
+      targetPath = subView ? `/agent-suite?agent=${subView}` : "/agent-suite";
+    } else if (tab === "marketplace") {
+      targetPath = "/marketplace";
+    } else if (tab === "dashboard") {
+      targetPath = "/dashboard";
+    }
+
+    if (isBrowser && window.location.pathname !== targetPath.split("?")[0]) {
+      startPageTransition();
+    }
     setActiveTab(tab);
     setAgentSuiteSubView(subView);
-    if (typeof window !== "undefined") {
-      let targetPath = "/";
-      if (tab === "agent-suite") {
-        targetPath = subView ? `/agent-suite?agent=${subView}` : "/agent-suite";
-      } else if (tab === "marketplace") {
-        targetPath = "/marketplace";
-      } else if (tab === "dashboard") {
-        targetPath = "/dashboard";
-      }
-      if (window.location.pathname !== targetPath) {
-        window.history.pushState(null, "", targetPath);
-      }
+    if (isBrowser && window.location.pathname !== targetPath) {
+      window.history.pushState(null, "", targetPath);
     }
   }, []);
 
   useEffect(() => {
     const handlePopState = () => {
+      startPageTransition();
       const p = window.location.pathname;
       if (p.startsWith("/agent-suite")) {
         setActiveTab("agent-suite");

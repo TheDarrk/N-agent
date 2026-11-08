@@ -4,6 +4,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { VisibilityGate } from "@/components/visibility-gate";
+import { PageLoader } from "@/components/page-loader";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const jetbrains = JetBrains_Mono({
@@ -51,6 +52,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <VisibilityGate />
+          <PageLoader />
           {children}
         </ThemeProvider>
       </body>

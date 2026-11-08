@@ -133,7 +133,7 @@ export default function MarketTerminal({ data }: { data: DashboardData }) {
     };
   }, [expanded]);
 
-  const { data: candleData, error: candleError } = useCandles(selected, interval);
+  const { data: candleData, error: candleError, mutate: mutateCandles } = useCandles(selected, interval);
   const { data: tickerData, isLoading: tickersLoading } = useTickers(symbols);
   const { data: flow, isLoading: flowLoading } = useFlow(selected);
 
@@ -338,6 +338,8 @@ export default function MarketTerminal({ data }: { data: DashboardData }) {
           fitSignal={fitSignal}
           windowSec={windowSec}
           onRangeChange={onRangeChange}
+          error={Boolean(candleError)}
+          onRetry={() => void mutateCandles()}
         />
       </div>
 
