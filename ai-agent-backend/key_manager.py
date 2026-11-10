@@ -8,7 +8,7 @@ import os
 import base64
 import hashlib
 import secrets
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -26,18 +26,29 @@ def _get_encryption_key() -> bytes:
     return hashlib.sha256(raw.encode()).digest()
 
 
-def encrypt_private_key(private_key: str) -> str:
-    """Encrypt a private key string using AES-256-GCM. Returns base64-encoded ciphertext."""
+def encrypt_private_key(private_key: str, wallet_address: Optional[str] = None) -> str:
+    """Encrypt a private key string using AES-256-GCM. Uses wallet salt if wallet_address is provided."""
+    if wallet_address:
+        try:
+            from database.encryption import get_encryption
+            return get_encryption().encrypt_field(wallet_address, "agent_priv_key", private_key)
+        except Exception:
+            pass
     key = _get_encryption_key()
     aesgcm = AESGCM(key)
     nonce = secrets.token_bytes(12)  # 96-bit nonce
     ciphertext = aesgcm.encrypt(nonce, private_key.encode(), None)
-    # Combine nonce + ciphertext and base64 encode
     return base64.b64encode(nonce + ciphertext).decode()
 
 
-def decrypt_private_key(encrypted: str) -> str:
-    """Decrypt an AES-256-GCM encrypted private key."""
+def decrypt_private_key(encrypted: str, wallet_address: Optional[str] = None) -> str:
+    """Decrypt an AES-256-GCM encrypted private key. Tries wallet salt first, then global master key."""
+    if wallet_address:
+        try:
+            from database.encryption import get_encryption
+            return get_encryption().decrypt_field(wallet_address, "agent_priv_key", encrypted)
+        except Exception:
+            pass
     key = _get_encryption_key()
     aesgcm = AESGCM(key)
     raw = base64.b64decode(encrypted)
@@ -45,6 +56,7 @@ def decrypt_private_key(encrypted: str) -> str:
     ciphertext = raw[12:]
     plaintext = aesgcm.decrypt(nonce, ciphertext, None)
     return plaintext.decode()
+
 
 
 #   NEAR Keypair (ed25519)  

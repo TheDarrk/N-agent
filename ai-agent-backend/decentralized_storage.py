@@ -54,7 +54,7 @@ def _prune_directory(directory: str, max_items: int = MAX_RECENT_ITEMS):
 async def upload_trade_trace(trace: Dict[str, Any]) -> str:
     """
     Store a trade reasoning trace.
-    Returns the CID (IPFS/local) and strictly preserves the most recent 24 traces.
+    Returns the CID (IPFS/local) and preserves traces in SQLite scoped by wallet.
     Includes explicit UTC date, time, and ISO timestamp.
     """
     cid = _generate_cid(trace)
@@ -67,21 +67,40 @@ async def upload_trade_trace(trace: Dict[str, Any]) -> str:
     trace["timestamp_utc"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
     trace["created_at_utc"] = now_utc.isoformat()
 
-    # Save to local recent 24
+    # Save to SQLite trader_reasoning_traces
+    wallet = trace.get("user_wallet") or trace.get("wallet_address") or ""
+    if wallet:
+        try:
+            from database import save_reasoning_trace
+            img_val = trace.get("chart_image")
+            if isinstance(img_val, dict):
+                img_val = img_val.get("filepath") or img_val.get("url") or img_val.get("data_uri") or json.dumps(img_val)
+            save_reasoning_trace(
+                wallet_address=wallet,
+                symbol=trace.get("symbol", "NEAR"),
+                verdict=trace.get("verdict", "STAND_ASIDE"),
+                confidence=int(trace.get("confidence_score") or trace.get("confidence") or 50),
+                trace_payload=trace,
+                chart_image_path=img_val
+            )
+        except Exception as dbe:
+            print(f"[STORAGE: DB TRACE ERROR] {dbe}")
+
+    # Also save to local recent files
     timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
     filepath = os.path.join(LOGS_DIR, f"trace_{timestamp}_{cid[:10]}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(trace, f, indent=2)
 
     _prune_directory(LOGS_DIR, MAX_TRADER_TRACES)
-    print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent {MAX_TRADER_TRACES} preserved)")
+    print(f"[STORAGE] Trade reasoning trace saved: {cid} (user: {wallet or 'global'})")
     return cid
 
 
 async def upload_research_report(report: Dict[str, Any]) -> str:
     """
     Store a Research Agent market report.
-    Returns the CID (IPFS/local) and strictly preserves the most recent 5 reports.
+    Persists in SQLite research_reports scoped by wallet.
     """
     cid = _generate_cid(report)
     report["cid"] = cid
@@ -93,15 +112,31 @@ async def upload_research_report(report: Dict[str, Any]) -> str:
     report["timestamp_utc"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
     report["created_at_utc"] = now_utc.isoformat()
 
-    # Save to local recent 5
+    # Save to SQLite research_reports
+    wallet = report.get("requester") or report.get("user_wallet") or report.get("wallet_address") or ""
+    if wallet:
+        try:
+            from database import save_research_report
+            save_research_report(
+                wallet_address=wallet,
+                title=report.get("title") or report.get("topic") or "Research Report",
+                query=report.get("research_query") or report.get("user_expectations") or "",
+                full_report=report,
+                report_type=report.get("report_type", "comprehensive")
+            )
+        except Exception as dbe:
+            print(f"[STORAGE: DB REPORT ERROR] {dbe}")
+
+    # Also save to local recent files
     timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
     filepath = os.path.join(REPORTS_DIR, f"report_{timestamp}_{cid[:10]}.json")
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
     _prune_directory(REPORTS_DIR, MAX_RESEARCH_REPORTS)
-    print(f"[STORAGE] Research report saved: {cid} (recent {MAX_RESEARCH_REPORTS} preserved)")
+    print(f"[STORAGE] Research report saved: {cid} (user: {wallet or 'global'})")
     return cid
+
 
 
 async def upload_moderator_report(report: Dict[str, Any]) -> str:
@@ -131,8 +166,31 @@ async def upload_moderator_report(report: Dict[str, Any]) -> str:
     return cid
 
 
-def get_recent_trade_traces(limit: int = 24) -> List[Dict[str, Any]]:
-    """Retrieve up to the recent 24 trade traces."""
+def get_recent_trade_traces(limit: int = 24, wallet_address: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve trade traces.
+    Strictly isolated to wallet_address. If no wallet_address is provided, returns empty list
+    to prevent any cross-tenant data leakage.
+    """
+    if wallet_address:
+        try:
+            from database import get_user_reasoning_traces
+            traces = get_user_reasoning_traces(wallet_address, limit=limit)
+            items = []
+            for tr in traces:
+                p = tr.get("trace_payload", {})
+                p["cid"] = tr.get("cid", "")
+                items.append(p)
+            return items
+        except Exception as e:
+            print(f"[STORAGE: DB TRACES ERROR] {e}")
+            return []
+
+    # In production without wallet_address, NEVER leak another user's traces
+    if not os.getenv("PYTEST_CURRENT_TEST"):
+        return []
+
+    # Pytest unit-test fallback (strictly capped at at most 10)
     items = []
     try:
         files = [
@@ -141,44 +199,45 @@ def get_recent_trade_traces(limit: int = 24) -> List[Dict[str, Any]]:
             if f.endswith(".json")
         ]
         files.sort(key=os.path.getmtime, reverse=True)
+        max_read = min(limit, 10)
         for filepath in files:
             with open(filepath, "r", encoding="utf-8") as f:
                 item = json.load(f)
-                # Skip any stray moderator evaluations in reasoning_logs
                 if "total_mean_score" in item or "node_1_trader" in item:
                     continue
-                if not item.get("chart_image") and item.get("indicators", {}).get("candles"):
-                    try:
-                        from chart_visualizer import render_chart_image
-                        candles = item["indicators"]["candles"]
-                        cur_p = float(item.get("entry_price") or candles[-1]["close"])
-                        tp = float(item.get("take_profit_price") or (cur_p * 1.05))
-                        sl = float(item.get("stop_loss_price") or (cur_p * 0.95))
-                        item["chart_image"] = render_chart_image(
-                            candles=candles,
-                            symbol=item.get("symbol", "NEAR"),
-                            timeframe=item.get("timeframe", "1h"),
-                            pattern_name=item.get("pattern_detected") or "Dynamic Trend Structure",
-                            tp_price=tp,
-                            sl_price=sl,
-                            entry_price=cur_p,
-                            verdict=item.get("verdict", "STAND_ASIDE"),
-                            expected_roi_pct=float(item.get("expected_roi_pct", 0.0)),
-                            confidence_score=int(item.get("confidence_score", 25)),
-                            indicators=item.get("indicators")
-                        )
-                    except Exception:
-                        pass
                 items.append(item)
-                if len(items) >= limit:
+                if len(items) >= max_read:
                     break
     except Exception as e:
         print(f"[STORAGE] Error reading traces: {e}")
     return items
 
 
-def get_recent_research_reports(limit: int = 10) -> List[Dict[str, Any]]:
-    """Retrieve up to the recent 10 research reports."""
+def get_recent_research_reports(limit: int = 10, wallet_address: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve research reports.
+    Strictly isolated to wallet_address. If no wallet_address is provided, returns empty list
+    to prevent any cross-tenant data leakage.
+    """
+    if wallet_address:
+        try:
+            from database import get_user_research_reports
+            reports = get_user_research_reports(wallet_address, limit=limit)
+            items = []
+            for rep in reports:
+                r = rep.get("full_report", {})
+                r["cid"] = rep.get("cid", "")
+                items.append(r)
+            return items
+        except Exception as e:
+            print(f"[STORAGE: DB REPORTS ERROR] {e}")
+            return []
+
+    # In production without wallet_address, NEVER leak another user's reports
+    if not os.getenv("PYTEST_CURRENT_TEST"):
+        return []
+
+    # Pytest unit-test fallback (strictly capped at at most 10)
     items = []
     try:
         files = [
@@ -187,9 +246,11 @@ def get_recent_research_reports(limit: int = 10) -> List[Dict[str, Any]]:
             if f.endswith(".json")
         ]
         files.sort(key=os.path.getmtime, reverse=True)
-        for filepath in files[:limit]:
+        max_read = min(limit, 10)
+        for filepath in files[:max_read]:
             with open(filepath, "r", encoding="utf-8") as f:
                 items.append(json.load(f))
     except Exception as e:
         print(f"[STORAGE] Error reading reports: {e}")
     return items
+

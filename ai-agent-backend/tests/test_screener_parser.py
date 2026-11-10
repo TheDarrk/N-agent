@@ -47,3 +47,14 @@ def test_screener_rejects_raw_monologue_without_json():
     selections, reasoning, err = agent._parse_selections_strict(text, valid_candidates={'ZEC'})
     assert err is not None
     assert len(selections) == 0
+
+def test_screener_blocks_coins_below_user_threshold():
+    agent = ScreenerAgent()
+    # Coin with rubric score 58 when user threshold is 75 MUST be blocked
+    text = '{"selection_reasoning": "Coins evaluated", "selections": [{"coin": "NEAR", "direction": "LONG", "rubric_score": 58}, {"coin": "SOL", "direction": "LONG", "rubric_score": 82}]}'
+    selections, reasoning, err = agent._parse_selections_strict(text, valid_candidates={'NEAR', 'SOL'}, min_confidence=75)
+    assert err is None
+    # NEAR (58) blocked, only SOL (82) passes
+    assert len(selections) == 1
+    assert selections[0]['coin'] == 'SOL'
+    assert getattr(selections[0], 'rubric_score', 82) == 82

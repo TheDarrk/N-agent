@@ -46,10 +46,14 @@ export default function SidebarAgentFeed({
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchLogs = async () => {
-    const wallet = accountId || "guest.near";
+    if (!accountId) {
+      setLogs([]);
+      return;
+    }
+    const wallet = accountId;
     try {
       // 1. Fetch fleet recent_activity
-      const fleetRes = await fetch(`/api/fleet/${wallet}`);
+      const fleetRes = await fetch(`/api/fleet/${encodeURIComponent(wallet)}`);
       if (fleetRes.ok) {
         const fleetData = await fleetRes.json();
         if (fleetData.recent_activity && fleetData.recent_activity.length > 0) {
@@ -59,10 +63,12 @@ export default function SidebarAgentFeed({
       }
 
       // 2. Fallback to /api/logs
-      const logRes = await fetch(`/api/logs/${wallet}`);
+      const logRes = await fetch(`/api/logs/${encodeURIComponent(wallet)}`);
       if (logRes.ok) {
         const data = await logRes.json();
         setLogs(Array.isArray(data) ? data.slice(0, 8) : []);
+      } else {
+        setLogs([]);
       }
     } catch (e) {
       // silent

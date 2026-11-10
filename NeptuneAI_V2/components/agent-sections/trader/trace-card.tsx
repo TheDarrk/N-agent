@@ -81,7 +81,7 @@ export function describeVerdict(input: {
 }
 
 export function symbolLabel(symbol?: string) {
-  if (!symbol || symbol.toUpperCase() === "MARKET") return "Whole market";
+  if (!symbol || symbol.toUpperCase() === "MARKET" || symbol.toUpperCase() === "NONE" || symbol.toUpperCase() === "NO_TRADE") return "Stand Aside (No Trade)";
   return symbol;
 }
 

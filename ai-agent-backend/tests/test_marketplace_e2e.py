@@ -19,6 +19,17 @@ from database import (
 def setup_module(module):
     init_db()
 
+def teardown_module(module):
+    from database.connection import get_connection
+    conn = get_connection()
+    try:
+        with conn:
+            conn.execute("DELETE FROM marketplace_trade_mirrors")
+            conn.execute("DELETE FROM marketplace_subscriptions")
+            conn.execute("DELETE FROM marketplace_listings")
+    finally:
+        conn.close()
+
 def test_marketplace_sharing_and_validation():
     # 1. Publish Trader agent with 15% profit share
     res_trader = publish_marketplace_agent(

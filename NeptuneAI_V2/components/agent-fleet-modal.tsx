@@ -55,11 +55,14 @@ export default function AgentFleetModal({
 
   useEffect(() => {
     if (!isOpen) return;
+    if (!accountId) {
+      setFleetData(null);
+      return;
+    }
     const fetchFleet = async () => {
-      const wallet = accountId || "guest.near";
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/fleet/${wallet}`);
+        const res = await fetch(`/api/fleet/${encodeURIComponent(accountId)}`);
         if (res.ok) {
           const data = await res.json();
           setFleetData(data);

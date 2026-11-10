@@ -641,6 +641,320 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             "active_strategy": saved_record
         }
 
+    async def generate_strategy_stream(
+        self,
+        user_wallet: str,
+        selected_coins: List[str],
+        user_expectation: str = "",
+        current_holdings: Optional[Dict[str, float]] = None,
+        cadence_days: int = 7,
+        min_stable_pct: float = 10.0
+    ):
+        """
+        Streams 4-Node Rebalancer Strategy Generation as real-time NDJSON events:
+        Node 1: Multi-Timeframe Chart Analysis (1h, 1d, 1w)
+        Node 2: Macro BTC Beta & Correlation Matrix
+        Node 3: On-Chain Holdings & Liquidity Context
+        Node 4: Institutional Strategy Formulation & Deterministic Guardrails
+        """
+        norm_selected = list(dict.fromkeys([c.upper().strip() for c in selected_coins if c.strip()]))
+        if "USDT" not in norm_selected:
+            norm_selected.insert(0, "USDT")
+
+        yield json.dumps({
+            "type": "start",
+            "user_wallet": user_wallet,
+            "selected_coins": norm_selected,
+            "message": f"Starting 4-Node Rebalance Strategy Generation for {len(norm_selected)} assets..."
+        }) + "\n"
+        try:
+
+            # Node 1: Chart Analysis
+            yield json.dumps({
+                "type": "step",
+                "step_number": 1,
+                "step_name": "Multi-Timeframe Chart Analysis",
+                "title": "1h, 1d & 1w Candle Resampling",
+                "status": "running",
+                "message": f"Fetching multi-timeframe candle data for {', '.join(norm_selected[:5])}..."
+            }) + "\n"
+
+            market_intel_tasks = [self._fetch_compact_chart_intelligence(sym) for sym in norm_selected]
+            market_results = await asyncio.gather(*market_intel_tasks, return_exceptions=True)
+
+            market_data: Dict[str, Any] = {}
+            for sym, res in zip(norm_selected, market_results):
+                if isinstance(res, dict):
+                    market_data[sym] = res
+                else:
+                    market_data[sym] = {"symbol": sym, "error": str(res), "current_price": 1.0}
+
+            yield json.dumps({
+                "type": "step",
+                "step_number": 1,
+                "step_name": "Multi-Timeframe Chart Analysis",
+                "title": "1h, 1d & 1w Candle Resampling",
+                "status": "completed",
+                "message": f"Compiled multi-timeframe candles and indicators across {len(norm_selected)} assets.",
+                "data": {
+                    "symbols": norm_selected,
+                    "prices": {s: market_data.get(s, {}).get("current_price", 1.0) for s in norm_selected}
+                }
+            }) + "\n"
+
+            # Node 2: Beta & Correlation
+            yield json.dumps({
+                "type": "step",
+                "step_number": 2,
+                "step_name": "Macro Beta & Correlation Matrix",
+                "title": "30-Day BTC Beta & Cross-Asset Correlation",
+                "status": "running",
+                "message": "Computing BTC Beta, cross-asset correlation matrix, and portfolio volatility..."
+            }) + "\n"
+
+            macro_correlations = await compute_btc_beta_and_correlations(norm_selected)
+            yield json.dumps({
+                "type": "step",
+                "step_number": 2,
+                "step_name": "Macro Beta & Correlation Matrix",
+                "title": "30-Day BTC Beta & Cross-Asset Correlation",
+                "status": "completed",
+                "message": f"Macro correlation matrix synthesized. BTC Beta range: {min(macro_correlations.get('btc_beta', {}).values() or [1.0]):.2f} - {max(macro_correlations.get('btc_beta', {}).values() or [1.0]):.2f}.",
+                "data": macro_correlations
+            }) + "\n"
+
+            # Node 3: Portfolio Context
+            yield json.dumps({
+                "type": "step",
+                "step_number": 3,
+                "step_name": "On-Chain Holdings & Liquidity Context",
+                "title": "Balance Valuation & Candidate Indexing",
+                "status": "running",
+                "message": "Measuring live on-chain balances and building candidate index table..."
+            }) + "\n"
+
+            real_portfolio = await get_wallet_portfolio(user_wallet) if user_wallet else {}
+            if current_holdings:
+                real_portfolio.update({k.lower(): float(v) for k, v in current_holdings.items()})
+
+            portfolio_summary = []
+            total_portfolio_usd = 0.0
+            for token_sym, bal in real_portfolio.items():
+                sym_upper = token_sym.upper()
+                spot_px = float(market_data.get(sym_upper, {}).get("current_price", 1.0))
+                if spot_px <= 0.0:
+                    spot_px = 1.0
+                val_usd = float(bal) * spot_px
+                total_portfolio_usd += val_usd
+                portfolio_summary.append({
+                    "token": sym_upper,
+                    "balance": float(bal),
+                    "spot_price_usd": round(spot_px, 4),
+                    "value_usd": round(val_usd, 2)
+                })
+
+            for p in portfolio_summary:
+                p["share_pct"] = round((p["value_usd"] / total_portfolio_usd * 100.0), 2) if total_portfolio_usd > 0 else 0.0
+
+            candidate_table = []
+            for idx, sym in enumerate(norm_selected):
+                candidate_table.append({
+                    "index": idx,
+                    "symbol": sym,
+                    "current_price_usd": market_data.get(sym, {}).get("current_price", 1.0),
+                    "btc_beta": macro_correlations.get("btc_beta", {}).get(sym),
+                    "btc_correlation": macro_correlations.get("btc_correlation", {}).get(sym)
+                })
+
+            yield json.dumps({
+                "type": "step",
+                "step_number": 3,
+                "step_name": "On-Chain Holdings & Liquidity Context",
+                "title": "Balance Valuation & Candidate Indexing",
+                "status": "completed",
+                "message": f"Portfolio USD: ${total_portfolio_usd:.2f} across {len(portfolio_summary)} tokens.",
+                "data": {
+                    "total_portfolio_usd": total_portfolio_usd,
+                    "holdings_count": len(portfolio_summary)
+                }
+            }) + "\n"
+
+            # Node 4: Strategy Formulation
+            yield json.dumps({
+                "type": "step",
+                "step_number": 4,
+                "step_name": "Strategy Formulation & Guardrails",
+                "title": "Allocation Optimization & Stablecoin Floor",
+                "status": "running",
+                "message": f"Calling LLM for weight optimization, enforcing {min_stable_pct}% stablecoin floor..."
+            }) + "\n"
+
+            context_payload = {
+                "user_mandate": user_expectation.strip() if user_expectation else "Balanced quantitative portfolio optimization with strict downside risk protection.",
+                "min_stablecoin_floor_pct": float(min_stable_pct),
+                "rebalance_cadence_days": cadence_days,
+                "candidate_tokens_table": candidate_table,
+                "current_on_chain_holdings": portfolio_summary,
+                "total_portfolio_usd": round(total_portfolio_usd, 2),
+                "macro_correlations": macro_correlations,
+                "multi_timeframe_market_data": market_data
+            }
+
+            user_prompt = f"""
+    CONSTRUCT AN AUTONOMOUS REBALANCER STRATEGY ACCORDING TO THIS LIVE CONTEXT:
+
+    {json.dumps(context_payload, indent=2)}
+
+    CRITICAL INSTRUCTIONS:
+    1. Adhere strictly to the user mandate while balancing risk parity.
+    2. DYNAMIC STABLECOIN EXPANSION: The user's min_stablecoin_floor_pct is {min_stable_pct}%. This is strictly a MINIMUM LOWER BOUND. If you find the market unsafe, high-risk, volatile, or in a bearish regime, you should actively INCREASE the USDT allocation above {min_stable_pct}% (e.g., to 30%, 50%, 70% or more) to protect user capital. Stablecoins must receive AT LEAST {min_stable_pct}%, but can be as high as needed based on risk.
+    3. Use ONLY the 0-based `token_index` to reference tokens in `target_allocations`.
+    4. Calculate explicit `tp_price_usd` anchored to technical resistance and `sl_price_usd` anchored below support with an ATR buffer.
+    5. Set `tp_price_usd` and `sl_price_usd` to 1.0 for stablecoins.
+    6. The sum of all `target_percentage` entries MUST equal exactly 100.0%.
+
+    YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (DO NOT WRAP IN 'analysis'):
+    {{
+      "strategy_name": "7-Day High-Beta Momentum Rebalance",
+      "executive_summary": "Macro 1W regime confirms bullish expansion. Maintaining USDT reserve while overweighting leaders.",
+      "market_regime": "BULLISH_EXPANSION",
+      "risk_level": "MODERATE",
+      "rebalance_cadence_days": {cadence_days},
+      "target_allocations": [
+        {{
+          "token_index": 0,
+          "target_percentage": {min_stable_pct},
+          "tp_price_usd": 1.0,
+          "sl_price_usd": 1.0,
+          "action_reasoning": "USDT liquidity shock absorber"
+        }}
+      ]
+    }}
+    """
+            strict_json_schema = RebalancerStrategySchema.model_json_schema()
+            raw_response = await self._call_llm_json(
+                system_prompt=REBALANCER_SYSTEM_PROMPT,
+                user_content=user_prompt,
+                json_schema=strict_json_schema
+            )
+            extracted = self._extract_json(raw_response)
+            if not extracted:
+                raise ValueError(f"Failed to parse JSON strategy from LLM output: {raw_response[:200]}")
+
+            pydantic_strat = RebalancerStrategySchema.model_validate(extracted)
+
+            index_to_symbol = {idx: sym for idx, sym in enumerate(norm_selected)}
+            allocations_dict: Dict[str, float] = {}
+            tp_sl_rules: List[Dict[str, Any]] = []
+
+            raw_total_pct = sum(item.target_percentage for item in pydantic_strat.target_allocations)
+            scale_factor = (100.0 / raw_total_pct) if raw_total_pct > 0 else 1.0
+
+            for item in pydantic_strat.target_allocations:
+                sym = index_to_symbol.get(item.token_index)
+                if not sym:
+                    continue
+                normalized_pct = round(item.target_percentage * scale_factor, 2)
+                allocations_dict[sym] = normalized_pct
+
+                spot_px = float(market_data.get(sym, {}).get("current_price", 1.0))
+                is_st = sym in STABLECOIN_SYMBOLS
+                tp_px = 1.0 if is_st else round(item.tp_price_usd, 4)
+                sl_px = 1.0 if is_st else round(item.sl_price_usd, 4)
+                reason = item.action_reasoning or f"Tactical allocation for {sym}"
+                action_type = "HOLD" if is_st else "BUY"
+
+                tp_sl_rules.append({
+                    "symbol": sym,
+                    "target_pct": normalized_pct,
+                    "target_allocation_pct": normalized_pct,
+                    "action": action_type,
+                    "entry_price": round(spot_px, 4),
+                    "current_price": round(spot_px, 4),
+                    "current_price_usd": round(spot_px, 4),
+                    "take_profit_usdt": tp_px,
+                    "tp_price_usd": tp_px,
+                    "stop_loss_usdt": sl_px,
+                    "sl_price_usd": sl_px,
+                    "rationale": reason,
+                    "action_reasoning": reason
+                })
+
+            # Guardrail
+            current_stable_pct = sum(allocations_dict.get(s, 0.0) for s in STABLECOIN_SYMBOLS)
+            if current_stable_pct < min_stable_pct:
+                deficit = min_stable_pct - current_stable_pct
+                allocations_dict["USDT"] = round(allocations_dict.get("USDT", 0.0) + deficit, 2)
+                non_stable_sum = sum(v for k, v in allocations_dict.items() if k not in STABLECOIN_SYMBOLS)
+                if non_stable_sum > 0:
+                    reduction_ratio = (non_stable_sum - deficit) / non_stable_sum
+                    for k in list(allocations_dict.keys()):
+                        if k not in STABLECOIN_SYMBOLS:
+                            allocations_dict[k] = round(max(0.0, allocations_dict[k] * reduction_ratio), 2)
+
+            diff = round(100.0 - sum(allocations_dict.values()), 2)
+            if abs(diff) > 0.001 and "USDT" in allocations_dict:
+                allocations_dict["USDT"] = round(allocations_dict["USDT"] + diff, 2)
+
+            for rule in tp_sl_rules:
+                if rule["symbol"] in allocations_dict:
+                    rule["target_pct"] = allocations_dict[rule["symbol"]]
+
+            saved_record = save_rebalancer_strategy(
+                user_wallet=user_wallet,
+                selected_coins=norm_selected,
+                user_expectation=user_expectation,
+                cadence_days=cadence_days,
+                allocations=allocations_dict,
+                tp_sl_rules=tp_sl_rules,
+                market_regime=pydantic_strat.market_regime,
+                overall_strategy=pydantic_strat.executive_summary,
+                raw_pydantic_output=pydantic_strat.model_dump(),
+                min_stable_pct=min_stable_pct
+            )
+
+            alloc_desc = ", ".join([f"{k}: {v}%" for k, v in allocations_dict.items()])
+            yield json.dumps({
+                "type": "step",
+                "step_number": 4,
+                "step_name": "Strategy Formulation & Guardrails",
+                "title": "Allocation Optimization & Stablecoin Floor",
+                "status": "completed",
+                "message": f"Strategy formulated successfully! Targets: {alloc_desc}",
+                "data": {
+                    "strategy_name": pydantic_strat.strategy_name,
+                    "allocations": allocations_dict,
+                    "market_regime": pydantic_strat.market_regime,
+                    "risk_level": pydantic_strat.risk_level
+                }
+            }) + "\n"
+
+            result = {
+                "success": True,
+                "strategy_id": saved_record.get("id"),
+                "strategy_name": pydantic_strat.strategy_name,
+                "market_regime": pydantic_strat.market_regime,
+                "risk_level": pydantic_strat.risk_level,
+                "rebalance_cadence_days": cadence_days,
+                "min_stable_pct_enforced": min_stable_pct,
+                "executive_summary": pydantic_strat.executive_summary,
+                "allocations": allocations_dict,
+                "tp_sl_rules": tp_sl_rules,
+                "active_strategy": saved_record
+            }
+
+            yield json.dumps({"type": "final", "result": result}) + "\n"
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"\n[REBALANCER STREAM ERROR] Failed:\n{tb}")
+            yield json.dumps({
+                "type": "error",
+                "error": str(e),
+                "message": f"Rebalancer strategy formulation failed: {str(e)}"
+            }) + "\n"
+
+
     # =================================================================
     # 5. GOVERNED EXECUTION STATE MACHINE (PROPOSAL -> VALIDATION -> APPROVAL -> EXECUTION -> RECONCILIATION)
     # =================================================================

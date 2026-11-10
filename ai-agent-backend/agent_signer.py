@@ -49,7 +49,7 @@ async def sign_near_transaction(
         }
     
     try:
-        private_key = decrypt_private_key(encrypted_key)
+        private_key = decrypt_private_key(encrypted_key, wallet_address=user_wallet)
         
         from autonomous_agents.near_submitter import submit_near_transaction
         

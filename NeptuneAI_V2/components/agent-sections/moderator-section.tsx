@@ -1,3 +1,4 @@
+import { toast } from "@/hooks/use-toast";
 "use client";
 
 import { setVisibleInterval } from "@/lib/visible-interval"
@@ -6,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import {
   ShieldAlert,
   ShieldCheck,
+  Shield,
   Power,
   RotateCw,
   AlertTriangle,
@@ -47,14 +49,32 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const [copiedCid, setCopiedCid] = useState(false);
   const [showChecks, setShowChecks] = useState(false);
 
-  const targetWallet = accountId || "guest.near";
+  // 4-Node Watchdog Deliberation Streaming State
+  interface ModeratorStepEvent {
+    step_number: number;
+    step_name: string;
+    title: string;
+    status: "running" | "completed";
+    score?: number;
+    health?: string;
+    message: string;
+    data?: any;
+  }
+  const [moderatorSteps, setModeratorSteps] = useState<ModeratorStepEvent[]>([]);
+  const [currentActiveModStep, setCurrentActiveModStep] = useState<number>(0);
+
+  const targetWallet = accountId || "";
 
   const fetchStatus = async () => {
+    if (!accountId) {
+      setStatus(null);
+      return;
+    }
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/moderator/status/${targetWallet}`);
+      const res = await fetch(`/api/moderator/status/${encodeURIComponent(accountId)}`);
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
@@ -94,9 +114,21 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       });
       if (res.ok) {
         await fetchStatus();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast({
+          title: "Update Moderator Status Failed",
+          description: err?.detail || `HTTP ${res.status}: ${res.statusText}`,
+          variant: "destructive",
+        });
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Toggle moderator active error:", e);
+      toast({
+        title: "Moderator Config Error",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsTogglingActive(false);
     }
@@ -106,7 +138,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const handleToggleKillSwitch = async (activate: boolean) => {
     setIsTogglingKillSwitch(true);
     try {
-      await fetch("/api/moderator/kill-switch", {
+      const res = await fetch("/api/moderator/kill-switch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -114,29 +146,150 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
           activate: activate,
         }),
       });
-      await fetchStatus();
-    } catch (e) {
+      if (res.ok) {
+        await fetchStatus();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast({
+          title: "Kill Switch Error",
+          description: err?.detail || `HTTP ${res.status}: ${res.statusText}`,
+          variant: "destructive",
+        });
+      }
+    } catch (e: any) {
       console.error("Kill switch error:", e);
+      toast({
+        title: "Kill Switch Exception",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsTogglingKillSwitch(false);
     }
   };
 
-  // Run On-Demand Fleet Audit
+  // Run On-Demand Fleet Audit via real-time 4-Node stream
   const handleRunDeliberation = async () => {
     setIsDeliberating(true);
+    setModeratorSteps([
+      {
+        step_number: 1,
+        step_name: "Trader Agent Audit",
+        title: "Quantitative Trader Hallucination & Risk Audit",
+        status: "running",
+        message: "Auditing trader win-rate, R:R math, and reasoning traces...",
+      },
+      {
+        step_number: 2,
+        step_name: "Rebalancer Agent Audit",
+        title: "Portfolio Drift & Stablecoin Floor Audit",
+        status: "running",
+        message: "Queued...",
+      },
+      {
+        step_number: 3,
+        step_name: "Deep Research Audit",
+        title: "Citation Grounding & Fact Accuracy Audit",
+        status: "running",
+        message: "Queued...",
+      },
+      {
+        step_number: 4,
+        step_name: "Fleet Master Synthesis",
+        title: "Cross-Agent Conflict Check & Master Verdict",
+        status: "running",
+        message: "Queued...",
+      },
+    ]);
+    setCurrentActiveModStep(1);
+
     try {
-      const res = await fetch("/api/moderator/deliberate", {
+      const res = await fetch("/api/moderator/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_wallet: targetWallet }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data);
+
+      if (!res.ok || !res.body) {
+        // Fallback to synchronous endpoint
+        const fbRes = await fetch("/api/moderator/deliberate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_wallet: targetWallet }),
+        });
+        if (fbRes.ok) {
+          const data = await fbRes.json();
+          setStatus(data);
+        } else {
+          const errData = await fbRes.json().catch(() => null);
+          const errMsg = errData?.detail || errData?.error || `Fleet deliberation failed (HTTP ${fbRes.status}: ${fbRes.statusText})`;
+          toast({
+            title: "Fleet Deliberation Failed",
+            description: errMsg,
+            variant: "destructive",
+          });
+        }
+        return;
       }
-    } catch (e) {
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const ev = JSON.parse(line.trim());
+            if (ev.type === "error") {
+              toast({
+                title: "Watchdog Audit Error",
+                description: ev.error || ev.message || "An unexpected error occurred during deliberation.",
+                variant: "destructive",
+              });
+            } else if (ev.type === "step") {
+              setCurrentActiveModStep(ev.step_number);
+              setModeratorSteps((prev) => {
+                const next = [...prev];
+                const idx = next.findIndex((s) => s.step_number === ev.step_number);
+                const stepObj: ModeratorStepEvent = {
+                  step_number: ev.step_number,
+                  step_name: ev.step_name,
+                  title: ev.title,
+                  status: ev.status,
+                  score: ev.score,
+                  health: ev.health,
+                  message: ev.message,
+                  data: ev.data,
+                };
+                if (idx !== -1) {
+                  next[idx] = stepObj;
+                } else {
+                  next.push(stepObj);
+                }
+                return next;
+              });
+            } else if (ev.type === "final" && ev.result) {
+              setStatus(ev.result);
+            }
+          } catch (pe) {
+            console.error("Moderator stream parse notice:", pe);
+          }
+        }
+      }
+    } catch (e: any) {
       console.error("Deliberation error:", e);
+      toast({
+        title: "Fleet Deliberation Network Error",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsDeliberating(false);
     }
@@ -189,8 +342,14 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
   const isKillSwitchActive = status?.kill_switch_active;
   const isAgentActive = status?.is_active ?? (status?.fleet_summary?.agents?.moderator?.is_active ?? false);
-  const totalMeanScore = status?.total_mean_score ?? status?.overall_performance_score ?? (isKillSwitchActive ? 0 : 90);
-  const verdict = status?.verdict ?? (isKillSwitchActive ? "SAFETY_BREACH_SUSPEND" : "OPTIMAL_HEALTH");
+  const hasAudit = Boolean(
+    status &&
+    status.has_evaluation !== false &&
+    status.total_mean_score !== undefined &&
+    status.total_mean_score !== null
+  );
+  const totalMeanScore = hasAudit ? (status?.total_mean_score ?? status?.overall_performance_score) : null;
+  const verdict = status?.verdict ?? (isKillSwitchActive ? "SAFETY_BREACH_SUSPEND" : "NOT_AUDITED");
   const paramScores = status?.parameter_scores;
 
   const node1Trader = status?.node_1_trader;
@@ -199,9 +358,9 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const conflicts = status?.cross_agent_conflicts;
   const killedAgents = status?.killed_agents || [];
 
-  const traderScore = status?.trader_score ?? node1Trader?.score ?? 88;
-  const rebalancerScore = status?.rebalancer_score ?? node2Rebalancer?.score ?? 91;
-  const researchScore = status?.research_score ?? node3Research?.score ?? 90;
+  const traderScore = hasAudit ? (status?.trader_score ?? node1Trader?.score ?? null) : null;
+  const rebalancerScore = hasAudit ? (status?.rebalancer_score ?? node2Rebalancer?.score ?? null) : null;
+  const researchScore = hasAudit ? (status?.research_score ?? node3Research?.score ?? null) : null;
 
   const getVerdictStyle = (v: string) => {
     switch (v) {
@@ -211,12 +370,15 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         return "bg-amber-500/20 text-amber-400 border-amber-500/30";
       case "ELEVATED_DRIFT":
         return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+      case "NOT_AUDITED":
+        return "bg-secondary text-muted-foreground border-border";
       default:
         return "bg-rose-500/20 text-rose-400 border-rose-500/30";
     }
   };
 
-  const getScoreColor = (sc: number) => {
+  const getScoreColor = (sc: number | null | undefined) => {
+    if (sc === null || sc === undefined) return "text-muted-foreground";
     if (sc >= 80) return "text-emerald-400";
     if (sc >= 60) return "text-amber-400";
     return "text-rose-400";
@@ -255,10 +417,10 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 "Review your Max Trade Amount if you want to alter position sizing.",
               ],
           metrics: [
-            { label: "Win Rate", value: `${node1Trader?.metrics?.win_rate_pct || 75}%` },
-            { label: "Gain vs Risk", value: `${node1Trader?.metrics?.avg_risk_reward_ratio || 2.1}:1` },
-            { label: "Open Trades", value: `${node1Trader?.metrics?.open_trades_count || 0}` },
-            { label: "Daily Allowance", value: `${node1Trader?.metrics?.daily_cap_remaining ?? 3} left` },
+            { label: "Win Rate", value: node1Trader?.metrics?.win_rate_pct != null ? `${Math.round(node1Trader.metrics.win_rate_pct)}%` : "—" },
+            { label: "Gain vs Risk", value: node1Trader?.metrics?.avg_risk_reward_ratio != null ? `${node1Trader.metrics.avg_risk_reward_ratio}:1` : "—" },
+            { label: "Open Trades", value: `${node1Trader?.metrics?.open_trades_count ?? 0}` },
+            { label: "Daily Allowance", value: `${node1Trader?.metrics?.daily_cap_remaining ?? (3 - (node1Trader?.metrics?.open_trades_count || 0))} left` },
           ],
         };
       case 1:
@@ -273,8 +435,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
           strengths: node2Rebalancer?.strengths?.length
             ? node2Rebalancer.strengths
             : [
-                `Held a liquid stablecoin cash cushion (${node2Rebalancer?.metrics?.stablecoin_reserve_pct || 30}%) to protect purchasing power.`,
-                `Portfolio drift (${node2Rebalancer?.metrics?.current_drift_pct || 2.4}%) is comfortably within your limit.`,
+                `Held a liquid stablecoin cash cushion (${node2Rebalancer?.metrics?.stablecoin_reserve_pct != null ? `${node2Rebalancer.metrics.stablecoin_reserve_pct}%` : "buffer"}) to protect purchasing power.`,
+                `Portfolio drift (${node2Rebalancer?.metrics?.current_drift_pct != null ? `${node2Rebalancer.metrics.current_drift_pct}%` : "minimal"}) is comfortably within your limit.`,
                 "Zero unnecessary rebalancing churn or wasteful transaction fees.",
               ],
           whatWasMissed: node2Rebalancer?.what_was_missed?.length
@@ -289,8 +451,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 "You can increase your minimum stablecoin reserve if you want higher downside protection.",
               ],
           metrics: [
-            { label: "Allocation Drift", value: `${node2Rebalancer?.metrics?.current_drift_pct || 2.4}%` },
-            { label: "Cash Buffer", value: `${node2Rebalancer?.metrics?.stablecoin_reserve_pct || 30}%` },
+            { label: "Allocation Drift", value: node2Rebalancer?.metrics?.current_drift_pct != null ? `${node2Rebalancer.metrics.current_drift_pct}%` : "—" },
+            { label: "Cash Buffer", value: node2Rebalancer?.metrics?.stablecoin_reserve_pct != null ? `${node2Rebalancer.metrics.stablecoin_reserve_pct}%` : "—" },
             { label: "Drift Limit", value: `${node2Rebalancer?.metrics?.drift_threshold_pct || 5.0}%` },
             { label: "Execution Reliability", value: `${node2Rebalancer?.metrics?.state_machine_success_rate || 100}%` },
           ],
@@ -323,10 +485,10 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 "Review daily catalyst reports for early ecosystem opportunities.",
               ],
           metrics: [
-            { label: "Fact Accuracy", value: node3Research?.hallucination_audit?.faithfulness_ratio ? `${Math.round(node3Research.hallucination_audit.faithfulness_ratio * 100)}%` : "95%" },
-            { label: "Source Depth", value: `${node3Research?.metrics?.avg_citation_density || 2.8}` },
-            { label: "Source Reliability", value: `${node3Research?.metrics?.source_verification_rate || 100}%` },
-            { label: "Reports Analyzed", value: `${node3Research?.metrics?.reports_generated_7d || 2}` },
+            { label: "Fact Accuracy", value: node3Research?.hallucination_audit?.faithfulness_ratio != null ? `${Math.round(node3Research.hallucination_audit.faithfulness_ratio * 100)}%` : "—" },
+            { label: "Source Depth", value: node3Research?.metrics?.avg_citation_density != null ? `${node3Research.metrics.avg_citation_density}` : "—" },
+            { label: "Source Reliability", value: node3Research?.metrics?.source_verification_rate != null ? `${node3Research.metrics.source_verification_rate}%` : "—" },
+            { label: "Reports Analyzed", value: `${node3Research?.metrics?.reports_generated_7d ?? 0}` },
           ],
         };
       case 3:
@@ -344,7 +506,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             ? status.strengths
             : [
                 "Trader, Rebalancer, and Research agents are fully synchronized with zero opposing orders.",
-                `Total open exposure ($${status?.total_open_exposure_usd || 0}) is safely below your daily limit ($${status?.daily_limit_usd || 2000}).`,
+                `Total open exposure ($${status?.total_open_exposure_usd || 0}) is safely below your daily budget ($${status?.daily_limit_usd || 1500}).`,
                 "All agent decisions are backed by verified market signals and credible sources.",
               ],
           whatWasMissed: status?.what_was_missed?.length
@@ -361,7 +523,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               ],
           metrics: [
             { label: "Total Exposure", value: `$${status?.total_open_exposure_usd || 0}` },
-            { label: "Daily Budget", value: `$${status?.daily_limit_usd || 2000}` },
+            { label: "Daily Budget", value: `$${status?.daily_limit_usd || 1500}` },
             { label: "Opposing Orders", value: "0 (None)" },
             { label: "Kill Threshold", value: `${killThreshold}/80` },
           ],
@@ -371,10 +533,11 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
   const activeData = getActiveTabData();
 
-  type Tone = "good" | "warn" | "bad";
+  type Tone = "good" | "warn" | "bad" | "neutral";
 
   const toneOf = (v: string): Tone => {
     const s = String(v || "").toUpperCase();
+    if (s === "NOT_AUDITED" || !s) return "neutral";
     if (["OPTIMAL_HEALTH", "HEALTHY", "VERIFIED", "SYNCHRONIZED"].includes(s)) return "good";
     if (/BREACH|SUSPEND|CRITICAL|HALT|FAIL|KILL/.test(s)) return "bad";
     return "warn";
@@ -383,14 +546,16 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
     good: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
     warn: "bg-amber-500/15 text-amber-400 border-amber-500/30",
     bad: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+    neutral: "bg-secondary text-muted-foreground border-border",
   };
   const toneBar: Record<Tone, string> = {
     good: "bg-emerald-400",
     warn: "bg-amber-400",
     bad: "bg-rose-400",
+    neutral: "bg-muted",
   };
-  const scoreTone = (sc: number): Tone => (sc >= 80 ? "good" : sc >= 60 ? "warn" : "bad");
-  const scoreLabel = (sc: number) => (sc >= 80 ? "Healthy" : sc >= 60 ? "Needs a look" : "At risk");
+  const scoreTone = (sc: number | null | undefined): Tone => (sc === null || sc === undefined ? "neutral" : sc >= 80 ? "good" : sc >= 60 ? "warn" : "bad");
+  const scoreLabel = (sc: number | null | undefined) => (sc === null || sc === undefined ? "Not audited" : sc >= 80 ? "Healthy" : sc >= 60 ? "Needs a look" : "At risk");
   const humanize = (v: string) => {
     const t = String(v || "").replace(/_/g, " ").toLowerCase();
     return t.charAt(0).toUpperCase() + t.slice(1);
@@ -398,15 +563,22 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
   const verdictTone = toneOf(verdict);
   const verdictHeadline =
-    verdictTone === "good" ? "Everything looks healthy" : verdictTone === "warn" ? "Worth a closer look" : "Action needed";
+    verdictTone === "neutral"
+      ? "Fleet Not Audited Yet"
+      : verdictTone === "good"
+      ? "Everything looks healthy"
+      : verdictTone === "warn"
+      ? "Worth a closer look"
+      : "Action needed";
 
-  const overallScore = Math.max(0, Math.min(100, Number(totalMeanScore) || 0));
+  const overallScore = hasAudit ? Math.max(0, Math.min(100, Number(totalMeanScore) || 0)) : null;
+  const cadenceLabel = cadence === "1m" ? "month" : cadence === "2w" ? "2 weeks" : "week";
   const ringRadius = 54;
   const ringCircumference = 2 * Math.PI * ringRadius;
-  const ringOffset = ringCircumference * (1 - overallScore / 100);
+  const ringOffset = overallScore !== null ? ringCircumference * (1 - overallScore / 100) : ringCircumference;
 
   const exposure = status?.total_open_exposure_usd || 0;
-  const dailyLimit = status?.daily_limit_usd || 2000;
+  const dailyLimit = status?.daily_limit_usd || 1500;
   const exposurePct = Math.min(100, (exposure / dailyLimit) * 100);
 
   const agentTabs = [
@@ -421,53 +593,45 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       key: "capital_safety_discipline",
       label: "Capital safety and trade limits",
       desc: "Position size limits, daily spending caps and stop-loss protection.",
-      score: paramScores?.capital_safety_discipline?.score ?? 95,
-      detail: paramScores?.capital_safety_discipline?.detail ?? "All orders strictly bounded by your configured caps.",
+      score: paramScores?.capital_safety_discipline?.score ?? null,
+      detail: paramScores?.capital_safety_discipline?.detail ?? "Awaiting fleet audit...",
     },
     {
       key: "signal_quality_win_expectancy",
       label: "Signal quality",
       desc: "Confidence of each trade idea and a healthy reward-to-risk balance.",
-      score: paramScores?.signal_quality_win_expectancy?.score ?? 88,
-      detail: paramScores?.signal_quality_win_expectancy?.detail ?? "Market setups verified against recognizable chart trends.",
+      score: paramScores?.signal_quality_win_expectancy?.score ?? null,
+      detail: paramScores?.signal_quality_win_expectancy?.detail ?? "Awaiting fleet audit...",
     },
     {
       key: "portfolio_allocation_health",
       label: "Portfolio balance and cash reserves",
       desc: "Target token weights and safe stablecoin reserves are maintained.",
-      score: paramScores?.portfolio_allocation_health?.score ?? 92,
-      detail: paramScores?.portfolio_allocation_health?.detail ?? "Zero unnecessary rebalance turnover observed.",
+      score: paramScores?.portfolio_allocation_health?.score ?? null,
+      detail: paramScores?.portfolio_allocation_health?.detail ?? "Awaiting fleet audit...",
     },
     {
       key: "multi_source_intel_depth",
       label: "Market intelligence and fact accuracy",
       desc: "Research is cross-checked against live market feeds and verified news.",
-      score: paramScores?.multi_source_intel_depth?.score ?? 90,
-      detail: paramScores?.multi_source_intel_depth?.detail ?? "Market intelligence backed by verified project documentation.",
+      score: paramScores?.multi_source_intel_depth?.score ?? null,
+      detail: paramScores?.multi_source_intel_depth?.detail ?? "Awaiting fleet audit...",
     },
     {
       key: "execution_efficiency_uptime",
       label: "Execution and reliability",
       desc: "Trades go through quickly and monitoring stays online.",
-      score: paramScores?.execution_efficiency_uptime?.score ?? 96,
-      detail: paramScores?.execution_efficiency_uptime?.detail ?? "Active monitoring responsive with 0 failed orders.",
+      score: paramScores?.execution_efficiency_uptime?.score ?? null,
+      detail: paramScores?.execution_efficiency_uptime?.detail ?? "Awaiting fleet audit...",
     },
   ];
 
-  const keyFindings: string[] = status?.key_findings || [
-    "The Trader is respecting your position size limits.",
-    "The Rebalancer is keeping a healthy stablecoin cash buffer.",
-    "No opposing or conflicting orders across your agents.",
-  ];
-  const recommendedActions: string[] = status?.recommended_tuning || [
-    "Review your Risk Profile in Trader settings to change trade frequency.",
-    "Adjust your position size limit if you prefer smaller trades.",
-    "Set the review frequency to 1 week for faster safety checks.",
-  ];
+  const keyFindings: string[] = status?.key_findings || [];
+  const recommendedActions: string[] = status?.recommended_tuning || [];
 
   const harmonyBad = conflicts?.cannibalization_detected || conflicts?.threat_to_holdings_detected;
-  const cadenceLabel = cadence === "1m" ? "1 month" : cadence === "2w" ? "2 weeks" : "1 week";
-  const hasNoData = !status && !isLoading;
+
+  const hasNoData = (!status || !hasAudit) && !isLoading;
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6 max-w-6xl mx-auto space-y-5 suite-stagger">
@@ -599,9 +763,114 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         <div className="flex items-start gap-2.5 p-4 rounded-xl bg-secondary/40 border border-border text-sm text-muted-foreground leading-relaxed">
           <Info size={18} className="text-primary shrink-0 mt-0.5" />
           <span>
-            No audit has loaded yet, so the numbers below are sample values. Press <strong className="text-foreground">Check agents now</strong> to get your real
-            results.
+            No fleet audit recorded yet for this wallet. Press <strong className="text-foreground">Check agents now</strong> to run live 4-node quantitative audit across your fleet.
           </span>
+        </div>
+      )}
+
+      {/* Live Streaming 4-Node Watchdog Deliberation Pipeline Execution Monitor */}
+      {(isDeliberating || moderatorSteps.length > 0) && (
+        <div className="p-4 sm:p-5 rounded-2xl border border-primary/30 bg-card/90 backdrop-blur-md shadow-xl space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary/15 text-primary">
+                <Shield size={16} className={isDeliberating ? "animate-pulse" : ""} />
+              </span>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">
+                  4-Node Watchdog Deliberation Engine
+                </h3>
+                <p className="text-[11px] text-muted-foreground font-mono">
+                  Full Fleet Health & Evidence Audit: Trader → Rebalancer → Research → Fleet Synthesis
+                </p>
+              </div>
+            </div>
+            {isDeliberating ? (
+              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full animate-pulse">
+                <RotateCw size={11} className="animate-spin" />
+                <span>AUDIT IN PROGRESS</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+                <CheckCircle2 size={11} />
+                <span>FLEET AUDIT COMPLETE</span>
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {moderatorSteps.map((step) => {
+              const isCurrent = isDeliberating && currentActiveModStep === step.step_number;
+              const isDone = step.status === "completed";
+
+              return (
+                <div
+                  key={step.step_number}
+                  className={`p-3 rounded-xl border transition-all text-xs space-y-2 ${
+                    isCurrent
+                      ? "border-primary bg-primary/10 shadow-sm shadow-primary/20"
+                      : isDone
+                      ? "border-emerald-500/30 bg-emerald-500/5"
+                      : "border-border bg-secondary/30 text-muted-foreground"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10px] uppercase font-bold text-muted-foreground">
+                      Node {step.step_number}
+                    </span>
+                    {isCurrent ? (
+                      <span className="flex items-center gap-1 text-[9px] font-bold text-primary bg-primary/20 px-1.5 py-0.5 rounded animate-pulse">
+                        <RotateCw size={9} className="animate-spin" /> Live
+                      </span>
+                    ) : isDone ? (
+                      <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
+                        <CheckCircle2 size={9} /> Done
+                      </span>
+                    ) : (
+                      <span className="text-[9px] text-muted-foreground">Queued</span>
+                    )}
+                  </div>
+
+                  <h4 className="font-bold text-foreground text-xs">{step.step_name}</h4>
+                  <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
+                    {step.message}
+                  </p>
+
+                  {/* Explicit Node Result */}
+                  {isDone && (
+                    <div className="pt-1.5 mt-1 border-t border-border/50 text-[10px] space-y-1">
+                      <div className="flex justify-between items-center font-mono">
+                        <span className="text-muted-foreground">Audit Score:</span>
+                        <span className="font-bold text-emerald-400">
+                          {step.score !== undefined ? `${step.score}/100` : "Verified"}
+                        </span>
+                      </div>
+                      {step.step_number === 1 && step.data?.metrics && (
+                        <div className="text-[9px] font-mono text-muted-foreground">
+                          Win-Rate: {Math.round(step.data.metrics.win_rate)}% &middot; R:R {step.data.metrics.avg_risk_reward_ratio}:1
+                        </div>
+                      )}
+                      {step.step_number === 2 && step.data?.metrics && (
+                        <div className="text-[9px] font-mono text-muted-foreground">
+                          Drift: {step.data.metrics.current_drift_pct}% &middot; Stables: {step.data.metrics.stablecoin_reserve_pct}%
+                        </div>
+                      )}
+                      {step.step_number === 3 && step.data?.hallucination_audit && (
+                        <div className="text-[9px] font-mono text-muted-foreground">
+                          Faithfulness: {Math.round(step.data.hallucination_audit.faithfulness_ratio * 100)}% &middot; Grounded Claims: {step.data.hallucination_audit.grounded_claims_count}
+                        </div>
+                      )}
+                      {step.step_number === 4 && (
+                        <div className="text-[9px] font-mono text-emerald-400 font-bold truncate">
+                          Master: {step.data?.verdict || "OPTIMAL_HEALTH"}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -628,8 +897,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-4xl font-extrabold font-mono leading-none">{overallScore}</span>
-              <span className="text-sm text-muted-foreground mt-1">out of 100</span>
+              <span className="text-4xl font-extrabold font-mono leading-none">{overallScore !== null ? overallScore : "—"}</span>
+              <span className="text-sm text-muted-foreground mt-1">{overallScore !== null ? "out of 100" : "not audited"}</span>
             </div>
           </div>
           <span className="sr-only">Overall health score {overallScore} out of 100</span>
@@ -674,20 +943,40 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               <div className="text-sm text-muted-foreground flex items-center gap-1.5">
                 <History size={14} className="text-primary" /> Last check
               </div>
-              <div className="text-lg font-bold text-foreground">
-                {status?.last_run_at ? String(status.last_run_at).slice(0, 10) : "Not run yet"}
-              </div>
-              {status?.cid ? (
-                <button
-                  onClick={() => copyCidToClipboard(status.cid)}
-                  className="flex items-center gap-1.5 text-sm text-primary hover:underline"
-                  title="Copy audit reference ID"
-                >
-                  {copiedCid ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                  {copiedCid ? "Copied" : "Copy audit ID"}
-                </button>
+              {isDeliberating ? (
+                <>
+                  <div className="text-lg font-bold text-primary flex items-center gap-2">
+                    <RotateCw size={16} className="animate-spin text-primary shrink-0" />
+                    <span>Auditing fleet...</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">Evaluating 4 deliberation nodes</div>
+                </>
+              ) : isLoading ? (
+                <>
+                  <div className="text-lg font-bold text-foreground flex items-center gap-2">
+                    <RotateCw size={16} className="animate-spin text-primary shrink-0" />
+                    <span>Updating...</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">Fetching telemetry</div>
+                </>
               ) : (
-                <div className="text-sm text-muted-foreground">Press Check agents now</div>
+                <>
+                  <div className="text-lg font-bold text-foreground">
+                    {status?.last_run_at ? String(status.last_run_at).slice(0, 10) : "Not run yet"}
+                  </div>
+                  {status?.cid ? (
+                    <button
+                      onClick={() => copyCidToClipboard(status.cid)}
+                      className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+                      title="Copy audit reference ID"
+                    >
+                      {copiedCid ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                      {copiedCid ? "Copied" : "Copy audit ID"}
+                    </button>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Press Check agents now</div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -732,6 +1021,9 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {agentTabs.map(({ id, name, blurb, score, Icon, haltKey }) => {
             const selected = activeTabNode === id;
+            const isAgentAuditing = isDeliberating && currentActiveModStep === (id + 1);
+            const isAgentQueued = isDeliberating && currentActiveModStep < (id + 1);
+            const isAgentFetching = isLoading && score == null;
             const tone = scoreTone(Number(score));
             const halted = haltKey ? killedAgents.includes(haltKey) : false;
             return (
@@ -749,14 +1041,49 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                     <Icon size={18} className="text-primary" />
                     {name}
                   </span>
-                  <span className={`text-2xl font-bold font-mono ${getScoreColor(Number(score))}`}>{score}</span>
+                  {isAgentAuditing ? (
+                    <span className="text-xs font-mono font-bold text-primary flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded animate-pulse">
+                      <RotateCw size={12} className="animate-spin text-primary" /> Auditing...
+                    </span>
+                  ) : isAgentQueued ? (
+                    <span className="text-xs font-mono text-muted-foreground bg-secondary/80 px-2 py-0.5 rounded">
+                      Queued
+                    </span>
+                  ) : isAgentFetching ? (
+                    <span className="text-xs font-mono text-muted-foreground flex items-center gap-1">
+                      <RotateCw size={10} className="animate-spin text-primary" /> Loading...
+                    </span>
+                  ) : (
+                    <span className={`text-2xl font-bold font-mono ${getScoreColor(score)}`}>
+                      {score !== null && score !== undefined ? score : "—"}
+                    </span>
+                  )}
                 </div>
                 <div className="w-full h-2 rounded-full bg-secondary overflow-hidden" role="presentation">
-                  <div className={`h-full rounded-full ${toneBar[tone]}`} style={{ width: `${Math.max(0, Math.min(100, Number(score)))}%` }} />
+                  {isAgentAuditing ? (
+                    <div className="h-full bg-primary/70 animate-pulse w-full" />
+                  ) : (
+                    <div
+                      className={`h-full rounded-full ${toneBar[tone]}`}
+                      style={{ width: `${score !== null && score !== undefined ? Math.max(0, Math.min(100, Number(score))) : 0}%` }}
+                    />
+                  )}
                 </div>
                 <p className="text-sm text-muted-foreground leading-snug">{blurb}</p>
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip[tone]}`}>{scoreLabel(Number(score))}</span>
+                  {isAgentAuditing ? (
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-primary/15 text-primary border-primary/30 flex items-center gap-1">
+                      <RotateCw size={10} className="animate-spin" /> In Review
+                    </span>
+                  ) : isAgentQueued ? (
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-secondary text-muted-foreground border-border">
+                      Pending
+                    </span>
+                  ) : (
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip[tone]}`}>
+                      {scoreLabel(Number(score))}
+                    </span>
+                  )}
                   {halted && (
                     <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-rose-500/20 text-rose-300 border-rose-500/40">Paused</span>
                   )}
@@ -768,6 +1095,19 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
         {/* Selected agent report */}
         <div className="tilt3d p-5 sm:p-6 rounded-2xl bg-card border border-border space-y-5" {...tilt3d(1.5)}>
+          {/* Deliberation Status Notice if currently auditing this agent */}
+          {isDeliberating && currentActiveModStep === (activeTabNode + 1) && (
+            <div className="p-3.5 rounded-xl bg-primary/10 border border-primary/30 flex items-center gap-2.5 text-xs text-primary animate-pulse">
+              <RotateCw size={15} className="animate-spin shrink-0 text-primary" />
+              <span>Real-time evaluation in progress for {agentTabs[activeTabNode].name}... live deliberation node streaming.</span>
+            </div>
+          )}
+          {isDeliberating && currentActiveModStep < (activeTabNode + 1) && (
+            <div className="p-3.5 rounded-xl bg-secondary/50 border border-border flex items-center gap-2.5 text-xs text-muted-foreground">
+              <Clock size={15} className="shrink-0 text-muted-foreground" />
+              <span>{agentTabs[activeTabNode].name} evaluation is queued in the 4-node deliberation pipeline.</span>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-3 flex-wrap border-b border-border pb-4">
             <div className="flex items-center gap-3">
               <span className="p-2.5 rounded-xl bg-secondary text-primary">{activeData.icon}</span>
@@ -778,7 +1118,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 {humanize(activeData.status)}
               </span>
               <span className={`font-mono font-bold text-lg px-3 py-1 rounded-lg bg-secondary ${getScoreColor(activeData.score)}`}>
-                {activeData.score} / 100
+                {activeData.score !== null && activeData.score !== undefined ? `${activeData.score} / 100` : "Not Audited"}
               </span>
             </div>
           </div>
@@ -969,11 +1309,11 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 <div key={p.key} className="p-4 rounded-xl bg-secondary/30 border border-border space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-base font-semibold text-foreground">{p.label}</span>
-                    <span className={`font-mono font-bold text-sm px-2.5 py-1 rounded-lg border ${toneChip[tone]}`}>{p.score} / 100</span>
+                    <span className={`font-mono font-bold text-sm px-2.5 py-1 rounded-lg border ${toneChip[tone]}`}>{p.score !== null && p.score !== undefined ? `${p.score} / 100` : "Not Audited"}</span>
                   </div>
                   <p className="text-sm text-muted-foreground">{p.desc}</p>
                   <div className="w-full h-2 rounded-full bg-secondary overflow-hidden" role="presentation">
-                    <div className={`h-full rounded-full transition-all ${toneBar[tone]}`} style={{ width: `${p.score}%` }} />
+                    <div className={`h-full rounded-full transition-all ${toneBar[tone]}`} style={{ width: `${p.score !== null && p.score !== undefined ? p.score : 0}%` }} />
                   </div>
                   <p className="text-sm text-foreground/85 leading-relaxed">
                     <strong className="text-primary font-semibold">Result:</strong> {p.detail}

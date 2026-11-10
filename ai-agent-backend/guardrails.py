@@ -53,8 +53,8 @@ class PolicyGuardrails:
                 f"${max_tx:.2f}"
             )
 
-        # Daily limit check
-        daily_limit = self.user.get('daily_limit', 2000.0)
+        # Daily limit check (dynamically derived from Trader presets if unset)
+        daily_limit = float(self.user.get('daily_limit') or (float(self.user.get('max_tx_amount', 500.0)) * int(self.user.get('trader_max_trades_per_day', 3))))
         daily_spent = get_daily_spend(self.user['wallet_address'])
         if daily_spent + amount_usd > daily_limit:
             return False, (
@@ -84,7 +84,7 @@ class PolicyGuardrails:
                 min(self.autonomy_level, 2)
             ],
             "max_tx_amount": self.user.get('max_tx_amount', 500.0),
-            "daily_limit": self.user.get('daily_limit', 2000.0),
+            "daily_limit": float(self.user.get('daily_limit') or (float(self.user.get('max_tx_amount', 500.0)) * int(self.user.get('trader_max_trades_per_day', 3)))),
             "risk_profile": self.user.get('risk_profile', 'moderate'),
             "kill_switch": self.is_kill_switch_active,
             "allowed_tokens": self.user.get('allowed_tokens', ''),

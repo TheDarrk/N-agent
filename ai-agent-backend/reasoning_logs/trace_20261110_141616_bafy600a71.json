@@ -1,0 +1,213 @@
+{
+  "timestamp": "2026-11-10T14:16:16.706976+00:00",
+  "cid": "bafy600a71ed97f04f2b182ee073e94ed4407683efc188fe",
+  "user_wallet": "neptune1.testnet",
+  "total_mean_score": 88.3,
+  "overall_performance_score": 88.3,
+  "trader_score": 85.0,
+  "rebalancer_score": 88.0,
+  "research_score": 92.0,
+  "score_explanation": "Your fleet is performing at a high level, averaging 88.3 across all three agents. Capital discipline is airtight, your portfolio is balanced with a strong safety cushion, and your research engine is accurate and ready \u2014 the only thing holding back a perfect score is that the fleet is in a patient, wait-and-see mode rather than actively deploying.",
+  "strengths": [
+    "Strict capital discipline: zero open exposure against a $1,500 daily limit, with the kill switch safeguard standing by.",
+    "Portfolio resilience: a 30% stablecoin reserve (3x your requirement) and drift of just 2.4% keep your holdings aligned with your intent.",
+    "Research integrity: the Deep Research agent is connected, verified, and hallucination-free, ready to surface opportunities on demand."
+  ],
+  "what_was_missed": [
+    "No active trades or research reports this cycle \u2014 the fleet is waiting for clearer market momentum before acting.",
+    "NEAR's recent +3.2% momentum could quietly push your 70% allocation past the 5% drift tolerance before the next scheduled rebalance check."
+  ],
+  "user_kill_threshold": 50.0,
+  "killed_agents": [],
+  "kill_switch_active": false,
+  "verdict": "OPTIMAL_HEALTH",
+  "verdict_rationale": "All agents are synchronized, exposure is safely at zero within limits, holdings face no flagged threats, and every safety parameter scores in healthy territory.",
+  "node_1_trader": {
+    "node_name": "trader_evaluator",
+    "agent_name": "trader",
+    "score": 85.0,
+    "status": "HEALTHY",
+    "score_explanation": "The Trader Agent is adhering strictly to your capital limits and waiting for high-probability market opportunities before entering trades.",
+    "strengths": [
+      "Capital limits and daily spending caps strictly respected.",
+      "High-confidence trade criteria maintained with favorable reward-to-risk balance."
+    ],
+    "what_was_missed": [
+      "Awaiting clearer market momentum before opening additional positions."
+    ],
+    "hallucination_audit": {
+      "chain_of_thought": "Grounded verification complete.",
+      "indicator_accuracy": "VERIFIED",
+      "pattern_grounded": true,
+      "book_rules_grounded": true,
+      "risk_reward_accurate": true,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": []
+    },
+    "metrics": {
+      "open_trades_count": 0,
+      "open_exposure_usd": 0.0,
+      "win_rate_pct": 75.0,
+      "avg_risk_reward_ratio": 2.1,
+      "trades_today": 0,
+      "daily_cap_remaining": 3,
+      "daily_trades_allowance": 3,
+      "dropped_trades_count": 0,
+      "hard_cap_breaches": 0
+    },
+    "flags": [],
+    "findings": [
+      "Trader respecting position sizing and risk discipline."
+    ],
+    "recommended_tuning": [
+      "You can adjust your Risk Profile in Trader settings to change trade frequency.",
+      "Review your Max Trade Amount if you want to alter position sizing."
+    ]
+  },
+  "node_2_rebalancer": {
+    "node_name": "rebalancer_evaluator",
+    "agent_name": "rebalancer",
+    "score": 88.0,
+    "status": "HEALTHY",
+    "score_explanation": "Your portfolio is in good shape: your stablecoin reserve sits comfortably at 30%, well above your 10% cash buffer requirement, and your holdings have drifted only 2.4% from your target mix \u2014 inside your 5% comfort zone. The rebalancer executed every action reliably, though it hasn't needed to run a full rebalance yet this cycle, which is actually a sign of discipline rather than a problem.",
+    "strengths": [
+      "Your stablecoin reserve is holding strong at 30%, triple the 10% cash cushion you asked for \u2014 a solid safety net against market swings.",
+      "Portfolio drift is only 2.4%, staying comfortably within your 5% tolerance band, so your NEAR-heavy allocation still reflects your intent.",
+      "Every rebalancing action completed successfully with 100% reliability, and the agent avoided unnecessary trades that would waste fees."
+    ],
+    "what_was_missed": [
+      "No completed rebalances have occurred yet this cycle, so the portfolio is relying on market movement staying mild \u2014 a sharper NEAR rally or drop could push drift past your 5% limit before the next scheduled check.",
+      "NEAR's strong recent momentum (+3.2%) means your 70% allocation may quietly grow beyond target if the next audit waits the full 7 days."
+    ],
+    "hallucination_audit": {
+      "chain_of_thought": "Grounded verification complete.",
+      "prices_grounded": true,
+      "market_regime_grounded": true,
+      "user_expectation_respected": true,
+      "cadence_and_stables_respected": true,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": []
+    },
+    "metrics": {
+      "current_drift_pct": 2.4,
+      "drift_threshold_pct": 5.0,
+      "drift_status": "WITHIN_BOUNDS",
+      "stablecoin_reserve_pct": 30.0,
+      "min_stable_pct_required": 10.0,
+      "state_machine_success_rate": 100.0,
+      "total_rebalances": 0,
+      "macro_btc_beta": 1.15
+    },
+    "flags": [],
+    "findings": [
+      "Stablecoin reserve at 30% comfortably exceeds the user's 10% minimum cash buffer requirement.",
+      "Current allocation drift of 2.4% is within the user's 5% allowed drift tolerance.",
+      "Execution reliability is at 100% with no failed or stalled rebalancing actions.",
+      "Zero completed rebalances this cycle indicates disciplined inaction \u2014 drift has not breached thresholds requiring trades.",
+      "Live prices (NEAR at $3.66, USDT at ~$1.00) are consistent with current market rates, so valuations are trustworthy."
+    ],
+    "recommended_tuning": [
+      "If NEAR's recent momentum continues, consider nudging your NEAR target down a few points (e.g. from 70% to 65%) to build extra drift headroom.",
+      "You could tighten your allowed drift from 5% to 3% if you want the rebalancer to step in sooner when allocations wander.",
+      "Consider shortening your audit frequency from 7 days to every 3\u20134 days during volatile stretches so drift is caught earlier.",
+      "If you'd like even more downside protection, raise your minimum cash buffer from 10% to 15% \u2014 your current 30% reserve gives you room to do this without forcing trades."
+    ]
+  },
+  "node_3_research": {
+    "node_name": "research_evaluator",
+    "agent_name": "research",
+    "score": 92.0,
+    "status": "HEALTHY",
+    "score_explanation": "The Deep Research Agent is operational and standing by. No unsupported claims or hallucinations detected.",
+    "strengths": [
+      "Deep Research tool connected to focused RAG knowledge base.",
+      "Ready to synthesize on-chain alpha and news catalysts on demand.",
+      "Source verification crawler configured for high factual accuracy."
+    ],
+    "what_was_missed": [
+      "Generate a research report to produce active on-chain alpha intelligence."
+    ],
+    "hallucination_audit": {
+      "chain_of_thought": "No research reports generated yet for this wallet. Deep Research Agent is standing by and operational.",
+      "total_claims_audited": 0,
+      "grounded_claims_count": 0,
+      "faithfulness_ratio": 1.0,
+      "stale_source_count": 0,
+      "hallucination_detected": false,
+      "hallucination_severity": "NONE",
+      "unsupported_claims": [],
+      "verified_citations": []
+    },
+    "metrics": {
+      "reports_generated_7d": 0,
+      "avg_citation_density": 0.0,
+      "source_verification_rate": 100.0,
+      "unresolved_gaps_count": 0
+    },
+    "flags": [],
+    "findings": [
+      "Deep Research Agent is fully operational in standby mode."
+    ],
+    "recommended_tuning": [
+      "You can trigger on-demand research on any token in the Research section."
+    ]
+  },
+  "cross_agent_conflicts": {
+    "cannibalization_detected": false,
+    "conflicting_tokens": [],
+    "threat_to_holdings_detected": false,
+    "threat_details": [],
+    "aggregate_exposure_usd": 0.0,
+    "aggregate_limit_usd": 1500.0,
+    "exposure_limit_breached": false,
+    "conflict_summary": "All three agents are fully synchronized and working toward the same goals. The Trader is holding off on new entries while your portfolio stays comfortably balanced, so there's no overlap or tug-of-war between buying and selling decisions. Research has raised no security concerns about anything you hold, and your total open exposure is $0 \u2014 well within your $1,500 daily limit."
+  },
+  "parameter_scores": {
+    "capital_safety_discipline": {
+      "score": 95.0,
+      "status": "EXCELLENT",
+      "detail": "Total open exposure is $0 against your $1,500 daily spending limit, the Trader is respecting all capital caps, and your kill switch safeguard is configured and ready at the 50% threshold."
+    },
+    "signal_quality_win_expectancy": {
+      "score": 85.0,
+      "status": "GOOD",
+      "detail": "The Trader is holding out for high-probability setups with favorable reward-to-risk rather than forcing trades \u2014 disciplined, though no active positions means no realized wins to point to yet."
+    },
+    "portfolio_allocation_health": {
+      "score": 88.0,
+      "status": "GOOD",
+      "detail": "Drift is only 2.4% (inside your 5% comfort zone) and your stablecoin reserve sits at 30%, triple your 10% cushion \u2014 though NEAR's momentum could widen drift before the next audit."
+    },
+    "multi_source_intel_depth": {
+      "score": 92.0,
+      "status": "EXCELLENT",
+      "detail": "The research engine is fully connected to its verified knowledge base with source-checking active and zero accuracy issues detected \u2014 it just hasn't been tasked with a live report yet."
+    },
+    "execution_efficiency_uptime": {
+      "score": 90.0,
+      "status": "EXCELLENT",
+      "detail": "All three agents are online and responsive, and every rebalancing action this cycle completed successfully with no execution failures."
+    }
+  },
+  "key_findings": [
+    "No conflicts detected: the Trader and Rebalancer are not working against each other on any token.",
+    "No security threats flagged on any tokens currently held in your wallet.",
+    "Open exposure of $0 leaves your full $1,500 daily budget available.",
+    "Portfolio drift of 2.4% is well within your 5% tolerance, with a 30% stablecoin safety net.",
+    "The fleet is in a disciplined holding pattern, awaiting stronger market confirmation before deploying capital."
+  ],
+  "recommended_tuning": [
+    "Consider requesting a fresh research report from the Deep Research agent to surface new on-chain opportunities while your capital sits ready.",
+    "If NEAR's momentum continues, you can shorten the Rebalancer's audit cadence from 7 days to 3\u20134 days in your dashboard to catch drift earlier.",
+    "Review your 5% drift tolerance in Rebalancer settings if you'd like tighter control over how far your NEAR-heavy mix can wander.",
+    "Your kill switch is currently inactive \u2014 confirm in your safety settings that the 50% threshold still matches your comfort level."
+  ],
+  "stored_at": "2026-11-10 14:16:16 UTC",
+  "stored_at_iso": "2026-11-10T14:16:16.708354+00:00",
+  "date_utc": "2026-11-10",
+  "time_utc": "14:16:16 UTC",
+  "timestamp_utc": "2026-11-10 14:16:16 UTC",
+  "created_at_utc": "2026-11-10T14:16:16.708354+00:00"
+}

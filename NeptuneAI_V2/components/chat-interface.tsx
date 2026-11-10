@@ -405,6 +405,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
           <AgentMarketplace
             accountId={accountId}
             onSelectAgentTab={(agentId) => navigateTab("agent-suite", agentId)}
+            onConnectWallet={connectWallet}
           />
         ) : activeTab === "dashboard" ? (
           <AgentDashboard

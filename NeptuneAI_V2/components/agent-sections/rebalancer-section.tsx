@@ -1,3 +1,4 @@
+import { toast } from "@/hooks/use-toast";
 "use client";
 
 import { tilt3d } from "./trader/tilt-3d";
@@ -161,6 +162,18 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   const [activeStrategy, setActiveStrategy] = useState<ActiveStrategy | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+
+  // ─── 4-NODE REBALANCER PIPELINE STREAMING STATE ───
+  interface RebalanceStepEvent {
+    step_number: number;
+    step_name: string;
+    title: string;
+    status: "running" | "completed";
+    message: string;
+    data?: any;
+  }
+  const [rebalanceSteps, setRebalanceSteps] = useState<RebalanceStepEvent[]>([]);
+  const [currentActiveRebStep, setCurrentActiveRebStep] = useState<number>(0);
 
   // ─── LIVE DRIFT & TELEMETRY ───
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
@@ -336,31 +349,61 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
     });
   };
 
-  // ─── GENERATE AI REBALANCE STRATEGY ───
+  // ─── GENERATE AI REBALANCE STRATEGY VIA REAL-TIME 4-NODE STREAM ───
   const handleGenerateStrategy = async () => {
     if (!accountId) {
       if (onConnectWallet) onConnectWallet();
-      else alert("Please connect your wallet first.");
+      toast({
+        title: "Wallet Required",
+        description: "Please connect your wallet first to generate a portfolio strategy.",
+        variant: "destructive",
+      });
       return;
     }
     if (!selectedCoins.length) {
-      alert("Please select at least 1 coin from the dropdown to construct your target portfolio.");
+      toast({
+        title: "Coins Required",
+        description: "Please select at least 1 coin from the dropdown to construct your target portfolio.",
+        variant: "destructive",
+      });
       return;
     }
 
     setIsGenerating(true);
-    setGenerationStep("Ingesting 1h, 1d, 1w closed candles (zero lookahead)...");
+    setRebalanceSteps([
+      {
+        step_number: 1,
+        step_name: "Multi-Timeframe Chart Analysis",
+        title: "1h, 1d & 1w Candle Resampling",
+        status: "running",
+        message: `Fetching multi-timeframe candle data for ${selectedCoins.join(", ")}...`,
+      },
+      {
+        step_number: 2,
+        step_name: "Macro Beta & Correlation Matrix",
+        title: "30-Day BTC Beta & Cross-Asset Correlation",
+        status: "running",
+        message: "Queued...",
+      },
+      {
+        step_number: 3,
+        step_name: "On-Chain Holdings & Liquidity Context",
+        title: "Balance Valuation & Candidate Indexing",
+        status: "running",
+        message: "Queued...",
+      },
+      {
+        step_number: 4,
+        step_name: "Strategy Formulation & Guardrails",
+        title: "Allocation Optimization & Stablecoin Floor",
+        status: "running",
+        message: "Queued...",
+      },
+    ]);
+    setCurrentActiveRebStep(1);
 
     try {
-      setTimeout(() => {
-        setGenerationStep("Computing BTC Beta, correlation matrix & 1Click dry-run quotes...");
-      }, 2000);
-
-      setTimeout(() => {
-        setGenerationStep("Synthesizing 20 Trading Book heuristics & enforcing min stable floor...");
-      }, 4500);
-
-      const res = await fetch("/api/rebalancer/generate-strategy", {
+      const res = await fetch("/api/rebalancer/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -373,20 +416,93 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         })
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server returned ${res.status}`);
+      if (!res.ok || !res.body) {
+        // Fallback to synchronous endpoint
+        const fbRes = await fetch("/api/rebalancer/generate-strategy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_wallet: accountId,
+            selected_coins: selectedCoins,
+            user_expectation: userExpectation,
+            current_holdings: currentHoldings,
+            cadence_days: cadenceDays,
+            min_stable_pct: minStablePct
+          })
+        });
+        if (fbRes.ok) {
+          const newStrategy = await fbRes.json();
+          setActiveStrategy(newStrategy.active_strategy || newStrategy);
+          await fetchStrategyAndStatus();
+        } else {
+          const errData = await fbRes.json().catch(() => null);
+          toast({
+            title: "Strategy Generation Failed",
+            description: errData?.detail || `HTTP ${fbRes.status}: ${fbRes.statusText}`,
+            variant: "destructive",
+          });
+        }
+        return;
       }
 
-      const newStrategy = await res.json();
-      setActiveStrategy(newStrategy);
-      setGenerationStep("Strategy saved to Rebalancer DB! Agent status activated.");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
 
-      // Refresh live status & history
-      await fetchStrategyAndStatus();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const ev = JSON.parse(line.trim());
+            if (ev.type === "error") {
+              toast({
+                title: "Rebalance Strategy Error",
+                description: ev.error || ev.message || "An unexpected error occurred during strategy formulation.",
+                variant: "destructive",
+              });
+            } else if (ev.type === "step") {
+              setCurrentActiveRebStep(ev.step_number);
+              setRebalanceSteps((prev) => {
+                const next = [...prev];
+                const idx = next.findIndex((s) => s.step_number === ev.step_number);
+                const stepObj: RebalanceStepEvent = {
+                  step_number: ev.step_number,
+                  step_name: ev.step_name,
+                  title: ev.title,
+                  status: ev.status,
+                  message: ev.message,
+                  data: ev.data,
+                };
+                if (idx !== -1) {
+                  next[idx] = stepObj;
+                } else {
+                  next.push(stepObj);
+                }
+                return next;
+              });
+            } else if (ev.type === "final" && ev.result) {
+              const resData = ev.result;
+              setActiveStrategy(resData.active_strategy || resData);
+              await fetchStrategyAndStatus();
+            }
+          } catch (pe) {
+            console.error("Rebalance stream parse notice:", pe);
+          }
+        }
+      }
     } catch (e: any) {
       console.error("Strategy generation error:", e);
-      alert(`Error generating strategy: ${e.message || String(e)}`);
+      toast({
+        title: "Strategy Formulation Error",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsGenerating(false);
       setGenerationStep("");
@@ -397,7 +513,11 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   const handleEvaluateAndRebalance = async () => {
     if (!accountId) {
       if (onConnectWallet) onConnectWallet();
-      else alert("Please connect wallet first");
+      toast({
+        title: "Wallet Required",
+        description: "Please connect your wallet first to evaluate and rebalance portfolio.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -412,10 +532,31 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           drift_threshold_pct: driftThreshold
         })
       });
-      const data = await res.json();
-      setDriftStatus(data);
-    } catch (e) {
+      if (res.ok) {
+        const data = await res.json();
+        setDriftStatus(data);
+        if (data.status === "BLOCKED_KILL_SWITCH") {
+          toast({
+            title: "Rebalance Blocked",
+            description: data.message || "Kill switch is active.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        const err = await res.json().catch(() => null);
+        toast({
+          title: "Rebalance Evaluation Failed",
+          description: err?.detail || `HTTP ${res.status}: ${res.statusText}`,
+          variant: "destructive",
+        });
+      }
+    } catch (e: any) {
       console.error("Rebalance trigger error:", e);
+      toast({
+        title: "Rebalance Trigger Error",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsRebalancing(false);
     }
@@ -1044,6 +1185,116 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
           </div>
         </div>
       </div>
+
+      {/* ─── LIVE STREAMING 4-NODE REBALANCER STRATEGY EXECUTION MONITOR ─── */}
+      {(isGenerating || rebalanceSteps.length > 0) && (
+        <div className="p-4 sm:p-5 rounded-2xl border border-primary/30 bg-card/90 backdrop-blur-md shadow-xl space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary/15 text-primary">
+                <Layers size={16} className={isGenerating ? "animate-pulse" : ""} />
+              </span>
+              <div>
+                <h3 className="text-sm font-bold text-foreground">
+                  Autonomous Portfolio Rebalance Pipeline
+                </h3>
+                <p className="text-[11px] text-muted-foreground font-mono">
+                  4-Node Strategy Engine: Multi-Timeframe Charts → Beta Correlation → Holdings → Optimization
+                </p>
+              </div>
+            </div>
+            {isGenerating ? (
+              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full animate-pulse">
+                <RotateCw size={11} className="animate-spin" />
+                <span>LIVE REBALANCE GENERATION</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+                <CheckCircle2 size={11} />
+                <span>STRATEGY ACTIVE</span>
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {rebalanceSteps.map((step) => {
+              const isCurrent = isGenerating && currentActiveRebStep === step.step_number;
+              const isDone = step.status === "completed";
+
+              return (
+                <div
+                  key={step.step_number}
+                  className={`p-3 rounded-xl border transition-all text-xs space-y-2 ${
+                    isCurrent
+                      ? "border-primary bg-primary/10 shadow-sm shadow-primary/20"
+                      : isDone
+                      ? "border-emerald-500/30 bg-emerald-500/5"
+                      : "border-border bg-secondary/30 text-muted-foreground"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10px] uppercase font-bold text-muted-foreground">
+                      Node {step.step_number}
+                    </span>
+                    {isCurrent ? (
+                      <span className="flex items-center gap-1 text-[9px] font-bold text-primary bg-primary/20 px-1.5 py-0.5 rounded animate-pulse">
+                        <RotateCw size={9} className="animate-spin" /> Live
+                      </span>
+                    ) : isDone ? (
+                      <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
+                        <CheckCircle2 size={9} /> Done
+                      </span>
+                    ) : (
+                      <span className="text-[9px] text-muted-foreground">Queued</span>
+                    )}
+                  </div>
+
+                  <h4 className="font-bold text-foreground text-xs">{step.step_name}</h4>
+                  <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
+                    {step.message}
+                  </p>
+
+                  {/* Explicit Node Result */}
+                  {isDone && (
+                    <div className="pt-1.5 mt-1 border-t border-border/50 text-[10px] space-y-1">
+                      {step.step_number === 1 && step.data?.symbols && (
+                        <div className="flex justify-between items-center font-mono">
+                          <span className="text-muted-foreground">Charts Analyzed:</span>
+                          <span className="font-bold text-emerald-400">{step.data.symbols.length} Assets</span>
+                        </div>
+                      )}
+                      {step.step_number === 2 && step.data?.btc_beta && (
+                        <div className="flex justify-between items-center font-mono">
+                          <span className="text-muted-foreground">Beta Computed:</span>
+                          <span className="font-bold text-primary">Cross-Asset Risk Grounded</span>
+                        </div>
+                      )}
+                      {step.step_number === 3 && step.data?.total_portfolio_usd !== undefined && (
+                        <div className="flex justify-between items-center font-mono">
+                          <span className="text-muted-foreground">Portfolio Valued:</span>
+                          <span className="font-bold text-foreground">${Number(step.data.total_portfolio_usd).toFixed(2)}</span>
+                        </div>
+                      )}
+                      {step.step_number === 4 && step.data?.allocations && (
+                        <div className="space-y-0.5 pt-0.5">
+                          <div className="text-muted-foreground font-mono">Targets Optimized:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(step.data.allocations).slice(0, 4).map(([k, v]) => (
+                              <span key={k} className="px-1 py-0.2 rounded bg-secondary font-mono text-[9px] font-bold text-primary border border-border/40">
+                                {k}: {v as number}%
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ─── ACTIVE STRATEGY PRESENTATION (GENERATED BY LLM & RAG) ─── */}
       {activeStrategy && (

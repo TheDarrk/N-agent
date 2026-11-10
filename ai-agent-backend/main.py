@@ -113,9 +113,12 @@ async def lifespan(app):
                     from database import get_connection
                     from autonomous_agents.moderator_agent import ModeratorAgent
                     conn = get_connection()
-                    rows = conn.execute(
-                        "SELECT wallet_address FROM users WHERE moderator_active = 1 AND (kill_switch IS NULL OR kill_switch = 0)"
-                    ).fetchall()
+                    rows = conn.execute("""
+                        SELECT u.wallet_address 
+                        FROM core_user_wallets u
+                        LEFT JOIN moderator_config m ON u.wallet_address = m.wallet_address
+                        WHERE COALESCE(m.agent_active, 0) = 1 AND (u.kill_switch_active IS NULL OR u.kill_switch_active = 0)
+                    """).fetchall()
                     conn.close()
                     if not rows:
                         return
@@ -645,6 +648,30 @@ async def trader_analyze(body: TraderScanRequest):
     )
     return result
 
+
+@app.post("/api/trader/stream")
+async def trader_stream_endpoint(body: TraderScanRequest):
+    """
+    Real-time streaming trader pipeline.
+    Streams each stage (Pre-scanner -> Screener -> Council -> Judge -> Execution)
+    as it executes on the backend as NDJSON.
+    """
+    from fastapi.responses import StreamingResponse
+    from autonomous_agents.trader_agent import TraderAgent
+    trader = TraderAgent()
+    return StreamingResponse(
+        trader.run_pipeline_stream(
+            user_wallet=body.user_wallet,
+            symbol=body.symbol,
+            coin_mode=body.coin_mode,
+            custom_coins=body.custom_coins,
+            force_timeframe=body.timeframe,
+            force_min_confidence=body.min_confidence,
+            enable_researcher_plugin=body.enable_researcher_plugin
+        ),
+        media_type="application/x-ndjson"
+    )
+
 @app.get("/api/trader/trades/{wallet_address}")
 async def get_trader_trades(wallet_address: str):
     """Get open positions, dropped trades, and history for the user."""
@@ -701,11 +728,21 @@ async def get_trading_knowledge():
     }
 
 @app.get("/api/trader/traces")
-async def get_trade_traces():
-    """Get recent 24 decentralized trade reasoning traces."""
+async def get_trade_traces(wallet_address: Optional[str] = None):
+    """Get recent 24 decentralized trade reasoning traces (isolated by wallet if provided)."""
+    if not wallet_address:
+        return {"traces": [], "count": 0}
     from decentralized_storage import get_recent_trade_traces
-    traces = get_recent_trade_traces(limit=24)
+    traces = get_recent_trade_traces(limit=24, wallet_address=wallet_address)
     return {"traces": traces, "count": len(traces)}
+
+@app.get("/api/trader/traces/{wallet_address}")
+async def get_trade_traces_for_wallet(wallet_address: str):
+    """Get recent 24 decentralized trade reasoning traces for a specific wallet."""
+    from decentralized_storage import get_recent_trade_traces
+    traces = get_recent_trade_traces(limit=24, wallet_address=wallet_address)
+    return {"traces": traces, "count": len(traces)}
+
 
 
 # ─── 2. REBALANCER AGENT ENDPOINTS ───────────────────────────────
@@ -738,6 +775,30 @@ async def rebalancer_generate_strategy(body: RebalanceStrategyRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rebalancer/stream")
+async def rebalancer_generate_strategy_stream(body: RebalanceStrategyRequest):
+    """
+    Real-time streaming portfolio rebalancing strategy generation yielding NDJSON events:
+    Node 1: Multi-Timeframe Chart Analysis (1h, 1d, 1w)
+    Node 2: Macro BTC Beta & Correlation Matrix
+    Node 3: On-Chain Holdings & Liquidity Context
+    Node 4: Institutional Strategy Formulation & Deterministic Guardrails
+    """
+    from fastapi.responses import StreamingResponse
+    from autonomous_agents.rebalancer_agent import RebalancerAgent
+    rebalancer = RebalancerAgent()
+    return StreamingResponse(
+        rebalancer.generate_strategy_stream(
+            user_wallet=body.user_wallet,
+            selected_coins=body.selected_coins,
+            user_expectation=body.user_expectation or "",
+            current_holdings=body.current_holdings,
+            cadence_days=body.cadence_days or 7,
+            min_stable_pct=body.min_stable_pct or 10.0
+        ),
+        media_type="application/x-ndjson"
+    )
 
 @app.get("/api/rebalancer/strategy/{wallet_address}")
 async def rebalancer_get_active_strategy(wallet_address: str):
@@ -863,11 +924,21 @@ async def research_agent_hire(body: A2AHireRequest):
     )
 
 @app.get("/api/research/reports")
-async def get_research_reports():
-    """Get the recent 10 decentralized research reports."""
+async def get_research_reports(wallet_address: Optional[str] = None):
+    """Get the recent 10 decentralized research reports (isolated by wallet if provided)."""
+    if not wallet_address:
+        return {"reports": [], "count": 0}
     from decentralized_storage import get_recent_research_reports
-    reports = get_recent_research_reports(limit=10)
+    reports = get_recent_research_reports(limit=10, wallet_address=wallet_address)
     return {"reports": reports, "count": len(reports)}
+
+@app.get("/api/research/reports/{wallet_address}")
+async def get_research_reports_for_wallet(wallet_address: str):
+    """Get the recent 10 decentralized research reports for a specific wallet."""
+    from decentralized_storage import get_recent_research_reports
+    reports = get_recent_research_reports(limit=10, wallet_address=wallet_address)
+    return {"reports": reports, "count": len(reports)}
+
 
 
 # ─── 4. MODERATOR WATCHDOG ENDPOINTS ─────────────────────────────
@@ -952,6 +1023,17 @@ async def moderator_deliberate(body: ModeratorDeliberateRequest):
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()
     return await moderator.evaluate_fleet_performance(body.user_wallet)
+
+@app.post("/api/moderator/stream")
+async def moderator_deliberate_stream(body: ModeratorDeliberateRequest):
+    """Real-time streaming 4-Node Watchdog Deliberation yielding NDJSON events for each node."""
+    from fastapi.responses import StreamingResponse
+    from autonomous_agents.moderator_agent import ModeratorAgent
+    moderator = ModeratorAgent()
+    return StreamingResponse(
+        moderator.evaluate_fleet_stream(body.user_wallet),
+        media_type="application/x-ndjson"
+    )
 
 @app.get("/api/moderator/history/{wallet_address}")
 async def moderator_history(wallet_address: str, limit: int = 10):
@@ -1428,7 +1510,7 @@ async def execute_tx_broadcast(body: ExecuteTxRequest):
     agent_key = get_agent_key(body.account_id, "near")
     if agent_key and agent_key.get("encrypted_private_key"):
         try:
-            priv_key = decrypt_private_key(agent_key["encrypted_private_key"])
+            priv_key = decrypt_private_key(agent_key["encrypted_private_key"], wallet_address=body.account_id)
             tx_payload = body.payload if isinstance(body.payload, list) else [body.payload]
             tx_hash = await submit_near_transaction(
                 tx_payload=tx_payload,

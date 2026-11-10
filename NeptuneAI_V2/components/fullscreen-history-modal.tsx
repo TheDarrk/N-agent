@@ -73,6 +73,8 @@ interface TradeTrace {
   cid: string;
   stored_at: string;
   symbol: string;
+  evaluated_symbol?: string;
+  pipeline?: any;
   verdict?: string;
   action?: string;
   stage?: string;
@@ -203,6 +205,58 @@ function EmptyState({
   );
 }
 
+function cleanSymbolName(sym?: string, evalSym?: string): string {
+  if (evalSym && evalSym !== "NO_TRADE" && evalSym !== "NONE" && evalSym !== "MARKET") {
+    return evalSym;
+  }
+  if (!sym || sym === "NO_TRADE" || sym === "NONE" || sym === "MARKET") {
+    return "Market Scan";
+  }
+  return sym;
+}
+
+function cleanVerdictInfo(verdict?: string, stage?: string): { label: string; badgeClass: string } {
+  const v = (verdict || "").toUpperCase();
+  const s = (stage || "").toUpperCase();
+
+  if (v.includes("DROP") || s.includes("DROP") || v === "FAILED" || v === "REVOKED") {
+    return {
+      label: "Dropped Run",
+      badgeClass: "bg-rose-950/80 text-rose-300 border-rose-500/50 ring-1 ring-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.25)]",
+    };
+  }
+  if (v === "ENTER_LONG" || v === "EXECUTE" || v === "OPEN") {
+    return {
+      label: "Enter Long",
+      badgeClass: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    };
+  }
+  if (v === "STAND_ASIDE" || s.includes("STAND_ASIDE") || s.includes("NO_CANDIDATES")) {
+    if (s.includes("SCREENER")) {
+      return {
+        label: "Screener: Stand Aside",
+        badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+      };
+    }
+    if (s.includes("JUDGE")) {
+      return {
+        label: "Judge: Stand Aside",
+        badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+      };
+    }
+    return {
+      label: "Stand Aside",
+      badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+    };
+  }
+  const clean = (verdict || stage || "Evaluation").replace(/_/g, " ").toLowerCase();
+  const title = clean.charAt(0).toUpperCase() + clean.slice(1);
+  return {
+    label: title,
+    badgeClass: "bg-secondary text-muted-foreground border-border",
+  };
+}
+
 export default function FullScreenHistoryModal({
   isOpen,
   onClose,
@@ -239,11 +293,24 @@ export default function FullScreenHistoryModal({
   }, [isOpen, onClose]);
 
   const fetchData = async () => {
-    const targetWallet = accountId || "guest.near";
+    if (!accountId) {
+      setOpenTrades([]);
+      setTrades([]);
+      setDroppedTrades([]);
+      setTraces([]);
+      setFleetLogs([]);
+      setIsLoading(false);
+      return;
+    }
+    const targetWallet = accountId;
     setIsLoading(true);
+    const ts = Date.now();
     try {
-      // 1. Fetch trades
-      const tradesRes = await fetch(`/api/trader/trades/${targetWallet}`);
+      // 1. Fetch trades (cache disabled to avoid stale data)
+      const tradesRes = await fetch(`/api/trader/trades/${encodeURIComponent(targetWallet)}?t=${ts}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store, must-revalidate" }
+      });
       if (tradesRes.ok) {
         const data = await tradesRes.json();
         setOpenTrades(data.open_trades || []);
@@ -251,15 +318,21 @@ export default function FullScreenHistoryModal({
         setDroppedTrades(data.dropped_trades || []);
       }
 
-      // 2. Fetch decentralized traces
-      const tracesRes = await fetch("/api/trader/traces");
+      // 2. Fetch decentralized traces (cache disabled)
+      const tracesRes = await fetch(`/api/trader/traces/${encodeURIComponent(targetWallet)}?t=${ts}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store, must-revalidate" }
+      });
       if (tracesRes.ok) {
         const data = await tracesRes.json();
         setTraces(data.traces || []);
       }
 
-      // 3. Fetch fleet logs
-      const fleetRes = await fetch(`/api/fleet/${targetWallet}`);
+      // 3. Fetch fleet logs (cache disabled)
+      const fleetRes = await fetch(`/api/fleet/${encodeURIComponent(targetWallet)}?t=${ts}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store, must-revalidate" }
+      });
       if (fleetRes.ok) {
         const data = await fleetRes.json();
         if (data.recent_activity) {
@@ -438,7 +511,7 @@ export default function FullScreenHistoryModal({
                 Fleet Operational History &amp; Decision Traces
               </h2>
               <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-secondary text-muted-foreground border border-border">
-                {accountId || "guest.near"}
+                {accountId || "No Wallet Connected"}
               </span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground text-pretty">
@@ -664,7 +737,7 @@ export default function FullScreenHistoryModal({
 
                             {/* Amount */}
                             <td className="py-4 px-5 font-mono font-semibold text-foreground">
-                              ${t.amount_usd ? t.amount_usd.toFixed(2) : "50.00"}
+                              {t.amount_usd != null && t.amount_usd > 0 ? `$${t.amount_usd.toFixed(2)}` : "—"}
                             </td>
 
                             {/* Entry */}
@@ -772,27 +845,25 @@ export default function FullScreenHistoryModal({
                       >
                         <div className="flex items-center gap-3">
                           {/* Verdict / Status Badge */}
-                          {isDropped ? (
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-950/80 text-rose-300 border border-rose-500/50 ring-1 ring-rose-500/30 flex items-center gap-1.5 shadow-[0_0_10px_rgba(244,63,94,0.25)]">
-                              <AlertTriangle size={11} className="text-rose-400" />
-                              <span>DROPPED RUN</span>
-                            </span>
-                          ) : tr.verdict === "ENTER_LONG" ? (
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
-                              <CheckCircle2 size={11} />
-                              <span>ENTER LONG</span>
-                            </span>
-                          ) : (
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-secondary text-muted-foreground border border-border">
-                              {tr.verdict || tr.stage || "EVALUATION"}
-                            </span>
-                          )}
+                          {(() => {
+                            const vInfo = cleanVerdictInfo(tr.verdict, tr.stage);
+                            return (
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${vInfo.badgeClass}`}>
+                                {isDropped && <AlertTriangle size={11} className="text-rose-400" />}
+                                {tr.verdict === "ENTER_LONG" && <CheckCircle2 size={11} />}
+                                <span>{vInfo.label}</span>
+                              </span>
+                            );
+                          })()}
 
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-bold text-foreground">
-                                {tr.symbol || "NEAR"}
+                                {cleanSymbolName(tr.symbol, (tr as any).evaluated_symbol)}
                               </span>
+                              {cleanSymbolName(tr.symbol, (tr as any).evaluated_symbol) === "Market Scan" && (
+                                <span className="text-[10px] text-muted-foreground font-normal">(Stand Aside)</span>
+                              )}
                               {tr.confidence_score !== undefined && (
                                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/25">
                                   {tr.confidence_score}% Confidence
@@ -871,19 +942,19 @@ export default function FullScreenHistoryModal({
                                 <div className="bg-background/40 p-2 rounded-lg">
                                   <span className="text-[9px] text-muted-foreground block">Spot Price</span>
                                   <span className="font-mono font-bold text-foreground">
-                                    ${tr.indicators?.current_price ? tr.indicators.current_price.toFixed(4) : tr.entry_price || "—"}
+                                    ${tr.indicators?.current_price ? tr.indicators.current_price.toFixed(4) : tr.entry_price ? tr.entry_price.toFixed(4) : "—"}
                                   </span>
                                 </div>
                                 <div className="bg-background/40 p-2 rounded-lg">
                                   <span className="text-[9px] text-muted-foreground block">RSI (14)</span>
                                   <span className="font-mono font-bold text-primary">
-                                    {tr.indicators?.rsi ? tr.indicators.rsi.toFixed(1) : "54.2"}
+                                    {tr.indicators?.rsi ? tr.indicators.rsi.toFixed(1) : (tr as any).pipeline?.screener?.rsi ? (tr as any).pipeline.screener.rsi.toFixed(1) : "—"}
                                   </span>
                                 </div>
                                 <div className="bg-background/40 p-2 rounded-lg">
                                   <span className="text-[9px] text-muted-foreground block">EMA Trend</span>
                                   <span className="font-mono font-bold text-emerald-400">
-                                    {tr.indicators?.ema_trend || "BULLISH"}
+                                    {tr.indicators?.ema_trend || (tr as any).pipeline?.screener?.trend || "Neutral"}
                                   </span>
                                 </div>
                               </div>
@@ -896,11 +967,11 @@ export default function FullScreenHistoryModal({
                                   <span>Step 2:</span> Vision Pattern Recognition
                                 </span>
                                 <span className="text-[10px] font-mono text-cyan-400">
-                                  R:R {tr.risk_reward_ratio || 1.8}x
+                                  R:R {tr.risk_reward_ratio ? `${tr.risk_reward_ratio}x` : "—"}
                                 </span>
                               </div>
                               <p className="text-xs font-semibold text-foreground">
-                                {tr.pattern_detected || "Dynamic EMA Trend Support"}
+                                {tr.pattern_detected || "Market Technical Setup"}
                               </p>
                               <div className="flex items-center justify-between text-[11px] font-mono">
                                 <span className="text-emerald-400">
@@ -918,7 +989,7 @@ export default function FullScreenHistoryModal({
                                 <span>Step 3:</span> Crypto Trading Book RAG
                               </span>
                               <p className="text-xs text-foreground font-mono">
-                                Section: {tr.book_section_cited || "sec_bull_bear_flags"}
+                                Section: {tr.book_section_cited || (tr.pipeline as any)?.council?.plans?.[0]?.book_citations?.[0]?.title || "Market Structure & Risk Management"}
                               </p>
                               <p className="text-[10px] text-muted-foreground leading-relaxed">
                                 Institutional breakout rule verified against 31-section indexed knowledge base.
@@ -936,7 +1007,9 @@ export default function FullScreenHistoryModal({
                                 </span>
                               </div>
                               <p className="text-xs text-foreground">
-                                Bullish: {tr.twitter_sentiment?.bullish_pct || 50}% • Bearish: {tr.twitter_sentiment?.bearish_pct || 50}%
+                                {tr.twitter_sentiment?.bullish_pct != null
+                                  ? `Bullish: ${tr.twitter_sentiment.bullish_pct}% • Bearish: ${tr.twitter_sentiment?.bearish_pct || 0}%`
+                                  : "Market sentiment neutral • Standard safety checks applied"}
                               </p>
                               <p className="text-[10px] text-muted-foreground">
                                 Researcher Agent Rental: {tr.researcher_intel ? "0.1 NEAR A2A Fee Settled" : "Standby"}
@@ -950,7 +1023,7 @@ export default function FullScreenHistoryModal({
                                   <span>Step 5:</span> LLM-as-a-Judge Evidence Confluence
                                 </span>
                                 <span className="text-[10px] font-mono text-foreground font-bold">
-                                  Verdict: {tr.verdict || "ENTER_LONG"} ({tr.confidence_score || 77}% vs Threshold)
+                                  Verdict: {cleanVerdictInfo(tr.verdict, tr.stage).label} ({tr.confidence_score !== undefined ? `${tr.confidence_score}%` : "—"} vs Threshold)
                                 </span>
                               </div>
 

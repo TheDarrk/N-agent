@@ -21,6 +21,7 @@ interface TestnetWalletModalProps {
     onClose: () => void;
     onConnectSuccess?: (accountId: string) => void;
     onLaunchHotKit?: () => void;
+    onConnectSpecificWallet?: (walletId: string) => void;
 }
 
 export default function TestnetWalletModal({
