@@ -80,13 +80,9 @@ export default function NeptuneAgentSuite({
   const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
 
   const fetchFleet = async () => {
-    if (!accountId) {
-      setFleetData(null);
-      return;
-    }
-    const wallet = accountId;
+    const wallet = accountId || "guest.near";
     try {
-      const res = await fetch(`/api/fleet/${encodeURIComponent(wallet)}`);
+      const res = await fetch(`/api/fleet/${wallet}`);
       if (res.ok) {
         const data = await res.json();
         setFleetData(data);
@@ -102,11 +98,7 @@ export default function NeptuneAgentSuite({
   }, [accountId]);
 
   const handleToggleAgentActive = async (agentId: string, currentActive: boolean) => {
-    if (!accountId) {
-      if (onConnectWallet) onConnectWallet();
-      return;
-    }
-    const targetWallet = accountId;
+    const targetWallet = accountId || "guest.near";
     setIsUpdating(agentId);
     try {
       const res = await fetch("/api/fleet/config", {
@@ -150,7 +142,7 @@ export default function NeptuneAgentSuite({
     },
     {
       id: "moderator",
-      name: "Moderator Watchdog Agent",
+      name: "Moderator Agent",
       role: "System Health & Risk Protection",
       color: "from-purple-500/20 via-violet-500/10 to-transparent",
       borderColor: "border-purple-500/30",

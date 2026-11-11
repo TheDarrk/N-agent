@@ -5,7 +5,6 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { VisibilityGate } from "@/components/visibility-gate";
 import { PageLoader } from "@/components/page-loader";
-import { Toaster } from "@/components/ui/toaster";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const jetbrains = JetBrains_Mono({
@@ -55,7 +54,6 @@ export default function RootLayout({
           <VisibilityGate />
           <PageLoader />
           {children}
-          <Toaster />
         </ThemeProvider>
       </body>
     </html>

@@ -3,6 +3,7 @@
 import React from "react";
 import { Check, Play, RotateCw, Wallet, SlidersHorizontal, Radar, ArrowRight } from "lucide-react";
 import { tilt3d } from "./tilt-3d";
+import InfoTip from "../shared/info-tip";
 
 type Props = {
   connected: boolean;
@@ -31,19 +32,19 @@ export default function TraderReady({
     {
       icon: Wallet,
       title: "Connect your wallet",
-      detail: connected ? "Wallet connected." : "The agent trades from your wallet, inside your limits.",
+      detail: connected ? "Connected." : "Needed to trade.",
       done: connected,
     },
     {
       icon: SlidersHorizontal,
       title: "Save your setup",
-      detail: settingsSaved ? "Your limits are saved." : "Pick a style above and press Save my setup.",
+      detail: settingsSaved ? "Saved." : "Pick a style, then save.",
       done: settingsSaved,
     },
     {
       icon: Radar,
-      title: "Run your first analysis",
-      detail: "The agent scans, double-checks, then shows you its decision here.",
+      title: "Run an analysis",
+      detail: "See the agent's decision here.",
       done: false,
     },
   ];
@@ -60,10 +61,7 @@ export default function TraderReady({
             </span>
             Ready when you are
           </h3>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            <strong className="font-bold text-foreground">Nothing has been traded yet.</strong> Follow these three steps
-            to get going.
-          </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">No trades yet. Three steps to start.</p>
         </div>
         <div className="flex flex-wrap gap-1.5 text-[13px]">
           {[`${coinLabel}`, `Every ${timeframe}`, `${minConfidence}%+ sure`, `Max $${maxTxAmount || 0}`].map((chip) => (
@@ -118,10 +116,12 @@ export default function TraderReady({
       </ol>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-md text-[13px] leading-snug text-muted-foreground">
-          <strong className="font-bold text-foreground">A first run only looks.</strong> It will not place a trade
-          unless a setup passes your confidence and safety limits.
-        </p>
+        <span className="inline-flex items-center gap-1 text-[13px] text-muted-foreground">
+          A first run only looks
+          <InfoTip label="About the first run">
+            It will not place a trade unless a setup passes your confidence and safety limits.
+          </InfoTip>
+        </span>
         {connected ? (
           <button
             type="button"

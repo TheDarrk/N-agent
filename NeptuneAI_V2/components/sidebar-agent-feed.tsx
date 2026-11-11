@@ -1,20 +1,8 @@
 "use client";
 
 import { setVisibleInterval } from "@/lib/visible-interval"
-import React, { useState, useEffect } from "react";
-import {
-  Activity,
-  Clock,
-  ExternalLink,
-  RefreshCw,
-  CheckCircle2,
-  AlertTriangle,
-  Brain,
-  Shield,
-  Layers,
-  ChevronRight,
-  Maximize2
-} from "lucide-react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { RefreshCw, Brain, Maximize2, ChevronRight } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
 
 type Props = {
@@ -34,7 +22,53 @@ interface AgentLogItem {
   tx_hash?: string | null;
   status: string;
   created_at: string;
+  created_at_utc?: string;
 }
+
+type AgentId = "trader" | "moderator" | "research" | "rebalancer";
+type Filter = "all" | AgentId;
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "trader", label: "Trader" },
+  { id: "moderator", label: "Mod" },
+  { id: "research", label: "Research" },
+  { id: "rebalancer", label: "Rebal" },
+];
+
+const AGENT_TEXT: Record<AgentId, string> = {
+  trader: "text-cyan-600 dark:text-cyan-400",
+  moderator: "text-purple-600 dark:text-purple-400",
+  research: "text-emerald-600 dark:text-emerald-400",
+  rebalancer: "text-amber-600 dark:text-amber-400",
+};
+
+const getAgentId = (name: string): AgentId => {
+  const n = (name || "").toLowerCase();
+  if (n.includes("moderator")) return "moderator";
+  if (n.includes("research")) return "research";
+  if (n.includes("rebalanc")) return "rebalancer";
+  return "trader";
+};
+
+const parseDate = (dateStr: string): Date | null => {
+  if (!dateStr) return null;
+  const normalized = dateStr.endsWith("Z") || dateStr.includes("UTC") ? dateStr.replace(" UTC", "Z") : `${dateStr}Z`;
+  const d = new Date(normalized);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const dayLabel = (d: Date | null) => {
+  if (!d) return "Recent";
+  const day = d.toISOString().slice(0, 10);
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 86400000);
+  if (day === today.toISOString().slice(0, 10)) return "Today";
+  if (day === yesterday.toISOString().slice(0, 10)) return "Yesterday";
+  return day;
+};
+
+const timeLabel = (d: Date | null) => (d ? `${d.toISOString().slice(11, 16)} UTC` : "");
 
 export default function SidebarAgentFeed({
   accountId,
@@ -44,16 +78,13 @@ export default function SidebarAgentFeed({
 }: Props) {
   const [logs, setLogs] = useState<AgentLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
 
-  const fetchLogs = async () => {
-    if (!accountId) {
-      setLogs([]);
-      return;
-    }
-    const wallet = accountId;
+  const fetchLogs = useCallback(async () => {
+    const wallet = accountId || "guest.near";
+    setIsLoading(true);
     try {
-      // 1. Fetch fleet recent_activity
-      const fleetRes = await fetch(`/api/fleet/${encodeURIComponent(wallet)}`);
+      const fleetRes = await fetch(`/api/fleet/${wallet}`);
       if (fleetRes.ok) {
         const fleetData = await fleetRes.json();
         if (fleetData.recent_activity && fleetData.recent_activity.length > 0) {
@@ -62,179 +93,159 @@ export default function SidebarAgentFeed({
         }
       }
 
-      // 2. Fallback to /api/logs
-      const logRes = await fetch(`/api/logs/${encodeURIComponent(wallet)}`);
+      const logRes = await fetch(`/api/logs/${wallet}`);
       if (logRes.ok) {
         const data = await logRes.json();
-        setLogs(Array.isArray(data) ? data.slice(0, 8) : []);
-      } else {
-        setLogs([]);
+        setLogs(Array.isArray(data) ? data.slice(0, 30) : []);
       }
     } catch (e) {
       // silent
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [accountId]);
 
   useEffect(() => {
     fetchLogs();
     return setVisibleInterval(fetchLogs, 12000);
-  }, [accountId]);
+  }, [fetchLogs]);
 
-  const getAgentColor = (name: string) => {
-    const n = name.toLowerCase();
-    if (n.includes("trader")) return "text-cyan-400 border-cyan-500/30 bg-cyan-500/10";
-    if (n.includes("moderator")) return "text-purple-400 border-purple-500/30 bg-purple-500/10";
-    if (n.includes("research")) return "text-emerald-400 border-emerald-500/30 bg-emerald-500/10";
-    if (n.includes("rebalancer")) return "text-amber-400 border-amber-500/30 bg-amber-500/10";
-    return "text-blue-400 border-blue-500/30 bg-blue-500/10";
-  };
-
-  const getAgentId = (name: string): "trader" | "moderator" | "research" | "rebalancer" => {
-    const n = name.toLowerCase();
-    if (n.includes("moderator")) return "moderator";
-    if (n.includes("research")) return "research";
-    if (n.includes("rebalancer") || n.includes("rebalance")) return "rebalancer";
-    return "trader";
-  };
-
-  const formatUtcDateTime = (dateStr: string) => {
-    if (!dateStr) return "Just now (UTC)";
-    try {
-      const d = new Date(dateStr.endsWith("Z") || dateStr.includes("UTC") ? dateStr.replace(" UTC", "Z") : `${dateStr}Z`);
-      if (isNaN(d.getTime())) return dateStr.includes("UTC") ? dateStr : `${dateStr} UTC`;
-      const ymd = d.toISOString().slice(0, 10);
-      const time = d.toISOString().slice(11, 19);
-      return `${ymd} ${time} UTC`;
-    } catch {
-      return `${dateStr} UTC`;
+  const groups = useMemo(() => {
+    const filtered = logs.filter((l) => filter === "all" || getAgentId(l.agent_name) === filter);
+    const map = new Map<string, { item: AgentLogItem; date: Date | null }[]>();
+    for (const item of filtered) {
+      const date = parseDate(item.created_at || item.created_at_utc || "");
+      const label = dayLabel(date);
+      const list = map.get(label) ?? [];
+      list.push({ item, date });
+      map.set(label, list);
     }
-  };
+    return Array.from(map.entries());
+  }, [logs, filter]);
+
+  const visibleCount = groups.reduce((n, [, items]) => n + items.length, 0);
 
   return (
-    <div className="mx-1 mt-4 rounded-2xl border border-border bg-card/40 p-3 shadow-xl">
+    <div className="flex h-full min-h-0 flex-col gap-3">
       {/* Header */}
-      <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-border">
-        <div className="flex items-center gap-1.5">
-          <Activity size={12} className="text-primary animate-pulse" />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">
-            Suite Decision History
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          {onOpenFullScreenHistory && (
-            <button
-              onClick={onOpenFullScreenHistory}
-              className="text-muted-foreground hover:text-primary transition-colors p-1"
-              title="View History in Full Screen"
-            >
-              <Maximize2 size={11} />
-            </button>
-          )}
-          <button
-            onClick={fetchLogs}
-            disabled={isLoading}
-            className="text-muted-foreground hover:text-foreground transition-colors p-1"
-            title="Refresh decision history"
-          >
-            <RefreshCw size={10} className={isLoading ? "animate-spin" : ""} />
-          </button>
-        </div>
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Decision history
+          {logs.length > 0 && <span className="ml-1.5 font-mono normal-case text-foreground/70">{logs.length}</span>}
+        </h3>
+        <button
+          onClick={fetchLogs}
+          disabled={isLoading}
+          className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="Refresh decision history"
+          title="Refresh"
+        >
+          <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
+        </button>
       </div>
 
-      {/* Decision Log Items */}
-      {logs.length === 0 ? (
-        <div className="py-4 text-center">
-          <Brain size={18} className="mx-auto mb-1.5 text-muted-foreground/50" />
-          <p className="text-[10px] text-muted-foreground leading-snug">
-            Suite Standing By
-          </p>
-          <p className="text-[9px] text-muted-foreground/60 mt-0.5">
-            Awaiting 4-agent scan triggers &amp; autonomous events
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-0.5 scrollbar-thin">
-          {logs.map((item) => {
-            const agentId = getAgentId(item.agent_name);
-            const badgeColor = getAgentColor(item.agent_name);
+      {/* Filters */}
+      <div className="-mx-1 flex flex-wrap gap-1 px-1" role="group" aria-label="Filter by agent">
+        {FILTERS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setFilter(id)}
+            aria-pressed={filter === id}
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              filter === id
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-            return (
-              <div
-                key={item.id}
-                onClick={() => {
-                  if (onSelectAgent) {
-                    onSelectAgent(agentId);
-                  } else if (onOpenAgentSuite) {
-                    onOpenAgentSuite();
-                  }
-                }}
-                className="group p-2 rounded-xl border border-border bg-secondary/30 hover:bg-secondary/60 hover:border-primary/30 transition-all cursor-pointer"
-              >
-                {/* Top Row: SVG Avatar, Agent Name, Time */}
-                <div className="flex items-center justify-between gap-1.5 mb-1">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <AgentAvatar agentId={agentId} size={15} />
-                    <span
-                      className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded border truncate ${badgeColor}`}
-                    >
-                      {item.agent_name || "Agent"}
-                    </span>
-                  </div>
-                  <span className="text-[9px] text-muted-foreground font-mono flex-shrink-0">
-                    {formatUtcDateTime(item.created_at || (item as any).created_at_utc)}
-                  </span>
-                </div>
+      {/* List */}
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card/50">
+        {visibleCount === 0 ? (
+          <div className="flex h-full min-h-40 flex-col items-center justify-center px-4 py-8 text-center">
+            <Brain size={22} className="mb-2 text-muted-foreground/60" />
+            <p className="text-[13px] font-medium text-foreground">
+              {logs.length === 0 ? "Suite standing by" : "No decisions for this agent"}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {logs.length === 0
+                ? "Decisions appear here when agents scan or act."
+                : "Try a different filter."}
+            </p>
+          </div>
+        ) : (
+          groups.map(([label, items]) => (
+            <section key={label}>
+              <h4 className="sticky top-0 z-10 border-b border-border bg-card/95 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground backdrop-blur">
+                {label}
+              </h4>
+              <ul className="divide-y divide-border">
+                {items.map(({ item, date }) => {
+                  const agentId = getAgentId(item.agent_name);
+                  return (
+                    <li key={item.id}>
+                      <button
+                        onClick={() => (onSelectAgent ? onSelectAgent(agentId) : onOpenAgentSuite?.())}
+                        className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-secondary/50"
+                      >
+                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-secondary/70">
+                          <AgentAvatar agentId={agentId} size={20} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline justify-between gap-2">
+                            <span className={`truncate text-[11px] font-semibold uppercase tracking-wide ${AGENT_TEXT[agentId]}`}>
+                              {item.agent_name || "Agent"}
+                            </span>
+                            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{timeLabel(date)}</span>
+                          </span>
+                          <span className="mt-0.5 block text-[13px] font-medium leading-snug text-foreground line-clamp-1">
+                            {item.action_taken || item.trigger_type || "Autonomous audit"}
+                          </span>
+                          {item.reasoning_text && (
+                            <span className="mt-0.5 block text-xs leading-snug text-muted-foreground line-clamp-2">
+                              {item.reasoning_text}
+                            </span>
+                          )}
+                          <span className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span className="capitalize">{item.status || "Verified"}</span>
+                            {item.cid_reference && item.cid_reference !== "local" && (
+                              <span className="truncate font-mono" title={item.cid_reference}>
+                                CID {item.cid_reference.slice(0, 6)}…
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))
+        )}
+      </div>
 
-                {/* Action Taken */}
-                <p className="text-[10px] font-semibold text-foreground leading-tight truncate">
-                  {item.action_taken || item.trigger_type || "Autonomous Audit"}
-                </p>
-
-                {/* Reasoning summary */}
-                {item.reasoning_text && (
-                  <p className="text-[9px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
-                    {item.reasoning_text}
-                  </p>
-                )}
-
-                {/* Footer Metadata: CID & Tx Hash */}
-                <div className="flex items-center justify-between gap-1 mt-1.5 pt-1 border-t border-border/60 text-[8px] text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <CheckCircle2 size={9} className="text-emerald-400" />
-                    <span className="capitalize">{item.status || "Verified"}</span>
-                  </span>
-
-                  {item.cid_reference && item.cid_reference !== "local" && (
-                    <span className="font-mono text-cyan-400 truncate max-w-[80px]" title={item.cid_reference}>
-                      CID:{item.cid_reference.slice(0, 6)}...
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Footer Links */}
-      <div className="flex items-center gap-1.5 mt-2.5 pt-1.5 border-t border-border">
+      {/* Actions */}
+      <div className="flex gap-2">
         {onOpenFullScreenHistory && (
           <button
             onClick={onOpenFullScreenHistory}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/25 text-[10px] text-primary transition-all font-semibold active:scale-95 shadow-sm"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15"
           >
-            <Maximize2 size={11} />
-            <span>Full Screen History</span>
+            <Maximize2 size={13} />
+            Full history
           </button>
         )}
         {onOpenAgentSuite && (
           <button
             onClick={onOpenAgentSuite}
-            className="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors font-medium"
-            title="Open Agent Suite Overview"
+            className="flex items-center justify-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
           >
-            <span>Suite</span>
-            <ChevronRight size={11} />
+            Suite
+            <ChevronRight size={13} />
           </button>
         )}
       </div>

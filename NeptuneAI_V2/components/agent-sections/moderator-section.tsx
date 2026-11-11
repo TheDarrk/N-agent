@@ -3,6 +3,8 @@
 import { toast } from "@/hooks/use-toast";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import { tilt3d } from "./trader/tilt-3d";
+import InfoTip from "./shared/info-tip";
+import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
 import React, { useState, useEffect } from "react";
 import {
   ShieldAlert,
@@ -250,7 +252,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             const ev = JSON.parse(line.trim());
             if (ev.type === "error") {
               toast({
-                title: "Watchdog Audit Error",
+                title: "Moderator Audit Error",
                 description: ev.error || ev.message || "An unexpected error occurred during deliberation.",
                 variant: "destructive",
               });
@@ -694,7 +696,11 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             >
               {isKillSwitchActive ? <ShieldAlert size={24} /> : isAgentActive ? <ShieldCheck size={24} /> : <AlertTriangle size={24} />}
             </span>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance">Moderator Watchdog</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground text-balance">Moderator</h1>
+            <InfoTip label="About the Moderator">
+              The Moderator checks your Trader, Rebalancer and Research agents. It keeps your money safe, makes sure your
+              rules are followed, and stops two agents from working against each other.
+            </InfoTip>
             <span
               className={`px-3 py-1 text-sm font-semibold rounded-full border ${
                 isAgentActive ? toneChip.good : "bg-secondary text-muted-foreground border-border"
@@ -703,9 +709,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               {isAgentActive ? "Watching your agents" : "Switched off"}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground leading-relaxed max-w-2xl text-pretty">
-            The Watchdog checks your Trader, Rebalancer and Research agents. It makes sure your money stays safe, your rules are followed, and no two agents
-            work against each other.
+          <p className="text-sm text-muted-foreground max-w-2xl text-pretty">
+            Keeps an eye on all your agents.
           </p>
         </div>
 
@@ -719,7 +724,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 ? "tone-good t-chip hover:brightness-110"
                 : "bg-secondary/70 hover:bg-secondary text-foreground border-border"
             }`}
-            title="Switch the Watchdog on or off"
+            title="Switch the Moderator on or off"
           >
             {isTogglingActive ? (
               <RotateCw size={16} className="animate-spin" />
@@ -728,7 +733,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             ) : (
               <Power size={16} />
             )}
-            <span>{isAgentActive ? "Watchdog is on" : "Turn Watchdog on"}</span>
+            <span>{isAgentActive ? "Moderator is on" : "Turn Moderator on"}</span>
           </button>
 
           <button
@@ -955,14 +960,14 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             <span className="p-2 rounded-lg bg-secondary text-primary">
               <Info size={20} />
             </span>
-            <h2 className="text-xl font-bold text-foreground">Why the Watchdog gave this verdict</h2>
+            <h2 className="text-xl font-bold text-foreground">Why the Moderator gave this verdict</h2>
           </div>
 
           {verdictPoints.length === 0 ? (
             <p className="text-lg text-foreground/85 leading-relaxed">
               {hasAudit
                 ? "All three agents are working safely inside the limits you set."
-                : "Press Check agents now. The Watchdog will audit your Trader, Rebalancer and Research agents and explain its verdict here."}
+                : "Press Check agents now. The Moderator will audit your Trader, Rebalancer and Research agents and explain its verdict here."}
             </p>
           ) : (
             <>
@@ -1247,13 +1252,13 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
       {/* What it found: one card per finding */}
       {keyFindings.length > 0 && (
-      <section aria-label="What the Watchdog found" className="space-y-3">
+      <section aria-label="What the Moderator found" className="space-y-3">
         <div className="flex items-center gap-3">
           <span className="p-2 rounded-lg tone-good t-soft t-fg">
             <CheckCircle2 size={22} />
           </span>
           <div>
-            <h2 className="text-xl font-bold text-foreground">What the Watchdog found</h2>
+            <h2 className="text-xl font-bold text-foreground">What the Moderator found</h2>
             <p className="text-sm text-muted-foreground">{keyFindings.length} observations from the latest check</p>
           </div>
         </div>
@@ -1309,24 +1314,23 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       )}
 
       {/* Settings */}
-      <section aria-label="Watchdog settings" className="space-y-3">
-        <div>
-          <h2 className="text-lg font-bold text-foreground">Watchdog settings</h2>
-          <p className="text-sm text-muted-foreground">Changes save automatically.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
-            <div className="flex items-start justify-between gap-3">
+      <section aria-label="Moderator settings">
+        <AdvancedSection
+          tip="Moderator settings. Changes save automatically."
+          summary={`Pause below ${killThreshold} · check every ${cadence}`}
+        >
+        <SettingGrid>
+          <SettingBox>
+            <div className="flex items-start justify-between gap-2">
               <div>
-                <label htmlFor="kill-threshold" className="text-base font-semibold text-foreground flex items-center gap-2">
-                  <Sliders size={18} className="text-primary" /> Auto-pause strictness
+                <label htmlFor="kill-threshold" className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  <Sliders size={16} className="text-primary" /> Auto-pause strictness
+                  <InfoTip label="About auto-pause strictness">
+                    If an agent&apos;s score drops below this number, the Moderator pauses that agent for you.
+                  </InfoTip>
                 </label>
-                <p className="text-sm text-muted-foreground leading-relaxed mt-1">
-                  If an agent&apos;s score drops below this number, the Watchdog pauses that agent for you.
-                </p>
               </div>
-              <span className="font-mono font-bold text-lg px-3 py-1 rounded-lg bg-secondary text-primary border border-border shrink-0">
+              <span className="font-mono font-bold text-sm px-2 py-0.5 rounded-lg bg-secondary text-primary border border-border shrink-0">
                 {killThreshold}
               </span>
             </div>
@@ -1343,22 +1347,21 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               onKeyUp={(e) => handleSaveKillThreshold(Number((e.target as HTMLInputElement).value))}
               className="w-full accent-primary cursor-pointer h-2"
             />
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>0 Relaxed</span>
-              <span>40 Standard</span>
-              <span>80 Strict</span>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Relaxed</span>
+              <span>Strict</span>
             </div>
             {isSavingThreshold && <p className="text-sm text-primary animate-pulse">Saving...</p>}
-          </div>
+          </SettingBox>
 
-          <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
+          <SettingBox>
             <div>
-              <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
-                <Clock size={18} className="text-primary" /> How often to check
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                <Clock size={16} className="text-primary" /> How often to check
+                <InfoTip label="About check frequency">
+                  How often the Moderator reviews your agents on its own.
+                </InfoTip>
               </h3>
-              <p className="text-sm text-muted-foreground leading-relaxed mt-1">
-                Choose how often the Watchdog reviews your agents on its own.
-              </p>
             </div>
             <div className="grid grid-cols-3 gap-2">
               {[
@@ -1372,7 +1375,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                   onClick={() => handleSaveCadence(c.id)}
                   disabled={isSavingCadence}
                   aria-pressed={cadence === c.id}
-                  className={`key3d py-3 px-2 rounded-xl text-center border disabled:opacity-60 ${
+                  className={`key3d py-2 px-1 rounded-xl text-center border disabled:opacity-60 ${
                     cadence === c.id
                       ? "bg-primary/20 border-primary text-primary"
                       : "bg-card border-border text-muted-foreground hover:text-foreground hover:bg-secondary/60"
@@ -1384,8 +1387,9 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               ))}
             </div>
             {isSavingCadence && <p className="text-sm text-primary animate-pulse">Saving...</p>}
-          </div>
-        </div>
+          </SettingBox>
+        </SettingGrid>
+        </AdvancedSection>
       </section>
 
       {/* Detailed checks, collapsed by default */}
@@ -1401,7 +1405,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             <Brain size={20} className="text-primary" />
             <span>
               <span className="block text-base font-bold text-foreground">Detailed safety checks</span>
-              <span className="block text-sm text-muted-foreground">The 5 areas the Watchdog scores</span>
+              <span className="block text-sm text-muted-foreground">The 5 areas the Moderator scores</span>
             </span>
           </span>
           <span className="text-sm font-semibold text-primary shrink-0">{showChecks ? "Hide" : "Show"}</span>

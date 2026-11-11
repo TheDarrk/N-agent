@@ -1,8 +1,9 @@
-import { toast } from "@/hooks/use-toast";
 "use client";
 
 import { tilt3d } from "./trader/tilt-3d";
 import ReportView from "./research/report-view";
+import InfoTip from "./shared/info-tip";
+import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
 import React, { useState, useEffect } from "react";
 import {
   FileText,
@@ -147,26 +148,17 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const [latestA2AResult, setLatestA2AResult] = useState<any>(null);
 
   const fetchReports = async () => {
-    if (!accountId) {
-      setReports([]);
-      setActiveReport(null);
-      setStepCards([]);
-      return;
-    }
     try {
-      const res = await fetch(`/api/research/reports/${encodeURIComponent(accountId)}`);
+      const res = await fetch("/api/research/reports");
       if (res.ok) {
         const data = await res.json();
         const list = data.reports || [];
         setReports(list);
-        if (list.length > 0 && !isLoading) {
+        if (list.length > 0 && !activeReport && !isLoading) {
           setActiveReport(list[0]);
           if (list[0].cot_step_cards) {
             setStepCards(list[0].cot_step_cards);
           }
-        } else {
-          setActiveReport(null);
-          setStepCards([]);
         }
       }
     } catch (e) {
@@ -176,16 +168,12 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
 
   useEffect(() => {
     fetchReports();
-  }, [accountId]);
+  }, []);
 
   const handleGenerate = async () => {
     if (!accountId) {
       if (onConnectWallet) onConnectWallet();
-      toast({
-        title: "Wallet Required",
-        description: "Please connect wallet first to generate and sign research reports",
-        variant: "destructive",
-      });
+      else alert("Please connect wallet first to generate and sign research reports");
       return;
     }
 
@@ -239,13 +227,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           if (!trimmed) continue;
           try {
             const data = JSON.parse(trimmed);
-            if (data.type === "error") {
-              toast({
-                title: "Research Engine Error",
-                description: data.error || data.message || "An unexpected error occurred during research generation.",
-                variant: "destructive",
-              });
-            } else if (data.type === "step" && data.card) {
+            if (data.type === "step" && data.card) {
               setStepCards((prev) => {
                 const updated = [...prev];
                 updated[data.step_number - 1] = data.card;
@@ -296,21 +278,9 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             setStepCards(generated.cot_step_cards);
           }
           await fetchReports();
-        } else {
-          const errData = await res.json().catch(() => null);
-          toast({
-            title: "Research Generation Failed",
-            description: errData?.detail || `HTTP ${res.status}: ${res.statusText}`,
-            variant: "destructive",
-          });
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error("Generate error:", err);
-        toast({
-          title: "Research Network Error",
-          description: err?.message || String(err),
-          variant: "destructive",
-        });
       }
     } finally {
       setIsLoading(false);
@@ -322,11 +292,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const handleA2AHire = async () => {
     if (!accountId) {
       if (onConnectWallet) onConnectWallet();
-      toast({
-        title: "Wallet Required",
-        description: "Please connect wallet first to execute agent-to-agent hire",
-        variant: "destructive",
-      });
+      else alert("Please connect wallet first to execute agent-to-agent hire");
       return;
     }
     setIsHiringA2A(true);
@@ -340,28 +306,14 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           symbol: "NEAR",
         }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setLatestA2AResult(data);
-        if (data.full_report) {
-          setActiveReport(data.full_report);
-        }
-        await fetchReports();
-      } else {
-        const err = await res.json().catch(() => null);
-        toast({
-          title: "Agent-to-Agent Hire Failed",
-          description: err?.detail || `HTTP ${res.status}: ${res.statusText}`,
-          variant: "destructive",
-        });
+      const data = await res.json();
+      setLatestA2AResult(data);
+      if (data.full_report) {
+        setActiveReport(data.full_report);
       }
-    } catch (e: any) {
+      await fetchReports();
+    } catch (e) {
       console.error("A2A hire error:", e);
-      toast({
-        title: "Agent-to-Agent Hire Error",
-        description: e?.message || String(e),
-        variant: "destructive",
-      });
     } finally {
       setIsHiringA2A(false);
     }
@@ -377,14 +329,16 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
               <BrainCircuit size={22} />
             </span>
             <h1 className="text-xl font-bold tracking-tight text-foreground">
-              Autonomous Institutional Researcher
+              Researcher
             </h1>
-            <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
-              RAG Research Chain
-            </span>
+            <InfoTip label="About the Researcher">
+              Turns your crypto question into concrete Web3 options (staking APYs, liquid staking, DEX pools,
+              hackathons). It crawls your source links, filters by date, refines its own queries, and saves a report
+              with an IPFS CID.
+            </InfoTip>
           </div>
-          <p className="text-xs text-muted-foreground leading-relaxed max-w-3xl">
-            Deconstructs user crypto intent into concrete Web3 mechanisms (staking APYs, liquid derivatives, DEX pools, hackathons). Crawls seed links on-demand, filters by strict date cutoffs, mutates queries with RAG feedback, and drafts institutional reports preserved with IPFS CIDs.
+          <p className="text-xs text-muted-foreground max-w-3xl">
+            Ask a question and get a sourced research report.
           </p>
         </div>
 
@@ -395,7 +349,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
         <div className="flex items-center justify-between border-b border-border pb-3">
           <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
             <Sparkles size={16} className="text-primary" />
-            Configure Autonomous Research & Crawler Directives
+            New research
           </h2>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-muted-foreground">Fee:</span>
@@ -417,57 +371,28 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
                 type="text"
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g. find opportunity to invest in near like staking and yield, liquid staking options and hackathons..."
+                placeholder="e.g. NEAR staking, liquid staking and hackathons"
                 className="w-full px-3.5 py-2 rounded-xl bg-secondary/60 border border-border text-xs text-foreground focus:outline-none focus:border-purple-500/50"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
-                <FileText size={14} className="text-purple-400" />
-                User Expectations & Scope Prompt Box
-              </label>
-              <textarea
-                rows={3}
-                value={userExpectations}
-                onChange={(e) => setUserExpectations(e.target.value)}
-                placeholder="Tell the agent what you expect from the sources, what kind of research you need, and specific metrics (e.g. APYs, validator risks, hackathon prize pools)..."
-                className="w-full px-3.5 py-2 rounded-xl bg-secondary/60 border border-border text-xs text-foreground focus:outline-none focus:border-purple-500/50 resize-none"
               />
             </div>
           </div>
 
-          {/* Right Column: Source Link Box & Date Range Filter */}
           <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
-                <Link2 size={14} className="text-purple-400" />
-                Source Seed Links to Crawl (One URL per line)
-              </label>
-              <textarea
-                rows={3}
-                value={linksInput}
-                onChange={(e) => setLinksInput(e.target.value)}
-                placeholder="https://docs.near.org&#10;https://near.org/blog&#10;https://metapool.app"
-                className="w-full px-3.5 py-2 font-mono text-xs rounded-xl bg-secondary/60 border border-border text-foreground focus:outline-none focus:border-purple-500/50 resize-none"
-              />
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
                   <Calendar size={14} className="text-purple-400" />
-                  Date Range Filter
+                  Date range
                 </label>
                 <select
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-secondary/60 border border-border text-xs text-foreground focus:outline-none focus:border-purple-500/50"
                 >
-                  <option value="1_week">Last 1 Week (Fresh Alpha & News)</option>
-                  <option value="1_month">Last 1 Month (Current Cycle)</option>
-                  <option value="3_months">Last 3 Months (Quarterly)</option>
-                  <option value="all_recent">All Recent (Evergreen + 2024-2026)</option>
+                  <option value="1_week">Last week</option>
+                  <option value="1_month">Last month</option>
+                  <option value="3_months">Last 3 months</option>
+                  <option value="all_recent">All recent</option>
                 </select>
               </div>
 
@@ -480,12 +405,12 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
                   {isLoading ? (
                     <>
                       <RotateCw size={14} className="animate-spin" />
-                      <span>Conducting Research...</span>
+                      <span>Researching...</span>
                     </>
                   ) : (
                     <>
                       <Send size={14} />
-                      <span>Deploy Autonomous Researcher</span>
+                      <span>Start research</span>
                     </>
                   )}
                 </button>
@@ -493,6 +418,44 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             </div>
           </div>
         </div>
+
+        <AdvancedSection tip="Optional: tell the agent what to focus on and which sites to crawl.">
+          <SettingGrid>
+            <SettingBox span>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <FileText size={14} className="text-purple-400" />
+                What should it focus on?
+                <InfoTip label="About focus">
+                  Describe what you expect from the sources and which metrics matter (APYs, validator risks, hackathon
+                  prize pools).
+                </InfoTip>
+              </label>
+              <textarea
+                rows={3}
+                value={userExpectations}
+                onChange={(e) => setUserExpectations(e.target.value)}
+                placeholder="e.g. APYs and validator risks"
+                className="w-full resize-none rounded-xl border border-border bg-secondary/60 px-3.5 py-2 text-xs text-foreground focus:border-purple-500/50 focus:outline-none"
+              />
+            </SettingBox>
+            <SettingBox span>
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <Link2 size={14} className="text-purple-400" />
+                Source links
+                <InfoTip label="About source links">
+                  The sites the agent crawls first. One URL per line.
+                </InfoTip>
+              </label>
+              <textarea
+                rows={3}
+                value={linksInput}
+                onChange={(e) => setLinksInput(e.target.value)}
+                placeholder={"https://docs.near.org\nhttps://near.org/blog"}
+                className="w-full resize-none rounded-xl border border-border bg-secondary/60 px-3.5 py-2 font-mono text-xs text-foreground focus:border-purple-500/50 focus:outline-none"
+              />
+            </SettingBox>
+          </SettingGrid>
+        </AdvancedSection>
       </div>
 
       {/* Simple research progress cards */}

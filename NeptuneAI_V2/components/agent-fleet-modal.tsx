@@ -55,14 +55,11 @@ export default function AgentFleetModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (!accountId) {
-      setFleetData(null);
-      return;
-    }
     const fetchFleet = async () => {
+      const wallet = accountId || "guest.near";
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/fleet/${encodeURIComponent(accountId)}`);
+        const res = await fetch(`/api/fleet/${wallet}`);
         if (res.ok) {
           const data = await res.json();
           setFleetData(data);
@@ -115,7 +112,7 @@ export default function AgentFleetModal({
     },
     {
       id: "moderator",
-      name: "Moderator Watchdog Agent",
+      name: "Moderator Agent",
       role: "Master LLM Judge & Emergency Kill Switch Custodian",
       avatarBg: "bg-amber-500/20 text-amber-400 border-amber-500/30",
       icon: ShieldAlert,

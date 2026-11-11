@@ -43,7 +43,7 @@ export function ModeratorAgentAvatar({ size = 32, className = "" }: AvatarProps)
     >
       <Image
         src="/images/agent-moderator.png"
-        alt="Moderator Watchdog"
+        alt="Moderator"
         width={size * 2}
         height={size * 2}
         className="h-full w-full object-contain"
