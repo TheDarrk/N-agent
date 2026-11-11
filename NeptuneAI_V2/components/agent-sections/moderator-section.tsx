@@ -46,6 +46,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const [activeTabNode, setActiveTabNode] = useState<number>(0);
   const [copiedCid, setCopiedCid] = useState(false);
   const [showChecks, setShowChecks] = useState(false);
+  const [showAllVerdictPoints, setShowAllVerdictPoints] = useState(false);
 
   const targetWallet = accountId || "guest.near";
 
@@ -206,20 +207,19 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const getVerdictStyle = (v: string) => {
     switch (v) {
       case "OPTIMAL_HEALTH":
-        return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+        return "tone-good t-chip";
       case "MODERATE_RISK":
-        return "bg-amber-500/20 text-amber-400 border-amber-500/30";
       case "ELEVATED_DRIFT":
-        return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+        return "tone-warn t-chip";
       default:
-        return "bg-rose-500/20 text-rose-400 border-rose-500/30";
+        return "tone-bad t-chip";
     }
   };
 
   const getScoreColor = (sc: number) => {
-    if (sc >= 80) return "text-emerald-400";
-    if (sc >= 60) return "text-amber-400";
-    return "text-rose-400";
+    if (sc >= 80) return "tone-good t-fg";
+    if (sc >= 60) return "tone-warn t-fg";
+    return "tone-bad t-fg";
   };
 
   // Helper to get selected agent detail data for the active tab
@@ -380,15 +380,55 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
     return "warn";
   };
   const toneChip: Record<Tone, string> = {
-    good: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-    warn: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-    bad: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+    good: "tone-good t-chip",
+    warn: "tone-warn t-chip",
+    bad: "tone-bad t-chip",
   };
   const toneBar: Record<Tone, string> = {
-    good: "bg-emerald-400",
-    warn: "bg-amber-400",
-    bad: "bg-rose-400",
+    good: "tone-good t-bar",
+    warn: "tone-warn t-bar",
+    bad: "tone-bad t-bar",
   };
+  const toneSoft: Record<Tone, string> = {
+    good: "tone-good t-soft",
+    warn: "tone-warn t-soft",
+    bad: "tone-bad t-soft",
+  };
+
+  const capitalize = (v: string) => (v ? v.charAt(0).toUpperCase() + v.slice(1) : v);
+
+  // Break the long verdict paragraph into short points so it reads as separate cards.
+  const splitPoints = (text: string): string[] =>
+    String(text || "")
+      .split(/;\s+|:\s+(?=[A-Z][a-zA-Z]+ \()|(?<=\.)\s+(?=[A-Z])/)
+      .map((s) => s.trim().replace(/\.$/, ""))
+      .filter(Boolean);
+
+  // Turn "HEADING: detail" (or "first clause; rest" when asked) into a title and a body.
+  const parsePoint = (text: string, splitOnSemicolon = false) => {
+    const raw = String(text || "").trim();
+    const colon = raw.match(/^([^:(]{3,70}):\s+([\s\S]+)$/);
+    if (colon) {
+      const title = colon[1] === colon[1].toUpperCase() ? capitalize(colon[1].toLowerCase()) : colon[1];
+      return { title, body: colon[2] };
+    }
+    if (splitOnSemicolon) {
+      const semi = raw.match(/^([^;]{8,110});\s+([\s\S]+)$/);
+      if (semi) return { title: semi[1], body: capitalize(semi[2]) };
+    }
+    return { title: "", body: raw };
+  };
+
+  // "Trader (82.0, WARNING) executed no trades..." becomes an agent card with a score chip.
+  const parseAgentPoint = (text: string) => {
+    const m = String(text).match(/^(Trader|Rebalancer|Research)\s*\(([^)]*)\)\s*([\s\S]*)$/);
+    if (!m) return null;
+    const [score, label = ""] = m[2].split(",").map((s) => s.trim());
+    const labelUp = label.toUpperCase();
+    const tone: Tone = /HALT|CRITICAL|KILL|FAIL/.test(labelUp) ? "bad" : /WARN/.test(labelUp) ? "warn" : "good";
+    return { name: m[1], score, label: humanize(label), tone, body: capitalize(m[3].replace(/^(is|was)\s+/i, "Is ")) };
+  };
+  const findingTone = (title: string): Tone => (/kill|suspend|halt|breach|critical/i.test(title) ? "bad" : "good");
   const scoreTone = (sc: number): Tone => (sc >= 80 ? "good" : sc >= 60 ? "warn" : "bad");
   const scoreLabel = (sc: number) => (sc >= 80 ? "Healthy" : sc >= 60 ? "Needs a look" : "At risk");
   const humanize = (v: string) => {
@@ -469,6 +509,11 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const cadenceLabel = cadence === "1m" ? "1 month" : cadence === "2w" ? "2 weeks" : "1 week";
   const hasNoData = !status && !isLoading;
 
+  const verdictPoints = splitPoints(status?.verdict_rationale || "");
+  const detailPoints = verdictPoints.slice(1);
+  const visibleVerdictPoints = showAllVerdictPoints ? detailPoints : detailPoints.slice(0, 4);
+  const extraVerdictCount = Math.max(0, detailPoints.length - 4);
+
   return (
     <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6 max-w-6xl mx-auto space-y-5 suite-stagger">
       {/* Header: what this agent is and the main controls */}
@@ -479,12 +524,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         <div className="space-y-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <span
-              className={`p-2.5 rounded-xl ${
-                isKillSwitchActive
-                  ? "bg-rose-500/10 text-rose-400"
-                  : isAgentActive
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : "bg-amber-500/10 text-amber-400"
+              className={`p-2.5 rounded-xl t-soft t-fg ${
+                isKillSwitchActive ? "tone-bad" : isAgentActive ? "tone-good" : "tone-warn"
               }`}
             >
               {isKillSwitchActive ? <ShieldAlert size={24} /> : isAgentActive ? <ShieldCheck size={24} /> : <AlertTriangle size={24} />}
@@ -511,7 +552,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             aria-pressed={isAgentActive}
             className={`key3d flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border disabled:opacity-50 ${
               isAgentActive
-                ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border-emerald-500/40"
+                ? "tone-good t-chip hover:brightness-110"
                 : "bg-secondary/70 hover:bg-secondary text-foreground border-border"
             }`}
             title="Switch the Watchdog on or off"
@@ -550,7 +591,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             <button
               onClick={() => handleToggleKillSwitch(false)}
               disabled={isTogglingKillSwitch}
-              className="key3d flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/40 text-sm font-semibold disabled:opacity-50"
+              className="key3d flex items-center gap-2 px-4 py-2.5 rounded-xl tone-good t-chip hover:brightness-110 border text-sm font-semibold disabled:opacity-50"
             >
               <Unlock size={16} />
               <span>Resume agents</span>
@@ -573,13 +614,15 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       {isKillSwitchActive && (
         <div
           role="alert"
-          className="p-5 rounded-2xl bg-rose-500/15 border border-rose-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          className="tone-bad t-soft p-5 rounded-2xl border-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
         >
-          <div className="flex items-start gap-3">
-            <ShieldAlert size={26} className="text-rose-400 shrink-0 mt-0.5" />
-            <div>
-              <h2 className="text-base font-bold text-rose-200">Emergency stop is on</h2>
-              <p className="text-sm text-rose-200/90 leading-relaxed mt-1">
+          <div className="flex items-start gap-4">
+            <span className="p-3 rounded-xl bg-card border border-border t-fg shrink-0">
+              <ShieldAlert size={26} />
+            </span>
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-foreground">Emergency stop is on</h2>
+              <p className="text-base text-foreground/85 leading-relaxed">
                 All agents are paused and no new trades will run. Your funds are safe. Resume when you are ready.
               </p>
             </div>
@@ -587,7 +630,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
           <button
             onClick={() => handleToggleKillSwitch(false)}
             disabled={isTogglingKillSwitch}
-            className="key3d-solid flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-black text-sm font-semibold hover:bg-emerald-400 shrink-0 disabled:opacity-50"
+            className="key3d-solid flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-500 text-black text-base font-semibold hover:bg-emerald-400 shrink-0 disabled:opacity-50"
           >
             <Unlock size={16} />
             <span>Resume agents</span>
@@ -605,14 +648,14 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         </div>
       )}
 
-      {/* Summary: one score, one sentence */}
-      <section
-        aria-label="Fleet summary"
-        className="tilt3d grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 p-5 sm:p-6 rounded-2xl bg-card border border-border"
-        {...tilt3d(1.5)}
-      >
-        <div className="flex flex-col items-center justify-center gap-2">
-          <div className={`relative w-36 h-36 ${getScoreColor(overallScore)}`}>
+      {/* Summary: the score and the reasons behind it, each in its own card */}
+      <section aria-label="Fleet summary" className="grid grid-cols-1 lg:grid-cols-[19rem_1fr] gap-4">
+        <div
+          className="tilt3d flex flex-col items-center text-center gap-5 p-6 rounded-2xl bg-card border border-border"
+          {...tilt3d(1.5)}
+        >
+          <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Overall fleet health</p>
+          <div className={`relative w-44 h-44 ${getScoreColor(overallScore)}`}>
             <svg viewBox="0 0 128 128" className="w-full h-full -rotate-90" aria-hidden="true">
               <circle cx="64" cy="64" r={ringRadius} fill="none" strokeWidth="10" className="stroke-secondary" />
               <circle
@@ -628,95 +671,151 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-4xl font-extrabold font-mono leading-none">{overallScore}</span>
-              <span className="text-sm text-muted-foreground mt-1">out of 100</span>
+              <span className="text-5xl font-extrabold font-mono leading-none">{overallScore.toFixed(1).replace(/\.0$/, "")}</span>
+              <span className="text-sm text-muted-foreground mt-1.5">out of 100</span>
             </div>
           </div>
           <span className="sr-only">Overall health score {overallScore} out of 100</span>
+
+          <div className="space-y-3">
+            <h2 className="text-2xl font-bold text-foreground text-balance">{verdictHeadline}</h2>
+            <span className={`inline-block px-3.5 py-1 text-sm font-semibold rounded-full border ${toneChip[verdictTone]}`}>
+              {humanize(verdict)}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed text-pretty">
+            The average of your Trader, Rebalancer and Research scores.
+          </p>
         </div>
 
-        <div className="space-y-4 min-w-0">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-2xl font-bold text-foreground text-balance">{verdictHeadline}</h2>
-              <span className={`px-3 py-1 text-sm font-semibold rounded-full border ${toneChip[verdictTone]}`}>{humanize(verdict)}</span>
-            </div>
-            <p className="text-base text-muted-foreground leading-relaxed max-w-2xl text-pretty">
-              {status?.verdict_rationale || "All three agents are working safely inside the limits you set."}
-            </p>
+        <div className="tilt3d p-6 rounded-2xl bg-card border border-border space-y-5" {...tilt3d(1.5)}>
+          <div className="flex items-center gap-3">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <Info size={20} />
+            </span>
+            <h2 className="text-xl font-bold text-foreground">Why the Watchdog gave this verdict</h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-2">
-              <div className="text-sm text-muted-foreground">Money in open trades</div>
-              <div className="text-lg font-bold font-mono text-foreground">
-                ${exposure} <span className="text-sm font-normal text-muted-foreground">of ${dailyLimit} daily limit</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-secondary overflow-hidden" role="presentation">
-                <div
-                  className={`h-full rounded-full transition-all ${exposurePct > 50 ? toneBar.warn : toneBar.good}`}
-                  style={{ width: `${exposurePct}%` }}
-                />
-              </div>
-            </div>
+          {verdictPoints.length === 0 ? (
+            <p className="text-lg text-foreground/85 leading-relaxed">All three agents are working safely inside the limits you set.</p>
+          ) : (
+            <>
+              <p className="text-lg text-foreground leading-relaxed font-medium text-pretty">{capitalize(verdictPoints[0])}.</p>
 
-            <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-2">
-              <div className="text-sm text-muted-foreground flex items-center gap-1.5">
-                <Clock size={14} className="text-primary" /> Next automatic check
-              </div>
-              <div className="text-lg font-bold text-foreground">
-                {status?.days_remaining !== undefined && status.days_remaining > 0 ? `In about ${status.days_remaining} days` : "Scheduled"}
-              </div>
-              <div className="text-sm text-muted-foreground">Runs every {cadenceLabel}</div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-2">
-              <div className="text-sm text-muted-foreground flex items-center gap-1.5">
-                <History size={14} className="text-primary" /> Last check
-              </div>
-              <div className="text-lg font-bold text-foreground">
-                {status?.last_run_at ? String(status.last_run_at).slice(0, 10) : "Not run yet"}
-              </div>
-              {status?.cid ? (
-                <button
-                  onClick={() => copyCidToClipboard(status.cid)}
-                  className="flex items-center gap-1.5 text-sm text-primary hover:underline"
-                  title="Copy audit reference ID"
-                >
-                  {copiedCid ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                  {copiedCid ? "Copied" : "Copy audit ID"}
-                </button>
-              ) : (
-                <div className="text-sm text-muted-foreground">Press Check agents now</div>
+              {visibleVerdictPoints.length > 0 && (
+                <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {visibleVerdictPoints.map((point, i) => {
+                    const agent = parseAgentPoint(point);
+                    return (
+                      <li key={i} className="p-4 rounded-xl bg-secondary/50 border border-border space-y-2">
+                        {agent ? (
+                          <>
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <h3 className="text-base font-bold text-foreground">{agent.name}</h3>
+                              <span className={`text-sm font-semibold px-2.5 py-0.5 rounded-full border ${toneChip[agent.tone]}`}>
+                                {agent.score} {agent.label && `· ${agent.label}`}
+                              </span>
+                            </div>
+                            <p className="text-base text-foreground/85 leading-relaxed">{agent.body}.</p>
+                          </>
+                        ) : (
+                          <p className="text-base text-foreground/85 leading-relaxed">{capitalize(point)}.</p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-            </div>
-          </div>
 
-          {status?.dropped_trades_count > 0 && (
-            <div className="flex items-start gap-2.5 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
-              <ShieldAlert size={18} className="text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-sm text-foreground/90 leading-relaxed">
-                <strong className="text-amber-400">{status.dropped_trades_count} trades were skipped</strong> by your safety rules to protect your money.
-              </p>
-            </div>
+              {extraVerdictCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllVerdictPoints((v) => !v)}
+                  className="text-sm font-semibold text-primary hover:underline"
+                >
+                  {showAllVerdictPoints ? "Show fewer" : `Show ${extraVerdictCount} more`}
+                </button>
+              )}
+            </>
           )}
         </div>
       </section>
 
+      {/* Status cards, one fact each */}
+      <section aria-label="Status" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(2)}>
+          <div className="flex items-center gap-2.5 text-base font-semibold text-muted-foreground">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <Coins size={18} />
+            </span>
+            Money in open trades
+          </div>
+          <div className="text-3xl font-bold font-mono text-foreground">
+            ${exposure} <span className="text-base font-normal text-muted-foreground">of ${dailyLimit} daily limit</span>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-secondary overflow-hidden" role="presentation">
+            <div
+              className={`h-full rounded-full transition-all ${exposurePct > 50 ? toneBar.warn : toneBar.good}`}
+              style={{ width: `${exposurePct}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(2)}>
+          <div className="flex items-center gap-2.5 text-base font-semibold text-muted-foreground">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <Clock size={18} />
+            </span>
+            Next automatic check
+          </div>
+          <div className="text-3xl font-bold text-foreground">
+            {status?.days_remaining !== undefined && status.days_remaining > 0 ? `In about ${status.days_remaining} days` : "Scheduled"}
+          </div>
+          <div className="text-base text-muted-foreground">Runs every {cadenceLabel}</div>
+        </div>
+
+        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(2)}>
+          <div className="flex items-center gap-2.5 text-base font-semibold text-muted-foreground">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <History size={18} />
+            </span>
+            Last check
+          </div>
+          <div className="text-3xl font-bold text-foreground">{status?.last_run_at ? String(status.last_run_at).slice(0, 10) : "Not run yet"}</div>
+          {status?.cid ? (
+            <button
+              onClick={() => copyCidToClipboard(status.cid)}
+              className="flex items-center gap-1.5 text-base font-medium text-primary hover:underline"
+              title="Copy audit reference ID"
+            >
+              {copiedCid ? <Check size={16} /> : <Copy size={16} />}
+              {copiedCid ? "Copied" : "Copy audit ID"}
+            </button>
+          ) : (
+            <div className="text-base text-muted-foreground">Press Check agents now</div>
+          )}
+        </div>
+      </section>
+
+      {status?.dropped_trades_count > 0 && (
+        <div className="tone-warn t-soft flex items-start gap-3 p-4 rounded-2xl border">
+          <ShieldAlert size={22} className="t-fg shrink-0 mt-0.5" />
+          <p className="text-base text-foreground leading-relaxed">
+            <strong className="font-bold">{status.dropped_trades_count} trades were skipped</strong> by your safety rules to protect your money.
+          </p>
+        </div>
+      )}
+
       {/* Do the agents work together? */}
       <div
-        className={`p-4 rounded-2xl border flex items-start sm:items-center gap-3 ${
-          harmonyBad ? "bg-rose-500/10 border-rose-500/30" : "bg-emerald-500/10 border-emerald-500/20"
-        }`}
+        className={`${harmonyBad ? toneSoft.bad : toneSoft.good} p-5 rounded-2xl border flex items-start sm:items-center gap-4`}
       >
-        {harmonyBad ? (
-          <AlertTriangle size={22} className="text-rose-400 shrink-0" />
-        ) : (
-          <ShieldCheck size={22} className="text-emerald-400 shrink-0" />
-        )}
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold text-foreground">{harmonyBad ? "Your agents are in conflict" : "Your agents are working together"}</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed mt-0.5">
+        <span className={`p-2.5 rounded-xl bg-card border border-border shrink-0 ${harmonyBad ? "tone-bad" : "tone-good"} t-fg`}>
+          {harmonyBad ? <AlertTriangle size={24} /> : <ShieldCheck size={24} />}
+        </span>
+        <div className="min-w-0 space-y-1">
+          <h3 className="text-lg font-bold text-foreground">{harmonyBad ? "Your agents are in conflict" : "Your agents are working together"}</h3>
+          <p className="text-base text-foreground/85 leading-relaxed">
             {conflicts?.conflict_summary || "No opposing trades were found and your portfolio is protected."}
           </p>
         </div>
@@ -758,7 +857,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 <div className="flex items-center gap-2">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip[tone]}`}>{scoreLabel(Number(score))}</span>
                   {halted && (
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-rose-500/20 text-rose-300 border-rose-500/40">Paused</span>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip.bad}`}>Paused</span>
                   )}
                 </div>
               </button>
@@ -783,36 +882,36 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-secondary/30 border border-border space-y-1.5">
-            <div className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Info size={16} className="text-primary" /> Why this score
+          <div className="p-5 rounded-xl bg-secondary/50 border border-border space-y-2">
+            <div className="text-base font-bold text-foreground flex items-center gap-2">
+              <Info size={18} className="text-primary" /> Why this score
             </div>
-            <p className="text-base text-foreground/90 leading-relaxed text-pretty">{activeData.scoreExplanation}</p>
+            <p className="text-base sm:text-lg text-foreground/90 leading-relaxed text-pretty">{activeData.scoreExplanation}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-3">
-              <div className="text-base font-semibold text-emerald-400 flex items-center gap-2">
-                <CheckCircle2 size={18} /> What went well
+            <div className="tone-good t-soft p-5 rounded-xl border space-y-3">
+              <div className="text-lg font-bold text-foreground flex items-center gap-2">
+                <CheckCircle2 size={20} className="t-fg" /> What went well
               </div>
-              <ul className="space-y-2.5 text-sm text-foreground/85">
+              <ul className="space-y-3 text-base text-foreground/90">
                 {activeData.strengths.map((s: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
-                    <Check size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                  <li key={idx} className="flex items-start gap-3 leading-relaxed">
+                    <Check size={18} className="t-fg shrink-0 mt-1" />
                     <span>{s}</span>
                   </li>
                 ))}
               </ul>
             </div>
 
-            <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-3">
-              <div className="text-base font-semibold text-amber-400 flex items-center gap-2">
-                <AlertTriangle size={18} /> What needs attention
+            <div className="tone-warn t-soft p-5 rounded-xl border space-y-3">
+              <div className="text-lg font-bold text-foreground flex items-center gap-2">
+                <AlertTriangle size={20} className="t-fg" /> What needs attention
               </div>
-              <ul className="space-y-2.5 text-sm text-foreground/85">
+              <ul className="space-y-3 text-base text-foreground/90">
                 {activeData.whatWasMissed.map((m: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
-                    <ArrowRight size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                  <li key={idx} className="flex items-start gap-3 leading-relaxed">
+                    <ArrowRight size={18} className="t-fg shrink-0 mt-1" />
                     <span>{m}</span>
                   </li>
                 ))}
@@ -831,35 +930,63 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         </div>
       </section>
 
-      {/* What it found and what to do */}
-      <section aria-label="Findings and next steps" className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(3)}>
-          <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-            <CheckCircle2 size={18} className="text-emerald-400" /> What the Watchdog found
-          </h2>
-          <ul className="space-y-2.5 text-sm text-muted-foreground">
-            {keyFindings.map((f, i) => (
-              <li key={i} className="flex items-start gap-2.5 leading-relaxed">
-                <Check size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
+      {/* What it found: one card per finding */}
+      <section aria-label="What the Watchdog found" className="space-y-3">
+        <div className="flex items-center gap-3">
+          <span className="p-2 rounded-lg tone-good t-soft t-fg">
+            <CheckCircle2 size={22} />
+          </span>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">What the Watchdog found</h2>
+            <p className="text-sm text-muted-foreground">{keyFindings.length} observations from the latest check</p>
+          </div>
         </div>
+        <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {keyFindings.map((f, i) => {
+            const { title, body } = parsePoint(f);
+            const tone = findingTone(title);
+            return (
+              <li key={i} className="flex items-start gap-3 p-4 rounded-2xl bg-card border border-border">
+                <span className={`mt-0.5 p-1.5 rounded-lg shrink-0 t-soft t-fg ${tone === "bad" ? "tone-bad" : "tone-good"}`}>
+                  {tone === "bad" ? <AlertTriangle size={16} /> : <Check size={16} />}
+                </span>
+                <div className="space-y-1 min-w-0">
+                  {title && <h3 className="text-base font-bold text-foreground">{title}</h3>}
+                  <p className="text-base text-foreground/80 leading-relaxed">{body}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
 
-        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(3)}>
-          <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-            <Sparkles size={18} className="text-primary" /> What you can do next
-          </h2>
-          <ul className="space-y-2.5 text-sm text-muted-foreground">
-            {recommendedActions.map((t, i) => (
-              <li key={i} className="flex items-start gap-2.5 leading-relaxed">
-                <ArrowRight size={16} className="text-primary shrink-0 mt-0.5" />
-                <span>{t}</span>
-              </li>
-            ))}
-          </ul>
+      {/* What to do next: one numbered card per step */}
+      <section aria-label="What you can do next" className="space-y-3">
+        <div className="flex items-center gap-3">
+          <span className="p-2 rounded-lg bg-secondary text-primary">
+            <Sparkles size={22} />
+          </span>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">What you can do next</h2>
+            <p className="text-sm text-muted-foreground">Suggested steps, most important first</p>
+          </div>
         </div>
+        <ol className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {recommendedActions.map((t, i) => {
+            const { title, body } = parsePoint(t, true);
+            return (
+              <li key={i} className="flex items-start gap-3 p-4 rounded-2xl bg-card border border-border">
+                <span className="w-8 h-8 shrink-0 rounded-full bg-primary text-primary-foreground text-sm font-bold flex items-center justify-center">
+                  {i + 1}
+                </span>
+                <div className="space-y-1 min-w-0">
+                  {title && <h3 className="text-base font-bold text-foreground">{title}</h3>}
+                  <p className="text-base text-foreground/80 leading-relaxed">{body}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       </section>
 
       {/* Settings */}

@@ -90,6 +90,58 @@
   color-scheme: light;
 }
 
+/* Status tones (good / warn / bad) that stay readable in both dark and light themes. */
+:root {
+  --tone-good-hsl: 152 62% 42%;
+  --tone-warn-hsl: 36 95% 50%;
+  --tone-bad-hsl: 352 80% 56%;
+  --tone-good-fg: hsl(152 65% 62%);
+  --tone-warn-fg: hsl(40 95% 64%);
+  --tone-bad-fg: hsl(352 90% 76%);
+  --tone-alpha: 0.14;
+}
+
+.light {
+  --tone-good-fg: hsl(160 90% 19%);
+  --tone-warn-fg: hsl(24 92% 28%);
+  --tone-bad-fg: hsl(350 85% 32%);
+  --tone-alpha: 0.12;
+}
+
+.tone-good {
+  --t-hsl: var(--tone-good-hsl);
+  --t-fg: var(--tone-good-fg);
+}
+
+.tone-warn {
+  --t-hsl: var(--tone-warn-hsl);
+  --t-fg: var(--tone-warn-fg);
+}
+
+.tone-bad {
+  --t-hsl: var(--tone-bad-hsl);
+  --t-fg: var(--tone-bad-fg);
+}
+
+.t-fg {
+  color: var(--t-fg);
+}
+
+.t-bar {
+  background-color: hsl(var(--t-hsl));
+}
+
+.t-soft {
+  background-color: hsl(var(--t-hsl) / var(--tone-alpha));
+  border-color: hsl(var(--t-hsl) / 0.45);
+}
+
+.t-chip {
+  background-color: hsl(var(--t-hsl) / var(--tone-alpha));
+  border-color: hsl(var(--t-hsl) / 0.45);
+  color: var(--t-fg);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
