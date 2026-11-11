@@ -57,9 +57,11 @@ for p in env_candidates:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ScreenerSelection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
     coin: str = Field(..., description="Coin symbol e.g. TOKEN_A")
     direction: Literal["LONG", "SHORT"] = Field(..., description="Direction: LONG or SHORT")
+    rubric_score: int = Field(default=75, description="Rubric score from 0 to 100")
+    edge_summary: str = Field(default="", description="Key technical or structural edge justifying selection")
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -70,7 +72,7 @@ class ScreenerSelection(BaseModel):
 
 class ScreenerOutput(BaseModel):
     """Screener output: max 3 coins with direction only."""
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     selection_reasoning: str = Field(
         default="",
@@ -354,16 +356,19 @@ Funding and open interest (perpetual futures):
 
 Use vol_24h only as a tiebreaker between similar setups.
 
-## Selection
-- A coin qualifies if its score >= {min_confidence}.
-- Return up to 3 qualifying coins, ranked best first. If none qualify, return "selections": [].
-- Choose the direction from the whole picture, never from the pattern name alone.
-- Neutral Market-Agnostic Selection: You must actively evaluate BOTH LONG and SHORT setups regardless of the broad market backdrop. Even in an UP market, individual coins showing breakdown structures, bearish divergences, or overhead supply rejections are prime SHORT candidates. Do NOT artificially bias all selections to LONG just because market_12h is UP.
-- Passing the threshold is not an obligation to find a trade. Skipping is a valid and often correct outcome.
+## Selection & User Threshold
+- Evaluate and score candidate coins against the 0-100 rubric (trend 30, confluence 20, momentum 20, volatility 10, pattern 10, positioning 10).
+- STRICT USER THRESHOLD FILTER: A coin qualifies ONLY if its rubric score >= {min_confidence}.
+- Any coin scoring below {min_confidence} (e.g. 58 when threshold is 75) is STRICTLY DISQUALIFIED and MUST NOT be selected.
+- If no coin reaches {min_confidence}, return "selections": [] with selection_reasoning explaining why none qualified.
+- Return up to 3 qualifying coins that score >= {min_confidence}, ranked from highest rubric score to lowest.
+- For each selected coin, provide its direction ("LONG" or "SHORT"), its rubric score (integer 0-100), and a concise edge summary.
+- Neutral Market-Agnostic Selection: Actively evaluate BOTH LONG and SHORT setups regardless of the broad market backdrop. Even in an UP market, individual coins showing breakdown structures, bearish divergences, or overhead supply rejections are prime SHORT candidates.
+- The downstream Council Specialists (Technical Analyst, Trading Book RAG, Risk Manager) and Chairman Judge will perform complete chart verification and determine execution viability.
 
 ## How to reason
 Evaluate candidates against the rubric. You do NOT need to write an evaluation for every skipped coin in the batch.
-In your output, explain ONLY why the selected coin(s) were chosen (or 1 sentence on why none qualified).
+In your output, explain why the selected coin(s) were chosen and their relative strength.
 
 ## Thinking Budget & Efficiency
 - Do NOT deliberate on rejected coins. Quickly discard non-contenders (low volume, choppy/flat slopes, conflicting timeframes, no room to run).
@@ -373,7 +378,7 @@ In your output, explain ONLY why the selected coin(s) were chosen (or 1 sentence
 
 ## Output
 Return one valid JSON object and nothing else:
-{"selection_reasoning": "Concise reasoning explaining ONLY why the selected coin(s) were chosen (trend, pattern, room to run, R:R). If none qualified, 1 sentence explaining why the batch was skipped. Do NOT review skipped coins individually.", "selections": [{"coin": "<SYMBOL>", "direction": "LONG|SHORT"}]}
+{"selection_reasoning": "Concise reasoning explaining why the top coin(s) were selected (trend, pattern, room to run, R:R).", "selections": [{"coin": "<SYMBOL>", "direction": "LONG|SHORT", "rubric_score": 78, "edge_summary": "1-sentence summary"}]}
 
 ## Examples (threshold 50; synthetic, replace with real labelled cases)
 
@@ -398,12 +403,16 @@ Output: {"selection_reasoning":"Candidates failed threshold due to crowded long 
 U: price=4.62 chg_24h=+3.4% rel_vol=1.8 | 12h: trend=SIDEWAYS ema20/50/200=4.50/4.48/4.72 slope20=+0.3% rsi=52 macd_hist=+0.02 atr=2.4% | 4h: trend=UP ema20/50/200=4.55/4.48/4.60 slope20=+0.5% rsi=57 macd_hist=+0.04 atr=1.7% | swing_high=4.95 swing_low=4.10 range_pos=0.61 dist_support=2.6% dist_resistance=7.1% | last_6_closes_4h=[4.38,4.40,4.51,4.55,4.58,4.62] last_candle=body65% upper_wick10% lower_wick25% | pattern=inverse_head_and_shoulders status=confirmed | funding=-0.02% oi_chg=+5% | market_12h=UP
 Output: {"selection_reasoning":"U qualifies (~60 LONG) on confirmed inverse head and shoulders neckline breakout with 7.1% room to resistance.","selections":[{"coin":"U","direction":"LONG"}]}"""
 
-SCREENER_USER_TEMPLATE = """CANDIDATE COINS (Threshold: {min_confidence}):
+SCREENER_USER_TEMPLATE = """CANDIDATE COINS FOR EVALUATION:
 
 {coin_data}
 
-Output one valid JSON object and nothing else:
-{{"selection_reasoning": "Explain ONLY why the chosen coin(s) were selected (trend, pattern, R:R). If none qualified, 1 sentence explaining why the batch was skipped. Do NOT review skipped coins.", "selections": [{{"coin": "<SYMBOL>", "direction": "LONG|SHORT"}}]}}"""
+USER CONFIDENCE THRESHOLD: {min_confidence}/100.
+Evaluate all candidate coins against the 0-100 rubric. You must ONLY select coins whose rubric score is >= {min_confidence}. Any coin scoring below {min_confidence} (e.g. 58 when threshold is {min_confidence}) MUST be blocked.
+If no coins score >= {min_confidence}, output "selections": [].
+
+Output one valid JSON object:
+{{"selection_reasoning": "Explain why the top coin(s) qualified (score >= {min_confidence}), or explain why all candidates fell below {min_confidence}.", "selections": [{{"coin": "<SYMBOL>", "direction": "LONG|SHORT", "rubric_score": {min_confidence}, "edge_summary": "1-sentence edge summary"}}]}}"""
 
 
 def format_screener_coin_line(symbol: str, data: Any) -> str:
@@ -617,11 +626,13 @@ class ScreenerAgent:
     def _parse_selections_strict(
         self,
         raw_output: str,
-        valid_candidates: Optional[Set[str]] = None
+        valid_candidates: Optional[Set[str]] = None,
+        min_confidence: int = 70
     ) -> Tuple[List[ScreenerSelection], str, Optional[str]]:
         """
         Parses screener output strictly using Pydantic JSON validation.
         Output MUST come directly from model completion content, never from thinking scratchpads.
+        Enforces user threshold: any coin with rubric_score < min_confidence is blocked.
         Returns: (selections, reasoning, error_message)
         """
         parsed = self._extract_json(raw_output)
@@ -636,9 +647,19 @@ class ScreenerAgent:
                 if valid_candidates and sym not in valid_candidates:
                     print(f"[SCREENER GATE] Discarded '{sym}': not in qualifying candidates list.")
                     continue
+                score = getattr(sel, "rubric_score", 75)
+                # STRICT BLOCK: if rubric score < user threshold, block that coin!
+                if score < min_confidence:
+                    print(f"[SCREENER GATE] Discarded '{sym}': rubric score {score} < user threshold {min_confidence}.")
+                    continue
                 clean_selections.append(sel)
 
-            return clean_selections[:3], validated.selection_reasoning, None
+            reasoning = validated.selection_reasoning
+            if not clean_selections and validated.selections:
+                top_score = max([getattr(s, "rubric_score", 0) for s in validated.selections])
+                reasoning = f"All candidate coins scored below your threshold of {min_confidence}/100 (top candidate scored {top_score}/100). Standing aside to preserve capital."
+
+            return clean_selections[:3], reasoning, None
         except Exception as ve:
             return [], "", f"Pydantic schema validation error: {ve}"
 
@@ -647,7 +668,7 @@ class ScreenerAgent:
         Screen coins and return selections with retry loop on malformed output.
         Respects user-configured min_confidence threshold dynamically.
         """
-        print(f"[SCREENER] Screening {len(coin_data)} coins (Threshold: {min_confidence})...")
+        print(f"[SCREENER] Screening {len(coin_data)} coins on 0-100 rubric (User Threshold: {min_confidence})...")
 
         # Objective Pre-Filters: exclude anemic volume (<1.0 rel_vol) or coins with no room to move (<3% room)
         filtered_coin_data = {}
@@ -664,7 +685,7 @@ class ScreenerAgent:
 
         active_coin_data = filtered_coin_data if filtered_coin_data else coin_data
 
-        # Format coin data cleanly with raw indicators (no aggregation loss)
+        # Format coin data cleanly with raw indicators (no aggregation loss, all qualifying tokens evaluated)
         coin_lines = []
         for symbol, data in active_coin_data.items():
             coin_lines.append(format_screener_coin_line(symbol, data))
@@ -685,7 +706,8 @@ class ScreenerAgent:
                 )
                 selections, reasoning, parse_err = self._parse_selections_strict(
                     raw_output,
-                    valid_candidates=set(coin_data.keys())
+                    valid_candidates=set(coin_data.keys()),
+                    min_confidence=min_confidence
                 )
 
                 if parse_err is None:
@@ -693,7 +715,12 @@ class ScreenerAgent:
                         selections=selections,
                         reasoning_scratchpad=reasoning or raw_output
                     )
-                    print(f"[SCREENER] Selected {len(output.selections)} coins: {[s['coin'] for s in output.selections]}")
+                    sel_summary = ", ".join([
+                        f"{s.coin} ({s.direction}, Rubric: {getattr(s, 'rubric_score', 75)}/100" +
+                        (f" | Edge: {getattr(s, 'edge_summary', '')}" if getattr(s, 'edge_summary', '') else "") + ")"
+                        for s in output.selections
+                    ])
+                    print(f"[SCREENER] Selected {len(output.selections)} coins: {sel_summary}")
                     return output
 
                 print(f"[SCREENER RETRY {attempt+1}/{max_retries}] Parsing error: {parse_err}")
@@ -1273,7 +1300,8 @@ class CouncilAgent:
         """
         Build trade plans for each coin using tools, validated with retries.
         """
-        print(f"[COUNCIL] Building plans for {len(selections)} coins...")
+        sel_summary = ", ".join([f"{s['coin']} (Rubric: {getattr(s, 'rubric_score', 75)} pts)" for s in selections])
+        print(f"[COUNCIL] Building plans for {len(selections)} coins: {sel_summary}...")
 
         tool_log = []
         chart_data_all = {}
@@ -2123,8 +2151,10 @@ class TradingPipeline:
             print(f"[SCREENER REASONING] {screener_output.reasoning_scratchpad}")
 
             if not screener_output.selections:
-                print(f"[PIPELINE] Screener found no qualifying coins (score >= {min_confidence}). Standing aside.")
+                print(f"[PIPELINE] Screener found no qualifying candidate setups. Standing aside.")
                 results["status"] = "no_candidates"
+                results["halt_step"] = "STAGE_1_SCREENER"
+                results["halt_cause"] = screener_output.selection_reasoning or "No candidate setup showed technical edge."
                 return results
 
             # 2. COUNCIL
@@ -2164,14 +2194,20 @@ class TradingPipeline:
                     results["execution"] = execution_result
                     results["status"] = "executed"
                 else:
-                    print(f"[PIPELINE] Standing aside: Plan is grounded, but confidence ({judge_output.confidence:.2f}) < User Threshold ({user_threshold:.2f}). Reason: {judge_output.reasoning}")
+                    halt_msg = f"Plan grounded for {judge_output.chosen_coin}, but confidence ({int(judge_output.confidence*100)}%) is below your setting ({int(user_threshold*100)}%)."
+                    print(f"[PIPELINE] Standing aside: {halt_msg}")
                     results["status"] = "stand_aside"
+                    results["halt_step"] = "STAGE_4_JUDGE_THRESHOLD"
+                    results["halt_cause"] = halt_msg
             elif dry_run:
                 print(f"[PIPELINE] Dry Run Mode Active. Decision: {judge_output.final_decision} | Confidence: {judge_output.confidence:.2f} (User Threshold: {user_threshold:.2f})")
                 results["status"] = "dry_run_complete"
             else:
-                print(f"[PIPELINE] Judge rendered NO_TRADE (Council results ungrounded). Reason: {judge_output.reasoning}")
+                halt_msg = judge_output.reasoning or "No trade setup met risk/reward confluence."
+                print(f"[PIPELINE] Judge rendered NO_TRADE. Reason: {halt_msg}")
                 results["status"] = "stand_aside"
+                results["halt_step"] = "STAGE_4_JUDGE_REJECTION"
+                results["halt_cause"] = halt_msg
 
             return results
 

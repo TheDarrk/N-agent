@@ -60,7 +60,7 @@ export type DashboardActions = {
 };
 
 export function useDashboardData(accountId: string | null) {
-  const wallet = accountId || "guest.near";
+  const wallet = accountId || "";
   const [data, setData] = useState<DashboardData>(EMPTY_DASHBOARD);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
@@ -73,19 +73,24 @@ export function useDashboardData(accountId: string | null) {
   dataRef.current = data;
 
   const refresh = useCallback(async () => {
+    if (!wallet) {
+      setData(EMPTY_DASHBOARD);
+      setLoading(false);
+      return;
+    }
     if (busy.current) return;
     busy.current = true;
     try {
       const [fleet, trades, moderator, drift, strategy, reports, logs, traces, settings] = await Promise.all([
-        getJson<FleetResponse>(`/api/fleet/${wallet}`),
-        getJson<TradesResponse>(`/api/trader/trades/${wallet}`),
-        getJson<ModeratorStatus>(`/api/moderator/status/${wallet}`),
-        getJson<DriftStatus>(`/api/rebalancer/status/${wallet}`),
-        getJson<{ active_strategy?: ActiveStrategy }>(`/api/rebalancer/strategy/${wallet}`),
-        getJson<{ reports?: ReportLite[] }>("/api/research/reports"),
-        getJson<ActivityItem[]>(`/api/logs/${wallet}`),
-        getJson<{ traces?: TraceLite[] }>("/api/trader/traces"),
-        getJson<TraderSettings>(`/api/settings/${wallet}`),
+        getJson<FleetResponse>(`/api/fleet/${encodeURIComponent(wallet)}`),
+        getJson<TradesResponse>(`/api/trader/trades/${encodeURIComponent(wallet)}`),
+        getJson<ModeratorStatus>(`/api/moderator/status/${encodeURIComponent(wallet)}`),
+        getJson<DriftStatus>(`/api/rebalancer/status/${encodeURIComponent(wallet)}`),
+        getJson<{ active_strategy?: ActiveStrategy }>(`/api/rebalancer/strategy/${encodeURIComponent(wallet)}`),
+        getJson<{ reports?: ReportLite[] }>(`/api/research/reports/${encodeURIComponent(wallet)}`),
+        getJson<ActivityItem[]>(`/api/logs/${encodeURIComponent(wallet)}`),
+        getJson<{ traces?: TraceLite[] }>(`/api/trader/traces/${encodeURIComponent(wallet)}`),
+        getJson<TraderSettings>(`/api/settings/${encodeURIComponent(wallet)}`),
       ]);
       const fleetActivity = fleet?.recent_activity;
       const activity =

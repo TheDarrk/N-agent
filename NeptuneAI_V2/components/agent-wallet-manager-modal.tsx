@@ -26,7 +26,10 @@ import {
   Wallet,
   ArrowUpRight,
   Info,
-  DollarSign
+  DollarSign,
+  Eye,
+  EyeOff,
+  Lock
 } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
 import { useWallet } from "@/providers/wallet-provider";
@@ -110,6 +113,18 @@ export default function AgentWalletManagerModal({
   // Architecture explainer toggle
   const [showArchitectureGuide, setShowArchitectureGuide] = useState(false);
 
+  // Key export & backup state
+  const [exportedKeyData, setExportedKeyData] = useState<{
+    id: number;
+    address: string;
+    publicKey: string;
+    privateKey: string;
+    chain: string;
+    label?: string;
+  } | null>(null);
+  const [isExportLoading, setIsExportLoading] = useState<number | null>(null);
+  const [showPrivateKey, setShowPrivateKey] = useState<boolean>(false);
+
   const fetchBalancesForWallets = async (walletList: AgentWallet[]) => {
     const balMap: Record<string, { formatted: string; exists: boolean }> = {};
     for (const w of walletList) {
@@ -180,6 +195,34 @@ export default function AgentWalletManagerModal({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
+  const handleExportKey = async (keyId: number) => {
+    if (!accountId) return;
+    setIsExportLoading(keyId);
+    try {
+      const res = await fetch("/api/agent-wallet/export-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_wallet: accountId, key_id: keyId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to export key credentials");
+      setExportedKeyData({
+        id: data.credentials.id,
+        address: data.credentials.agent_wallet_address,
+        publicKey: data.credentials.public_key,
+        privateKey: data.credentials.private_key,
+        chain: data.credentials.chain_type || "near",
+        label: data.credentials.label
+      });
+      setShowPrivateKey(false);
+    } catch (err: any) {
+      setErrorToast(err?.message || "Failed to export key");
+      setTimeout(() => setErrorToast(null), 3500);
+    } finally {
+      setIsExportLoading(null);
+    }
+  };
+
   const handleToggleCrossChain = async (enabled: boolean) => {
     setAllowCrossChain(enabled);
     if (!accountId) return;
@@ -239,6 +282,18 @@ export default function AgentWalletManagerModal({
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to generate EVM wallet");
+
+        if (data.wallet?.private_key) {
+          setExportedKeyData({
+            id: data.wallet.id,
+            address: data.wallet.agent_wallet_address,
+            publicKey: data.wallet.public_key,
+            privateKey: data.wallet.private_key,
+            chain: "evm",
+            label: data.wallet.label
+          });
+          setShowPrivateKey(false);
+        }
 
         setSuccessToast(`Created EVM / Arbitrum Wallet (${data.wallet.agent_wallet_address.slice(0, 10)}...) for cross-chain trades!`);
         setTimeout(() => setSuccessToast(null), 4000);
@@ -331,6 +386,17 @@ export default function AgentWalletManagerModal({
 
       setLastCreatedTxHash(txHash);
       setCreationStep("done");
+      if (createdWallet?.private_key) {
+        setExportedKeyData({
+          id: createdWallet.id,
+          address: createdWallet.agent_wallet_address,
+          publicKey: createdWallet.public_key,
+          privateKey: createdWallet.private_key,
+          chain: createdWallet.chain_type || "near",
+          label: createdWallet.label
+        });
+        setShowPrivateKey(false);
+      }
       const shortAddr = createdWallet.agent_wallet_address.length > 20
         ? `${createdWallet.agent_wallet_address.slice(0, 8)}...${createdWallet.agent_wallet_address.slice(-6)}`
         : createdWallet.agent_wallet_address;
@@ -1140,13 +1206,29 @@ export default function AgentWalletManagerModal({
                           </button>
                         </div>
 
-                        <button
-                          onClick={() => setTopupTargetWallet(w)}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-primary/15 text-primary border border-primary/25 hover:bg-primary/25 transition-all"
-                        >
-                          <PlusCircle size={10} />
-                          <span>Deposit Funds</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleExportKey(w.id)}
+                            disabled={isExportLoading === w.id}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-all"
+                            title="Export & Copy Private Key Credentials"
+                          >
+                            {isExportLoading === w.id ? (
+                              <RefreshCw size={10} className="animate-spin" />
+                            ) : (
+                              <Key size={10} />
+                            )}
+                            <span>Export Key</span>
+                          </button>
+
+                          <button
+                            onClick={() => setTopupTargetWallet(w)}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-primary/15 text-primary border border-primary/25 hover:bg-primary/25 transition-all"
+                          >
+                            <PlusCircle size={10} />
+                            <span>Deposit Funds</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Status / Assigned Agents Tag */}
@@ -1172,6 +1254,138 @@ export default function AgentWalletManagerModal({
               </div>
             )}
           </div>
+
+          {/* Key Export & Backup Popover Dialog */}
+          {exportedKeyData && (
+            <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 via-background to-secondary/40 border border-amber-500/40 space-y-3 animate-in fade-in-0 shadow-lg shadow-amber-500/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                    <Key size={15} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-foreground flex items-center gap-2">
+                      Agent Account Credentials & Backup
+                      <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-mono">
+                        {exportedKeyData.chain}
+                      </span>
+                    </h4>
+                    <p className="text-[10px] text-muted-foreground">
+                      Wallet ID #{exportedKeyData.id} • {exportedKeyData.label || "Delegated Agent Wallet"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setExportedKeyData(null)}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Explainer / Guardrail note */}
+              <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10.5px] text-amber-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <Shield size={12} className="text-amber-400" />
+                  <span>Important Custody & Agent Security Notice</span>
+                </div>
+                <p className="text-muted-foreground text-[10px] leading-relaxed">
+                  You can copy and import these credentials into Meteor Wallet, NEAR CLI, or MetaMask to take direct manual custody of the account.
+                  <strong className="text-foreground"> The AI Agent fleet never has direct access to this private key.</strong> The agent only invokes guarded backend transaction-signing functions bound strictly to your primary wallet ({accountId}).
+                </p>
+              </div>
+
+              {/* Credential Fields */}
+              <div className="space-y-2 pt-1 font-mono">
+                {/* Account Address */}
+                <div className="p-2 rounded-lg bg-background/80 border border-border/70 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-sans font-semibold">Agent Account Address / ID</div>
+                    <div className="text-[11px] text-foreground truncate">{exportedKeyData.address}</div>
+                  </div>
+                  <button
+                    onClick={() => handleCopy(exportedKeyData.address, "export-addr")}
+                    className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all shrink-0"
+                    title="Copy Address"
+                  >
+                    {copiedKey === "export-addr" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                  </button>
+                </div>
+
+                {/* Public Key */}
+                <div className="p-2 rounded-lg bg-background/80 border border-border/70 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-sans font-semibold">Public Key</div>
+                    <div className="text-[11px] text-foreground truncate">{exportedKeyData.publicKey}</div>
+                  </div>
+                  <button
+                    onClick={() => handleCopy(exportedKeyData.publicKey, "export-pub")}
+                    className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all shrink-0"
+                    title="Copy Public Key"
+                  >
+                    {copiedKey === "export-pub" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                  </button>
+                </div>
+
+                {/* Private Key */}
+                <div className="p-2 rounded-lg bg-background/80 border border-amber-500/30 flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[9px] text-amber-400 uppercase tracking-wider font-sans font-semibold flex items-center gap-1">
+                      <Lock size={10} />
+                      <span>Private Key (Secret)</span>
+                    </div>
+                    <div className="text-[11px] text-foreground break-all">
+                      {showPrivateKey
+                        ? exportedKeyData.privateKey
+                        : "•".repeat(Math.min(exportedKeyData.privateKey.length, 48))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setShowPrivateKey(!showPrivateKey)}
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all"
+                      title={showPrivateKey ? "Hide Private Key" : "Show Private Key"}
+                    >
+                      {showPrivateKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                    <button
+                      onClick={() => handleCopy(exportedKeyData.privateKey, "export-priv")}
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all"
+                      title="Copy Private Key"
+                    >
+                      {copiedKey === "export-priv" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  onClick={() => {
+                    const block = `NEPTUNE AGENT WALLET CREDENTIALS\n` +
+                      `Primary User Wallet: ${accountId}\n` +
+                      `Agent Account ID: ${exportedKeyData.address}\n` +
+                      `Chain: ${exportedKeyData.chain}\n` +
+                      `Public Key: ${exportedKeyData.publicKey}\n` +
+                      `Private Key: ${exportedKeyData.privateKey}\n`;
+                    handleCopy(block, "copy-all-creds");
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-secondary hover:bg-secondary/80 text-foreground border border-border transition-all"
+                >
+                  {copiedKey === "copy-all-creds" ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  <span>{copiedKey === "copy-all-creds" ? "Copied All Credentials!" : "Copy All Credentials"}</span>
+                </button>
+
+                <button
+                  onClick={() => setExportedKeyData(null)}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 transition-all shadow-sm"
+                >
+                  I Have Saved My Credentials
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Top-up Modal Inline Popover */}
           {topupTargetWallet && (

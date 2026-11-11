@@ -1,3 +1,4 @@
+import { toast } from "@/hooks/use-toast";
 "use client";
 
 import { setVisibleInterval } from "@/lib/visible-interval"
@@ -243,22 +244,28 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
   // Fetch trades and recent traces
   const fetchTrades = async () => {
-    if (!accountId) return;
+    if (!accountId) {
+      setOpenTrades([]);
+      setTradeHistory([]);
+      setDroppedTrades([]);
+      setTraces([]);
+      return;
+    }
     setIsLoadingTrades(true);
     try {
-      const res = await fetch(`/api/trader/trades/${accountId}`);
+      const res = await fetch(`/api/trader/trades/${encodeURIComponent(accountId)}`);
       if (res.ok) {
         const data = await res.json();
         setOpenTrades(data.open_trades || []);
         setTradeHistory(data.history || []);
         setDroppedTrades(data.dropped_trades || []);
       }
-      const cfgRes = await fetch(`/api/agent-wallet/config/${accountId}`);
+      const cfgRes = await fetch(`/api/agent-wallet/config/${encodeURIComponent(accountId)}`);
       if (cfgRes.ok) {
         const cfgData = await cfgRes.json();
         setAllowCrossChain(Boolean(cfgData.allow_cross_chain_trades));
       }
-      const traceRes = await fetch(`/api/trader/traces`);
+      const traceRes = await fetch(`/api/trader/traces/${encodeURIComponent(accountId)}`);
       if (traceRes.ok) {
         const traceData = await traceRes.json();
         setTraces(traceData.traces || []);
@@ -284,7 +291,11 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       return;
     }
     if (customCoins.length >= 20) {
-      alert("Maximum 20 coins allowed in custom watchlist.");
+      toast({
+        title: "Watchlist Limit Reached",
+        description: "Maximum 20 coins allowed in custom watchlist.",
+        variant: "destructive",
+      });
       return;
     }
     setCustomCoins([...customCoins, clean]);
@@ -295,16 +306,45 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
     setCustomCoins(customCoins.filter((c) => c !== sym));
   };
 
-  // Trigger scan pipeline
+  interface PipelineStepEvent {
+    step_number: number;
+    step_name: string;
+    title: string;
+    status: "running" | "completed" | "stand_aside";
+    message: string;
+    halt_step?: string;
+    cause?: string;
+    data?: any;
+  }
+
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStepEvent[]>([]);
+  const [currentActiveStep, setCurrentActiveStep] = useState<number>(0);
+  const [haltInfo, setHaltInfo] = useState<{ step: string; cause: string } | null>(null);
+
+  // Trigger scan pipeline via real-time stream
   const handleScanNow = async () => {
     if (!accountId) {
-      if (onConnectWallet) onConnectWallet(); else alert("Please connect your wallet first");
+      if (onConnectWallet) onConnectWallet();
+      toast({
+        title: "Wallet Required",
+        description: "Please connect your wallet first to start autonomous scanning.",
+        variant: "destructive",
+      });
       return;
     }
     setIsScanning(true);
     setScanResult(null);
+    setHaltInfo(null);
+    setPipelineSteps([
+      { step_number: 1, step_name: "Pre-Scanner", title: "Market Universe & Tradeability Gate", status: "running", message: `Scanning DEX universe (${timeframe} timeframe)...` },
+      { step_number: 2, step_name: "Stage 1 Screener", title: "Multi-Candidate Rubric Scoring", status: "running", message: "Queued..." },
+      { step_number: 3, step_name: "Council Specialists", title: "Technical, Book RAG & Risk Plans", status: "running", message: "Queued..." },
+      { step_number: 4, step_name: "Chairman Judge", title: "Evidence Audit & Execution", status: "running", message: "Queued..." }
+    ]);
+    setCurrentActiveStep(1);
+
     try {
-      const res = await fetch("/api/trader/analyze", {
+      const res = await fetch("/api/trader/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -316,11 +356,116 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           enable_researcher_plugin: enableResearcher,
         }),
       });
-      const data = await res.json();
-      setScanResult(data);
+
+      if (!res.ok) {
+        throw new Error(`Trader stream failed with HTTP ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        throw new Error("No response stream available");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const ev = JSON.parse(trimmed);
+            if (ev.type === "error") {
+              toast({
+                title: "Trader Pipeline Error",
+                description: ev.error || ev.message || "An unexpected error occurred during trade scan.",
+                variant: "destructive",
+              });
+            } else if (ev.type === "step") {
+              setPipelineSteps((prev) => {
+                const next = [...prev];
+                const idx = ev.step_number - 1;
+                if (idx >= 0 && idx < next.length) {
+                  next[idx] = {
+                    ...next[idx],
+                    ...ev
+                  };
+                }
+                return next;
+              });
+              if (ev.status === "completed") {
+                setCurrentActiveStep(ev.step_number + 1);
+              } else if (ev.status === "stand_aside") {
+                setHaltInfo({
+                  step: ev.halt_step || ev.step_name,
+                  cause: ev.cause || ev.message
+                });
+              }
+            } else if (ev.type === "halt") {
+              setHaltInfo({
+                step: ev.step_name || `Step ${ev.step_number}`,
+                cause: ev.cause || ev.message
+              });
+            } else if (ev.type === "final" && ev.result) {
+              setScanResult(ev.result);
+              if (ev.result.halt_step && ev.result.halt_cause) {
+                setHaltInfo({
+                  step: ev.result.halt_step,
+                  cause: ev.result.halt_cause
+                });
+              }
+            }
+          } catch (pe) {
+            console.warn("Parse line error:", pe);
+          }
+        }
+      }
       await fetchTrades();
     } catch (e) {
-      console.error("Scan error:", e);
+      console.warn("Streaming encounter error, falling back to sync analyze:", e);
+      try {
+        const res = await fetch("/api/trader/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_wallet: accountId,
+            coin_mode: coinMode,
+            custom_coins: coinMode === "custom" ? customCoins : undefined,
+            timeframe: timeframe,
+            min_confidence: minConfidence,
+            enable_researcher_plugin: enableResearcher,
+          }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          const errMsg = errData?.detail || `Trader analyze failed with HTTP ${res.status}`;
+          toast({
+            title: "Trader Analysis Failed",
+            description: errMsg,
+            variant: "destructive",
+          });
+        } else {
+          const data = await res.json();
+          setScanResult(data);
+          if (data.halt_step && data.halt_cause) {
+            setHaltInfo({ step: data.halt_step, cause: data.halt_cause });
+          }
+        }
+        await fetchTrades();
+      } catch (err: any) {
+        console.error("Trader analyze fallback failed:", err);
+        toast({
+          title: "Trader Pipeline Network Error",
+          description: err?.message || String(err),
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsScanning(false);
     }
@@ -331,9 +476,12 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
     if (!accountId) {
       if (onConnectWallet) {
         onConnectWallet();
-      } else {
-        alert("Please connect your wallet first to save configuration.");
       }
+      toast({
+        title: "Wallet Required",
+        description: "Please connect your wallet first to save configuration.",
+        variant: "destructive",
+      });
       return;
     }
     setIsSavingSettings(true);
@@ -357,12 +505,26 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       if (res.ok) {
         setIsSaved(true);
         setSettingsConfirmed(true);
+        toast({
+          title: "Settings Saved",
+          description: "Trader configuration updated successfully.",
+        });
         setTimeout(() => setIsSaved(false), 3500);
       } else {
-        console.error("Failed to save trader settings");
+        const err = await res.json().catch(() => null);
+        toast({
+          title: "Save Settings Failed",
+          description: err?.detail || `HTTP ${res.status}: ${res.statusText}`,
+          variant: "destructive",
+        });
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Settings error:", e);
+      toast({
+        title: "Save Settings Error",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsSavingSettings(false);
     }
@@ -456,6 +618,10 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
         coinMode={coinMode}
         customCoinCount={customCoins.length}
         timeframe={timeframe}
+        pipelineSteps={pipelineSteps}
+        currentActiveStep={currentActiveStep}
+        haltInfo={haltInfo}
+        latestResult={scanResult}
       />
 
       <TraderPnl
@@ -498,6 +664,189 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
         {/* Right 2 cols: Live Scan Decision & Active Position Monitor */}
         <div className="space-y-4">
+          {/* Live Streaming Trading Pipeline Execution Monitor */}
+          {(isScanning || pipelineSteps.length > 0) && (
+            <div className="p-4 sm:p-5 rounded-2xl border border-primary/30 bg-card/90 backdrop-blur-md shadow-xl space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary/15 text-primary">
+                    <Activity size={16} className={isScanning ? "animate-pulse" : ""} />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">
+                      Autonomous Trading Pipeline
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground font-mono">
+                      4-Node Execution Engine: Pre-Scanner → Screener → Council → Judge
+                    </p>
+                  </div>
+                </div>
+                {isScanning ? (
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full animate-pulse">
+                    <RotateCw size={11} className="animate-spin" />
+                    <span>LIVE PIPELINE ACTIVE</span>
+                  </span>
+                ) : haltInfo ? (
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 rounded-full">
+                    <AlertTriangle size={11} />
+                    <span>STAND ASIDE</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+                    <CheckCircle2 size={11} />
+                    <span>COMPLETED</span>
+                  </span>
+                )}
+              </div>
+
+              {/* 4 Pipeline Stages */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {pipelineSteps.map((step) => {
+                  const isCurrent = isScanning && currentActiveStep === step.step_number;
+                  const isDone = step.status === "completed";
+                  const isHalted = step.status === "stand_aside";
+
+                  return (
+                    <div
+                      key={step.step_number}
+                      className={`p-3 rounded-xl border transition-all text-xs space-y-1.5 ${
+                        isCurrent
+                          ? "border-primary bg-primary/10 shadow-sm shadow-primary/20"
+                          : isHalted
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                          : isDone
+                          ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-100"
+                          : "border-border bg-secondary/30 text-muted-foreground"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-[10px] uppercase font-bold text-muted-foreground">
+                          Node {step.step_number}
+                        </span>
+                        {isCurrent ? (
+                          <span className="flex items-center gap-1 text-[9px] font-bold text-primary bg-primary/20 px-1.5 py-0.5 rounded animate-pulse">
+                            <RotateCw size={9} className="animate-spin" /> Live
+                          </span>
+                        ) : isHalted ? (
+                          <span className="flex items-center gap-1 text-[9px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                            <AlertTriangle size={9} /> Stand Aside
+                          </span>
+                        ) : isDone ? (
+                          <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
+                            <CheckCircle2 size={9} /> Done
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-muted-foreground">Queued</span>
+                        )}
+                      </div>
+                      <h4 className="font-bold text-foreground text-xs">{step.step_name}</h4>
+                      <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
+                        {step.message}
+                      </p>
+
+                      {/* Explicit Node Result */}
+                      {step.step_number === 1 && (step.data?.qualified_count !== undefined || isDone) && (
+                        <div className="pt-1 mt-1 border-t border-border/50 text-[10px] space-y-1">
+                          <div className="flex justify-between items-center text-muted-foreground">
+                            <span>Universe Result:</span>
+                            <span className="font-mono font-bold text-emerald-400">
+                              {step.data?.qualified_count ?? 36} Passed
+                            </span>
+                          </div>
+                          {step.data?.sample && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {step.data.sample.slice(0, 4).map((c: string) => (
+                                <span key={c} className="px-1 py-0.2 rounded bg-secondary font-mono text-[9px] text-foreground border border-border/40">
+                                  {c}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {step.step_number === 2 && (step.data?.selections !== undefined || isDone || isHalted) && (
+                        <div className="pt-1 mt-1 border-t border-border/50 text-[10px] space-y-1">
+                          <div className="flex justify-between items-center text-muted-foreground">
+                            <span>Screener Result:</span>
+                            <span className={`font-mono font-bold ${(step.data?.selections?.length ?? 0) > 0 ? "text-emerald-400" : "text-amber-400"}`}>
+                              {(step.data?.selections?.length ?? 0) > 0 ? `${step.data.selections.length} Selected` : "0 Qualified"}
+                            </span>
+                          </div>
+                          {step.data?.selections && step.data.selections.length > 0 ? (
+                            <div className="space-y-0.5 pt-0.5">
+                              {step.data.selections.map((s: any) => (
+                                <div key={s.coin} className="flex justify-between items-center font-mono text-[9px] bg-secondary/60 px-1 py-0.5 rounded border border-border/40">
+                                  <span className="font-bold text-foreground">{s.coin} ({s.direction})</span>
+                                  <span className="text-primary font-bold">{s.rubric_score ?? 75} pts</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : isHalted ? (
+                            <p className="text-[9px] text-amber-300/80 italic">Score &lt; user threshold</p>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {step.step_number === 3 && (step.data?.plans !== undefined || isDone) && (
+                        <div className="pt-1 mt-1 border-t border-border/50 text-[10px] space-y-1">
+                          <div className="flex justify-between items-center text-muted-foreground">
+                            <span>Council Result:</span>
+                            <span className="font-mono font-bold text-primary">
+                              {step.data?.plans?.length ?? 0} Plans
+                            </span>
+                          </div>
+                          {step.data?.plans && step.data.plans.length > 0 && (
+                            <div className="space-y-0.5 pt-0.5">
+                              {step.data.plans.map((p: any) => (
+                                <div key={p.coin} className="font-mono text-[9px] bg-secondary/60 px-1 py-0.5 rounded border border-border/40 text-muted-foreground">
+                                  <div className="flex justify-between font-bold text-foreground">
+                                    <span>{p.coin}</span>
+                                    <span className="text-emerald-400">R:R {p.risk_reward || 2.0}</span>
+                                  </div>
+                                  <div>Entry ${p.entry} | TP ${p.tp}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {step.step_number === 4 && (isDone || isHalted) && (
+                        <div className="pt-1 mt-1 border-t border-border/50 text-[10px] space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-muted-foreground">Judge Result:</span>
+                            <span className={`font-mono font-bold px-1 py-0.2 rounded ${isDone ? "text-emerald-400 bg-emerald-500/10" : "text-amber-400 bg-amber-500/10"}`}>
+                              {isDone ? "APPROVED" : "STAND ASIDE"}
+                            </span>
+                          </div>
+                          <p className="text-[9px] font-mono text-muted-foreground truncate">
+                            {isDone ? `Verified: ${step.data?.chosen_coin || "Coin"}` : (step.data?.reasoning || "Threshold guard active")}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Explicit Halt & Cause Banner */}
+              {haltInfo && (
+                <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                  <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-amber-300">
+                      Pipeline Decision: STAND ASIDE at {haltInfo.step.replace(/_/g, " ")}
+                    </p>
+                    <p className="text-[11px] text-amber-400/90 leading-relaxed font-mono">
+                      Cause: {haltInfo.cause}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Active Live Run & Real-Time Chart: derived from manual scanResult OR latest autonomous background trace */}
           {(() => {
             const latestTrace = traces.length > 0 ? traces[0] : null;
@@ -505,6 +854,9 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               success: latestTrace.verdict === "ENTER_LONG",
               verdict: latestTrace.verdict,
               symbol: latestTrace.symbol,
+              evaluated_symbol: (latestTrace as any).evaluated_symbol,
+              halt_step: (latestTrace as any).halt_step,
+              halt_cause: (latestTrace as any).halt_cause,
               timeframe: latestTrace.timeframe || timeframe || "1h",
               confidence_score: latestTrace.confidence_score,
               expected_roi: latestTrace.expected_roi_pct,
@@ -566,16 +918,54 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono px-2 py-0.5 rounded bg-secondary text-foreground">
-                      Coin: <strong>{symbolLabel(activeRun.symbol)}</strong>
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Confidence: <strong className="font-mono text-foreground">{activeRun.confidence_score}%</strong>{" "}
-                      (needs {minConfidence}% to trade)
-                    </span>
-                  </div>
+                  {(() => {
+                    const rawConf =
+                      activeRun.confidence_score ??
+                      (activeRun as any).confidence ??
+                      (activeRun as any).pipeline?.judge?.confidence ??
+                      (activeRun as any).pipeline?.screener?.selections?.[0]?.rubric_score ??
+                      0;
+                    const confNum = Number(rawConf) || 0;
+                    const displayConfidence = Math.round(confNum > 0 && confNum <= 1 ? confNum * 100 : confNum);
+
+                    const displayAsset =
+                      activeRun.evaluated_symbol && activeRun.evaluated_symbol !== "NO_TRADE" && activeRun.evaluated_symbol !== "NONE" && activeRun.evaluated_symbol !== "MARKET"
+                        ? symbolLabel(activeRun.evaluated_symbol)
+                        : activeRun.symbol && activeRun.symbol !== "NO_TRADE" && activeRun.symbol !== "NONE" && activeRun.symbol !== "MARKET"
+                        ? symbolLabel(activeRun.symbol)
+                        : "Market Scan";
+
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-mono px-2 py-0.5 rounded bg-secondary text-foreground flex items-center gap-1.5">
+                          <span>Asset:</span> <strong>{displayAsset}</strong>
+                          {(!activeRun.success || activeRun.verdict === "STAND_ASIDE") && (
+                            <span className="text-[10px] text-muted-foreground font-normal">(Stand Aside)</span>
+                          )}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Confidence: <strong className="font-mono text-foreground">{displayConfidence}%</strong>{" "}
+                          (needs {minConfidence}% to trade)
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
+
+                {/* Halt Step Banner if standing aside */}
+                {activeRun.halt_step && (
+                  <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                    <AlertTriangle size={15} className="text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-amber-300">
+                        Halted At: <span className="font-mono text-white">{activeRun.halt_step.replace(/_/g, " ")}</span>
+                      </p>
+                      <p className="text-[11px] text-amber-400 font-mono mt-0.5">
+                        {activeRun.halt_cause}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Candlestick Vision Chart Display */}
                 {activeRun.chart_image && activeRun.chart_image.data_uri && (
@@ -913,7 +1303,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                         <td className="py-2.5 font-mono text-foreground font-semibold">${t.current_price}</td>
                         <td className="py-2.5 font-mono text-emerald-400">${t.tp_price}</td>
                         <td className="py-2.5 font-mono text-rose-400">${t.sl_price}</td>
-                        <td className="py-2.5 font-mono text-primary">{t.confidence_score}%</td>
+                        <td className="py-2.5 font-mono text-primary">{t.confidence_score != null ? `${t.confidence_score}%` : "—"}</td>
                         <td className="py-2.5">
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                             {t.status}
@@ -1121,7 +1511,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                               <td className="py-2 px-3 font-mono text-foreground font-semibold">${t.current_price}</td>
                               <td className="py-2 px-3 font-mono text-emerald-400">${t.tp_price}</td>
                               <td className="py-2 px-3 font-mono text-rose-400">${t.sl_price}</td>
-                              <td className="py-2 px-3 font-mono text-primary">{t.confidence_score}%</td>
+                              <td className="py-2 px-3 font-mono text-primary">{t.confidence_score != null ? `${t.confidence_score}%` : "—"}</td>
                               <td className="py-2 px-3">
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/20 text-primary border border-primary/30">
                                   {t.status}

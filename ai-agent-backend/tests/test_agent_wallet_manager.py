@@ -204,3 +204,27 @@ def test_wallet_guard_transfer_to_create_implicit_address():
     assert topup_payload["receiverId"] == address
     assert topup_payload["actions"][0]["type"] == "Transfer"
     assert topup_payload["actions"][0]["params"]["deposit"] == "1000000000000000000000000"
+
+
+def test_agent_wallet_private_key_export_and_user_ownership():
+    from database import export_agent_wallet_key
+    owner = "key_export_owner.testnet"
+    imposter = "imposter_wallet.testnet"
+    delete_all_user_agent_keys(owner)
+
+    # 1. Create agent wallet - returns private key for user backup
+    w = create_agent_wallet(owner, label="Exportable Key Test", chain_type="near")
+    assert "private_key" in w
+    assert w["private_key"].startswith("ed25519:")
+    key_id = w["id"]
+
+    # 2. Owner can export key at any time
+    exported = export_agent_wallet_key(owner, key_id)
+    assert exported["id"] == key_id
+    assert exported["user_wallet"] == owner
+    assert exported["private_key"] == w["private_key"]
+    assert exported["public_key"] == w["public_key"]
+
+    # 3. Imposter cannot export someone else's agent key (enforces main user wallet foreign key boundary)
+    with pytest.raises(ValueError, match="not found or does not belong to user"):
+        export_agent_wallet_key(imposter, key_id)

@@ -120,7 +120,7 @@ function walletTypeToChain(type: string | number): string {
 
 function formatBalanceManual(balance: string | bigint | number, decimals: number): string {
     const val = BigInt(balance);
-    if (val === 0n) return "0";
+    if (val === BigInt(0)) return "0";
 
     const div = BigInt(10 ** decimals);
     const int = val / div;
@@ -648,7 +648,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 onClose={() => setIsTestnetModalOpen(false)}
                 onConnectSuccess={handleTestnetConnect}
                 onLaunchHotKit={() => connectWallet(1010)}
-                onConnectSpecificWallet={(walletId) => connectWallet(1010, walletId)}
+                onConnectSpecificWallet={(walletId: string) => connectWallet(1010, walletId)}
             />
         </WalletContext.Provider>
     );

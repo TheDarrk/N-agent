@@ -80,9 +80,13 @@ export default function NeptuneAgentSuite({
   const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
 
   const fetchFleet = async () => {
-    const wallet = accountId || "guest.near";
+    if (!accountId) {
+      setFleetData(null);
+      return;
+    }
+    const wallet = accountId;
     try {
-      const res = await fetch(`/api/fleet/${wallet}`);
+      const res = await fetch(`/api/fleet/${encodeURIComponent(wallet)}`);
       if (res.ok) {
         const data = await res.json();
         setFleetData(data);
@@ -98,7 +102,11 @@ export default function NeptuneAgentSuite({
   }, [accountId]);
 
   const handleToggleAgentActive = async (agentId: string, currentActive: boolean) => {
-    const targetWallet = accountId || "guest.near";
+    if (!accountId) {
+      if (onConnectWallet) onConnectWallet();
+      return;
+    }
+    const targetWallet = accountId;
     setIsUpdating(agentId);
     try {
       const res = await fetch("/api/fleet/config", {

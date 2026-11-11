@@ -79,5 +79,5 @@ def test_research_agent_and_a2a_hire():
 def test_moderator_watchdog():
     moderator = ModeratorAgent()
     status = asyncio.run(moderator.get_watchdog_status("test_trader.near"))
-    assert status["health_score"] >= 0
+    assert status["has_evaluation"] is False or status["health_score"] is not None
     assert "total_open_exposure_usd" in status

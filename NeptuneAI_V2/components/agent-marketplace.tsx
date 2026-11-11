@@ -73,6 +73,12 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
   const [hireSuccessMsg, setHireSuccessMsg] = useState<string | null>(null);
 
   const fetchListings = async () => {
+    if (!accountId) {
+      setAgents([]);
+      setMyHires([]);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     try {
       const res = await fetch("/api/marketplace/agents");
@@ -80,14 +86,10 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
         const data = await res.json();
         setAgents(data.agents || []);
       }
-      if (accountId) {
-        const hireRes = await fetch(`/api/marketplace/hires/${accountId}`);
-        if (hireRes.ok) {
-          const hireData = await hireRes.json();
-          setMyHires(hireData.my_hires || []);
-        }
-      } else {
-        setMyHires([]);
+      const hireRes = await fetch(`/api/marketplace/hires/${encodeURIComponent(accountId)}`);
+      if (hireRes.ok) {
+        const hireData = await hireRes.json();
+        setMyHires(hireData.my_hires || []);
       }
     } catch (err) {
       console.error("Marketplace fetch error:", err);
@@ -194,69 +196,92 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
         </div>
       </div>
 
-      {/* Tabs Switcher: Browse vs My Hires */}
-      <div className="flex items-center justify-between border-b border-border pb-3">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setActiveTab("browse")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              activeTab === "browse"
-                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
-            }`}
-          >
-            <Store size={14} />
-            <span>Available Agents</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-background/30 font-mono">
-              {agents.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("hired")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              activeTab === "hired"
-                ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
-            }`}
-          >
-            <UserCheck size={14} />
-            <span>My Hired Agents</span>
-            {myHires.length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500 text-white font-mono font-bold">
-                {myHires.length}
-              </span>
-            )}
-          </button>
-        </div>
-
-        <button
-          onClick={fetchListings}
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          title="Refresh listings"
-        >
-          <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
-        </button>
-      </div>
-
-      {/* Hire Success Notification */}
-      {hireSuccessMsg && (
-        <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between gap-3 shadow-lg animate-in fade-in-0">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
-            <span className="font-medium">{hireSuccessMsg}</span>
+      {/* ─── DISCONNECTED STATE: NO WALLET CONNECTED ─── */}
+      {!accountId ? (
+        <div className="p-12 rounded-3xl bg-card border border-border text-center space-y-5 shadow-sm">
+          <div className="w-16 h-16 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mx-auto shadow-inner">
+            <Store size={30} />
           </div>
-          <button
-            onClick={() => setHireSuccessMsg(null)}
-            className="text-emerald-400 hover:text-emerald-200"
-          >
-            <XCircle size={16} />
-          </button>
+          <div className="space-y-2 max-w-md mx-auto">
+            <h3 className="text-lg font-bold text-foreground">Connect Wallet to Access Marketplace</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Connect your NEAR wallet to browse verified autonomous agents, subscribe to trade mirroring, and track hired strategies isolated to your account.
+            </p>
+          </div>
+          {onConnectWallet && (
+            <button
+              onClick={onConnectWallet}
+              className="px-6 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 active:scale-95"
+            >
+              Connect Wallet
+            </button>
+          )}
         </div>
-      )}
+      ) : (
+        <>
+          {/* Tabs Switcher: Browse vs My Hires */}
+          <div className="flex items-center justify-between border-b border-border pb-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setActiveTab("browse")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activeTab === "browse"
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+                }`}
+              >
+                <Store size={14} />
+                <span>Available Agents</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-background/30 font-mono">
+                  {agents.length}
+                </span>
+              </button>
 
-      {/* ─── TAB 1: BROWSE AGENTS ─── */}
-      {activeTab === "browse" && (
+              <button
+                onClick={() => setActiveTab("hired")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activeTab === "hired"
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+                }`}
+              >
+                <UserCheck size={14} />
+                <span>My Hired Agents</span>
+                {myHires.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500 text-white font-mono font-bold">
+                    {myHires.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <button
+              onClick={fetchListings}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              title="Refresh listings"
+            >
+              <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+            </button>
+          </div>
+
+          {/* Hire Success Notification */}
+          {hireSuccessMsg && (
+            <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between gap-3 shadow-lg animate-in fade-in-0">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                <span className="font-medium">{hireSuccessMsg}</span>
+              </div>
+              <button
+                onClick={() => setHireSuccessMsg(null)}
+                className="text-emerald-400 hover:text-emerald-200"
+              >
+                <XCircle size={16} />
+              </button>
+            </div>
+          )}
+
+          {/* ─── TAB 1: BROWSE AGENTS ─── */}
+          {activeTab === "browse" && (
         <>
           {isLoading && agents.length === 0 ? (
             <div className="py-16 text-center space-y-3">
@@ -494,6 +519,8 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
             </div>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

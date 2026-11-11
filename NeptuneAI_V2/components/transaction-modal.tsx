@@ -133,7 +133,7 @@ export default function TransactionModal({
           </p>
 
           {/* Token amounts (if payload available) */}
-          {payload && (payload.amount || payload.est_out) && (
+          {payload && (payload.amount || payload.est_out) ? (
             <div className="flex items-center justify-center gap-3 mb-6 px-3">
               <div className="text-center">
                 <p className="font-mono text-lg font-bold text-foreground">
@@ -153,7 +153,7 @@ export default function TransactionModal({
                 </p>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Step progress */}
           {!isError && (

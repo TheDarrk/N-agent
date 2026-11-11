@@ -49,6 +49,8 @@ type Props = {
   fitSignal?: number;
   windowSec?: number | null;
   onRangeChange?: (range: { from: number; to: number }) => void;
+  error?: boolean;
+  onRetry?: () => void;
 };
 
 const TRANSPARENT = "rgba(0,0,0,0)";
@@ -125,6 +127,8 @@ export default function PriceChart({
   fitSignal = 0,
   windowSec = null,
   onRangeChange,
+  error = false,
+  onRetry,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -424,9 +428,23 @@ export default function PriceChart({
           <dd className={tone}>{`${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}</dd>
         </dl>
       )}
-      {candles.length === 0 && (
+      {candles.length === 0 && !error && (
         <div className="absolute inset-0 z-10 flex items-center justify-center">
           <span className="animate-pulse text-sm text-muted-foreground">Loading {symbol} market data...</span>
+        </div>
+      )}
+      {candles.length === 0 && error && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2">
+          <span className="text-sm text-rose-400">Failed to load {symbol} market data</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded bg-secondary px-3 py-1 text-xs text-foreground hover:bg-secondary/80"
+            >
+              Retry
+            </button>
+          )}
         </div>
       )}
     </div>

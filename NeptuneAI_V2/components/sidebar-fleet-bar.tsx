@@ -61,9 +61,12 @@ export default function SidebarFleetBar({
 
   useEffect(() => {
     const fetchFleet = async () => {
-      const wallet = accountId || "guest.near";
+      if (!accountId) {
+        setFleet(null);
+        return;
+      }
       try {
-        const res = await fetch(`/api/fleet/${wallet}`);
+        const res = await fetch(`/api/fleet/${encodeURIComponent(accountId)}`);
         if (res.ok) {
           const data = await res.json();
           setFleet(data);

@@ -543,6 +543,14 @@ class TraderAgent:
             except Exception as ce:
                 print(f"[CHART] Stand-aside chart rendering notice for {target_sym}: {ce}")
 
+        judge_c = (pipeline_res.get("judge") or {}).get("confidence")
+        if judge_c is not None:
+            raw_jc = float(judge_c)
+            conf_val = int(round(raw_jc * 100)) if raw_jc <= 1.0 else int(round(raw_jc))
+        else:
+            selections = (pipeline_res.get("screener") or {}).get("selections") or []
+            conf_val = selections[0].get("rubric_score", 0) if selections else 0
+
         trace = {
             "agent": "trader",
             "user_wallet": user_wallet,
@@ -550,7 +558,7 @@ class TraderAgent:
             "timeframe": "4h",
             "verdict": "STAND_ASIDE",
             "stage": "REFACTORED_PIPELINE_STAND_ASIDE",
-            "confidence_score": 0,
+            "confidence_score": conf_val,
             "min_required": min_confidence,
             "expected_roi_pct": 0.0,
             "reasoning": stand_aside_reason,
@@ -565,7 +573,7 @@ class TraderAgent:
             "verdict": "STAND_ASIDE",
             "symbol": chosen_sym,
             "timeframe": "4h",
-            "confidence_score": 0,
+            "confidence_score": conf_val,
             "min_confidence": min_confidence,
             "expected_roi_pct": 0.0,
             "reasoning": stand_aside_reason,
@@ -576,6 +584,496 @@ class TraderAgent:
             "ascii_chart": "",
             "twitter_sentiment": {},
         }
+
+    async def run_pipeline_stream(
+        self,
+        user_wallet: str,
+        symbol: Optional[str] = None,
+        coin_mode: Optional[str] = None,
+        custom_coins: Optional[List[str]] = None,
+        force_timeframe: Optional[str] = None,
+        force_min_confidence: Optional[int] = None,
+        enable_researcher_plugin: Optional[bool] = None
+    ):
+        """
+        Real-time streaming pipeline yielding NDJSON events for each stage:
+        Stage 1: Pre-Scanner (Universe Discovery & Filtering)
+        Stage 2: Screener (Rubric Candidate Scoring & Direction)
+        Stage 3: Council Specialists (Technical, Book RAG & Risk Plans)
+        Stage 4: Chairman Judge & Execution Decision
+        """
+        user = get_user(user_wallet) or {}
+        timeframe = force_timeframe or user.get("trader_timeframe", "1h")
+        min_confidence = force_min_confidence if force_min_confidence is not None else int(user.get("trader_min_confidence", 75))
+        max_tx_amount = float(user.get("max_tx_amount") or 1_000_000.0)
+        max_trades_day = int(user.get("trader_max_trades_per_day", 100))
+        max_trades_week = int(user.get("trader_max_trades_per_week", 500))
+        active_coin_mode = coin_mode or user.get("trader_coin_mode", "auto")
+
+        # Step 1: Pre-Scanner Running
+        yield json.dumps({
+            "type": "step",
+            "step_number": 1,
+            "step_name": "Pre-Scanner",
+            "title": "Market Universe & Tradeability Gate",
+            "status": "running",
+            "message": f"Scanning 1-Click DEX universe in {active_coin_mode} mode ({timeframe} timeframe)..."
+        }) + "\n"
+
+        # Check Kill Switch
+        if user.get("kill_switch", 0):
+            yield json.dumps({
+                "type": "step",
+                "step_number": 1,
+                "step_name": "Pre-Scanner",
+                "title": "Market Universe & Tradeability Gate",
+                "status": "stand_aside",
+                "halt_step": "PRE_SCANNER_KILL_SWITCH",
+                "cause": "Master Kill Switch is active. Autonomous trading is halted.",
+                "message": "Master Kill Switch is active."
+            }) + "\n"
+            yield json.dumps({
+                "type": "final",
+                "result": {
+                    "success": False,
+                    "status": "BLOCKED_KILL_SWITCH",
+                    "verdict": "STAND_ASIDE",
+                    "symbol": "NONE",
+                    "halt_step": "PRE_SCANNER_KILL_SWITCH",
+                    "halt_cause": "Master Kill Switch is active.",
+                    "message": "Master Kill switch is active. Autonomous trading is halted."
+                }
+            }) + "\n"
+            return
+
+        try:
+            # Pre-Scanner
+            if active_coin_mode == "custom":
+                watch_coins = custom_coins or [
+                    c.strip().upper() for c in user.get("trader_custom_coins", "").split(",") if c.strip()
+                ]
+                if not watch_coins:
+                    yield json.dumps({
+                        "type": "step",
+                        "step_number": 1,
+                        "step_name": "Pre-Scanner",
+                        "title": "Market Universe & Tradeability Gate",
+                        "status": "stand_aside",
+                        "halt_step": "PRE_SCANNER_EMPTY_WATCHLIST",
+                        "cause": "No custom coins configured in watchlist.",
+                        "message": "Please add coins in the Trader Panel."
+                    }) + "\n"
+                    yield json.dumps({
+                        "type": "final",
+                        "result": {
+                            "success": False,
+                            "status": "EMPTY_CUSTOM_WATCHLIST",
+                            "verdict": "STAND_ASIDE",
+                            "symbol": "NONE",
+                            "halt_step": "PRE_SCANNER_EMPTY_WATCHLIST",
+                            "halt_cause": "No custom coins configured in watchlist."
+                        }
+                    }) + "\n"
+                    return
+                scan_res = await scan_coin_universe(mode="custom", custom_coins=watch_coins, timeframe=timeframe)
+            else:
+                scan_res = await scan_coin_universe(mode="auto", custom_coins=None, timeframe=timeframe)
+
+            coin_table = scan_res.get("coin_table") or []
+            if not coin_table:
+                yield json.dumps({
+                    "type": "step",
+                    "step_number": 1,
+                    "step_name": "Pre-Scanner",
+                    "title": "Market Universe & Tradeability Gate",
+                    "status": "stand_aside",
+                    "halt_step": "PRE_SCANNER_TRADEABILITY",
+                    "cause": "No qualifying tokens met pre-scanner tradeability criteria (volume > $25k, ATR > 0.3%).",
+                    "message": "Standing aside to protect capital."
+                }) + "\n"
+                yield json.dumps({
+                    "type": "final",
+                    "result": {
+                        "success": False,
+                        "status": "NO_CANDIDATES",
+                        "verdict": "STAND_ASIDE",
+                        "symbol": "NONE",
+                        "halt_step": "PRE_SCANNER_TRADEABILITY",
+                        "halt_cause": "No tokens passed tradeability filter."
+                    }
+                }) + "\n"
+                return
+
+            # Pre-scanner completed
+            yield json.dumps({
+                "type": "step",
+                "step_number": 1,
+                "step_name": "Pre-Scanner",
+                "title": "Market Universe & Tradeability Gate",
+                "status": "completed",
+                "message": f"Pre-scanner passed {len(coin_table)} qualifying tradeable tokens.",
+                "data": {
+                    "qualified_count": len(coin_table),
+                    "sample": [c["symbol"] for c in coin_table[:8]]
+                }
+            }) + "\n"
+
+            # Prepare coin_data
+            coin_data = {}
+            for row in coin_table:
+                sym = row["symbol"]
+                coin_data[sym] = {
+                    "screener_line": row.get("screener_line"),
+                    "price": row.get("price", 0.0),
+                    "volume_24h": row.get("24h_volume_usd", 0.0),
+                    "ema20": row.get("ema20", 0.0),
+                    "ema50": row.get("ema50", 0.0),
+                    "ema200": row.get("ema200", 0.0),
+                    "rsi": row.get("rsi14", 50.0),
+                    "atr_pct": row.get("atr_pct", 2.0),
+                    "trend_4h": row.get("bias", "NEUTRAL"),
+                    "trend_12h": row.get("bias", "NEUTRAL"),
+                    "pattern": row.get("pattern") or "none",
+                    "dist_from_ema20_pct": row.get("dist_from_ema20_pct", 0.0),
+                    "dist_from_ema50_pct": row.get("dist_from_ema50_pct", 0.0),
+                    "volume_vs_avg": row.get("volume_vs_avg", 1.0)
+                }
+
+            # Step 2: Screener Running
+            yield json.dumps({
+                "type": "step",
+                "step_number": 2,
+                "step_name": "Stage 1 Screener",
+                "title": "Multi-Candidate Rubric Scoring",
+                "status": "running",
+                "message": f"Evaluating top candidates on Trend (30), Confluence (20), Momentum (20), Volatility (10)..."
+            }) + "\n"
+
+            async def chart_tool_wrapper(sym: str, tf: str) -> Dict[str, Any]:
+                return await fetch_chart_tool(symbol=sym, timeframe=tf)
+
+            def rag_query_wrapper(q: str) -> List[Dict[str, Any]]:
+                return trading_book_rag.search_by_query(q, top_k=2)
+
+            async def execute_callback(coin: str, direction: str, entry: float, tp: float, sl: float, reasoning: str = "") -> Dict[str, Any]:
+                try:
+                    chosen_ind = await analyze_token_indicators(symbol=coin, timeframe="4h")
+                except Exception:
+                    chosen_ind = {"current_price": entry, "candles": [], "pattern_data": {}}
+
+                candles = chosen_ind.get("candles", [])
+                pattern_data = chosen_ind.get("pattern_data", {})
+                pat_name = pattern_data.get("dominant_pattern") or pattern_data.get("pattern") or "Technical Setup"
+                roi = round(abs(tp - entry) / max(1e-6, entry) * 100, 2)
+
+                chart_image_info = None
+                try:
+                    chart_image_info = render_chart_image(
+                        candles=candles,
+                        symbol=coin,
+                        timeframe="4h",
+                        pattern_name=str(pat_name),
+                        tp_price=float(tp),
+                        sl_price=float(sl),
+                        entry_price=float(entry),
+                        verdict="ENTER_LONG" if direction == "LONG" else "ENTER_SHORT",
+                        expected_roi_pct=roi,
+                        confidence_score=85,
+                        pattern_data=pattern_data,
+                        indicators=chosen_ind
+                    )
+                except Exception as e:
+                    chart_image_info = None
+
+                node1_data = {
+                    "symbol": coin,
+                    "indicators": chosen_ind,
+                    "candles": candles,
+                    "pattern_data": pattern_data,
+                    "chart_image_info": chart_image_info,
+                    "ascii_chart": "",
+                    "execution_source_token": str(user.get("trader_execution_token") or "NEAR").upper(),
+                    "source_chain": str(user.get("trader_source_chain") or "near").lower(),
+                    "target_chain": str(user.get("trader_target_chain") or "near").lower(),
+                    "twitter_sentiment": {"sentiment": "neutral", "score": 50},
+                    "researcher_intel": None,
+                    "scan_results": None,
+                    "screener_result": None,
+                    "scanner_candidates": [],
+                }
+                node2_data = {
+                    "verdict": "ENTER_LONG" if direction == "LONG" else "ENTER_SHORT",
+                    "confidence_score": 85,
+                    "expected_roi_pct": roi,
+                    "entry_price": entry,
+                    "take_profit_price": tp,
+                    "stop_loss_price": sl,
+                    "risk_reward_ratio": round(abs(tp - entry) / max(1e-6, abs(entry - sl)), 2),
+                    "reasoning": reasoning,
+                    "execution_ready": True
+                }
+                return await self._evaluate_and_execute_verdict(
+                    user_wallet=user_wallet,
+                    symbol=coin,
+                    timeframe="4h",
+                    min_confidence=min_confidence,
+                    max_tx_amount=max_tx_amount,
+                    node1_data=node1_data,
+                    node2_data=node2_data
+                )
+
+            pipeline = TradingPipeline(
+                chart_data_fn=chart_tool_wrapper,
+                rag_query_fn=rag_query_wrapper,
+                execute_fn=execute_callback
+            )
+
+            # Run Screener
+            screener_output = await pipeline.screener.screen(coin_data, min_confidence=min_confidence)
+            if not screener_output.selections:
+                yield json.dumps({
+                    "type": "step",
+                    "step_number": 2,
+                    "step_name": "Stage 1 Screener",
+                    "title": "Multi-Candidate Rubric Scoring",
+                    "status": "stand_aside",
+                    "halt_step": "STAGE_1_SCREENER",
+                    "cause": screener_output.selection_reasoning or "No candidate setup showed clear technical edge.",
+                    "message": "Screener found no candidate with positive technical edge."
+                }) + "\n"
+                trace = {
+                    "agent": "trader",
+                    "user_wallet": user_wallet,
+                    "symbol": "NO_TRADE",
+                    "timeframe": "4h",
+                    "verdict": "STAND_ASIDE",
+                    "stage": "STAGE_1_SCREENER_NO_CANDIDATES",
+                    "halt_step": "STAGE_1_SCREENER",
+                    "halt_cause": screener_output.selection_reasoning or "No candidate setup showed clear technical edge.",
+                    "confidence_score": 0,
+                    "min_required": min_confidence,
+                    "expected_roi_pct": 0.0,
+                    "reasoning": screener_output.selection_reasoning or "No candidate setup showed clear technical edge.",
+                    "chart_image": None,
+                    "pipeline": {"screener": screener_output.model_dump(), "status": "no_candidates"}
+                }
+                cid = await upload_trade_trace(trace)
+                yield json.dumps({
+                    "type": "final",
+                    "result": {
+                        "success": False,
+                        "status": "STAND_ASIDE",
+                        "verdict": "STAND_ASIDE",
+                        "symbol": "NO_TRADE",
+                        "halt_step": "STAGE_1_SCREENER",
+                        "halt_cause": screener_output.selection_reasoning or "No candidate setup showed clear technical edge.",
+                        "timeframe": "4h",
+                        "confidence_score": 0,
+                        "min_confidence": min_confidence,
+                        "expected_roi_pct": 0.0,
+                        "reasoning": screener_output.selection_reasoning or "No candidate setup showed clear technical edge.",
+                        "cid": cid,
+                        "chart_image": None
+                    }
+                }) + "\n"
+                return
+
+            sel_desc = ", ".join([f"{s.coin} ({s.direction}, {getattr(s, 'rubric_score', 75)} pts)" for s in screener_output.selections])
+            yield json.dumps({
+                "type": "step",
+                "step_number": 2,
+                "step_name": "Stage 1 Screener",
+                "title": "Multi-Candidate Rubric Scoring",
+                "status": "completed",
+                "message": f"Screener selected top candidate(s): {sel_desc}",
+                "data": {
+                    "selections": [s.model_dump() for s in screener_output.selections],
+                    "reasoning": screener_output.selection_reasoning
+                }
+            }) + "\n"
+
+            # Step 3: Council Specialists Running
+            yield json.dumps({
+                "type": "step",
+                "step_number": 3,
+                "step_name": "Council Specialists",
+                "title": "Technical, Book RAG & Risk Plans",
+                "status": "running",
+                "message": f"Fetching live 4h/12h candlestick data and querying Trading Book RAG..."
+            }) + "\n"
+
+            council_output = await pipeline.council.build_plans(
+                screener_output.selections,
+                pipeline.council.chart_tool,
+                pipeline.council.rag_tool
+            )
+
+            yield json.dumps({
+                "type": "step",
+                "step_number": 3,
+                "step_name": "Council Specialists",
+                "title": "Technical, Book RAG & Risk Plans",
+                "status": "completed",
+                "message": f"Formulated {len(council_output.plans)} grounded trade plan(s) with entry, TP, and SL.",
+                "data": {
+                    "plans": [p.model_dump() for p in council_output.plans]
+                }
+            }) + "\n"
+
+            # Step 4: Chairman Judge Running
+            yield json.dumps({
+                "type": "step",
+                "step_number": 4,
+                "step_name": "Chairman Judge",
+                "title": "Evidence Audit & Execution",
+                "status": "running",
+                "message": f"Auditing plans against tool log, verifying R:R >= 2.0 and confidence threshold..."
+            }) + "\n"
+
+            judge_output = await pipeline.judge.audit(council_output)
+            user_threshold = float(min_confidence) / 100.0 if float(min_confidence) > 1.0 else float(min_confidence)
+
+            if judge_output.final_decision == "EXECUTE" and judge_output.confidence >= user_threshold:
+                yield json.dumps({
+                    "type": "step",
+                    "step_number": 4,
+                    "step_name": "Chairman Judge",
+                    "title": "Evidence Audit & Execution",
+                    "status": "completed",
+                    "verdict": "EXECUTE",
+                    "message": f"Verified! Executing {judge_output.direction} on {judge_output.chosen_coin} at ${judge_output.entry}...",
+                    "data": judge_output.model_dump()
+                }) + "\n"
+
+                execution_result = await execute_callback(
+                    coin=judge_output.chosen_coin,
+                    direction=judge_output.direction,
+                    entry=judge_output.entry,
+                    tp=judge_output.tp,
+                    sl=judge_output.sl,
+                    reasoning=judge_output.reasoning
+                )
+                combined = dict(execution_result)
+                combined["pipeline"] = {
+                    "screener": screener_output.model_dump(),
+                    "council": council_output.model_dump(),
+                    "judge": judge_output.model_dump(),
+                    "status": "executed"
+                }
+                yield json.dumps({"type": "final", "result": combined}) + "\n"
+            else:
+                # Stand Aside
+                if judge_output.final_decision == "EXECUTE" and judge_output.confidence < user_threshold:
+                    halt_step = "STAGE_4_JUDGE_THRESHOLD"
+                    halt_cause = f"Plan grounded for {judge_output.chosen_coin}, but confidence ({int(judge_output.confidence*100)}%) is below your setting ({int(user_threshold*100)}%)."
+                else:
+                    halt_step = "STAGE_4_JUDGE_REJECTION"
+                    halt_cause = judge_output.reasoning or "No trade setup met risk/reward confluence."
+
+                yield json.dumps({
+                    "type": "step",
+                    "step_number": 4,
+                    "step_name": "Chairman Judge",
+                    "title": "Evidence Audit & Execution",
+                    "status": "stand_aside",
+                    "verdict": "STAND_ASIDE",
+                    "halt_step": halt_step,
+                    "cause": halt_cause,
+                    "message": halt_cause,
+                    "data": judge_output.model_dump()
+                }) + "\n"
+
+                evaluated_sym = judge_output.chosen_coin if (judge_output.chosen_coin and judge_output.chosen_coin != "None" and judge_output.chosen_coin != "MARKET") else (screener_output.selections[0].coin if screener_output.selections else None)
+                chart_image_info = None
+                if evaluated_sym and evaluated_sym in coin_data:
+                    try:
+                        chosen_ind = await analyze_token_indicators(symbol=evaluated_sym, timeframe="4h")
+                        candles = chosen_ind.get("candles", [])
+                        if candles:
+                            p_data = chosen_ind.get("pattern_data", {})
+                            p_name = p_data.get("dominant_pattern") or "Market Overview"
+                            cur_p = float(chosen_ind.get("current_price") or coin_data[evaluated_sym].get("price", 1.0))
+                            chart_image_info = render_chart_image(
+                                candles=candles,
+                                symbol=evaluated_sym,
+                                timeframe="4h",
+                                pattern_name=str(p_name),
+                                tp_price=cur_p * 1.05,
+                                sl_price=cur_p * 0.95,
+                                entry_price=cur_p,
+                                verdict="STAND_ASIDE",
+                                expected_roi_pct=0.0,
+                                confidence_score=0,
+                                pattern_data=p_data,
+                                indicators=chosen_ind
+                            )
+                    except Exception as ce:
+                        pass
+
+                evaluated_conf = 0
+                if getattr(judge_output, "confidence", None) is not None:
+                    raw_c = float(judge_output.confidence)
+                    evaluated_conf = int(round(raw_c * 100)) if raw_c <= 1.0 else int(round(raw_c))
+                elif screener_output.selections:
+                    evaluated_conf = int(getattr(screener_output.selections[0], "rubric_score", 0))
+
+                trace = {
+                    "agent": "trader",
+                    "user_wallet": user_wallet,
+                    "symbol": evaluated_sym or "NO_TRADE",
+                    "evaluated_symbol": evaluated_sym,
+                    "timeframe": "4h",
+                    "verdict": "STAND_ASIDE",
+                    "stage": "STAGE_4_JUDGE_STAND_ASIDE",
+                    "halt_step": halt_step,
+                    "halt_cause": halt_cause,
+                    "confidence_score": evaluated_conf,
+                    "min_required": min_confidence,
+                    "expected_roi_pct": 0.0,
+                    "reasoning": halt_cause,
+                    "chart_image": chart_image_info,
+                    "pipeline": {
+                        "screener": screener_output.model_dump(),
+                        "council": council_output.model_dump(),
+                        "judge": judge_output.model_dump(),
+                        "status": "stand_aside"
+                    }
+                }
+                cid = await upload_trade_trace(trace)
+
+                stand_aside_res = {
+                    "success": False,
+                    "status": "STAND_ASIDE",
+                    "verdict": "STAND_ASIDE",
+                    "symbol": evaluated_sym or "NO_TRADE",
+                    "evaluated_symbol": evaluated_sym,
+                    "halt_step": halt_step,
+                    "halt_cause": halt_cause,
+                    "timeframe": "4h",
+                    "confidence_score": evaluated_conf,
+                    "min_confidence": min_confidence,
+                    "expected_roi_pct": 0.0,
+                    "reasoning": halt_cause,
+                    "cid": cid,
+                    "pipeline": {
+                        "screener": screener_output.model_dump(),
+                        "council": council_output.model_dump(),
+                        "judge": judge_output.model_dump(),
+                        "status": "stand_aside"
+                    },
+                    "chart_image": chart_image_info
+                }
+                yield json.dumps({"type": "final", "result": stand_aside_res}) + "\n"
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"\n[TRADER STREAM ERROR] Pipeline failed:\n{tb}")
+            yield json.dumps({
+                "type": "error",
+                "error": str(e),
+                "message": f"Trader pipeline failed: {str(e)}"
+            }) + "\n"
+
 
     # ─── NODE 1 IMPLEMENTATION ────────────────────────────────────
 

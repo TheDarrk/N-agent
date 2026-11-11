@@ -202,7 +202,7 @@ class ExecutionAgent:
                 from key_manager import decrypt_private_key
                 
                 try:
-                    decrypted_key = decrypt_private_key(agent_key.get("encrypted_private_key"))
+                    decrypted_key = decrypt_private_key(agent_key.get("encrypted_private_key"), wallet_address=agent_key.get("user_wallet"))
                 except Exception as key_err:
                     print(f"[EXECUTION] Key decryption failed for {agent_address}: {key_err}. Please re-delegate agent key.")
                     result["success"] = False

@@ -1,3 +1,4 @@
+import { toast } from "@/hooks/use-toast";
 "use client";
 
 import { tilt3d } from "./trader/tilt-3d";
@@ -146,17 +147,26 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const [latestA2AResult, setLatestA2AResult] = useState<any>(null);
 
   const fetchReports = async () => {
+    if (!accountId) {
+      setReports([]);
+      setActiveReport(null);
+      setStepCards([]);
+      return;
+    }
     try {
-      const res = await fetch("/api/research/reports");
+      const res = await fetch(`/api/research/reports/${encodeURIComponent(accountId)}`);
       if (res.ok) {
         const data = await res.json();
         const list = data.reports || [];
         setReports(list);
-        if (list.length > 0 && !activeReport && !isLoading) {
+        if (list.length > 0 && !isLoading) {
           setActiveReport(list[0]);
           if (list[0].cot_step_cards) {
             setStepCards(list[0].cot_step_cards);
           }
+        } else {
+          setActiveReport(null);
+          setStepCards([]);
         }
       }
     } catch (e) {
@@ -166,12 +176,16 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [accountId]);
 
   const handleGenerate = async () => {
     if (!accountId) {
       if (onConnectWallet) onConnectWallet();
-      else alert("Please connect wallet first to generate and sign research reports");
+      toast({
+        title: "Wallet Required",
+        description: "Please connect wallet first to generate and sign research reports",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -225,7 +239,13 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           if (!trimmed) continue;
           try {
             const data = JSON.parse(trimmed);
-            if (data.type === "step" && data.card) {
+            if (data.type === "error") {
+              toast({
+                title: "Research Engine Error",
+                description: data.error || data.message || "An unexpected error occurred during research generation.",
+                variant: "destructive",
+              });
+            } else if (data.type === "step" && data.card) {
               setStepCards((prev) => {
                 const updated = [...prev];
                 updated[data.step_number - 1] = data.card;
@@ -276,9 +296,21 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             setStepCards(generated.cot_step_cards);
           }
           await fetchReports();
+        } else {
+          const errData = await res.json().catch(() => null);
+          toast({
+            title: "Research Generation Failed",
+            description: errData?.detail || `HTTP ${res.status}: ${res.statusText}`,
+            variant: "destructive",
+          });
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Generate error:", err);
+        toast({
+          title: "Research Network Error",
+          description: err?.message || String(err),
+          variant: "destructive",
+        });
       }
     } finally {
       setIsLoading(false);
@@ -290,7 +322,11 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const handleA2AHire = async () => {
     if (!accountId) {
       if (onConnectWallet) onConnectWallet();
-      else alert("Please connect wallet first to execute agent-to-agent hire");
+      toast({
+        title: "Wallet Required",
+        description: "Please connect wallet first to execute agent-to-agent hire",
+        variant: "destructive",
+      });
       return;
     }
     setIsHiringA2A(true);
@@ -304,14 +340,28 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           symbol: "NEAR",
         }),
       });
-      const data = await res.json();
-      setLatestA2AResult(data);
-      if (data.full_report) {
-        setActiveReport(data.full_report);
+      if (res.ok) {
+        const data = await res.json();
+        setLatestA2AResult(data);
+        if (data.full_report) {
+          setActiveReport(data.full_report);
+        }
+        await fetchReports();
+      } else {
+        const err = await res.json().catch(() => null);
+        toast({
+          title: "Agent-to-Agent Hire Failed",
+          description: err?.detail || `HTTP ${res.status}: ${res.statusText}`,
+          variant: "destructive",
+        });
       }
-      await fetchReports();
-    } catch (e) {
+    } catch (e: any) {
       console.error("A2A hire error:", e);
+      toast({
+        title: "Agent-to-Agent Hire Error",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsHiringA2A(false);
     }
