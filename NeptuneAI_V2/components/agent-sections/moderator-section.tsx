@@ -1,6 +1,6 @@
-import { toast } from "@/hooks/use-toast";
 "use client";
 
+import { toast } from "@/hooks/use-toast";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import { tilt3d } from "./trader/tilt-3d";
 import React, { useState, useEffect } from "react";
@@ -28,6 +28,17 @@ import {
   Info
 } from "lucide-react";
 
+interface ModeratorStepEvent {
+  step_number: number;
+  step_name: string;
+  title: string;
+  status: "running" | "completed";
+  score?: number;
+  health?: string;
+  message: string;
+  data?: any;
+}
+
 type Props = {
   accountId: string | null;
   onConnectWallet?: () => void;
@@ -48,18 +59,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const [activeTabNode, setActiveTabNode] = useState<number>(0);
   const [copiedCid, setCopiedCid] = useState(false);
   const [showChecks, setShowChecks] = useState(false);
+  const [showAllVerdictPoints, setShowAllVerdictPoints] = useState(false);
 
-  // 4-Node Watchdog Deliberation Streaming State
-  interface ModeratorStepEvent {
-    step_number: number;
-    step_name: string;
-    title: string;
-    status: "running" | "completed";
-    score?: number;
-    health?: string;
-    message: string;
-    data?: any;
-  }
   const [moderatorSteps, setModeratorSteps] = useState<ModeratorStepEvent[]>([]);
   const [currentActiveModStep, setCurrentActiveModStep] = useState<number>(0);
 
@@ -344,9 +345,9 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const isAgentActive = status?.is_active ?? (status?.fleet_summary?.agents?.moderator?.is_active ?? false);
   const hasAudit = Boolean(
     status &&
-    status.has_evaluation !== false &&
-    status.total_mean_score !== undefined &&
-    status.total_mean_score !== null
+      status.has_evaluation !== false &&
+      status.total_mean_score !== undefined &&
+      status.total_mean_score !== null
   );
   const totalMeanScore = hasAudit ? (status?.total_mean_score ?? status?.overall_performance_score) : null;
   const verdict = status?.verdict ?? (isKillSwitchActive ? "SAFETY_BREACH_SUSPEND" : "NOT_AUDITED");
@@ -365,23 +366,20 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const getVerdictStyle = (v: string) => {
     switch (v) {
       case "OPTIMAL_HEALTH":
-        return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+        return "tone-good t-chip";
       case "MODERATE_RISK":
-        return "bg-amber-500/20 text-amber-400 border-amber-500/30";
       case "ELEVATED_DRIFT":
-        return "bg-orange-500/20 text-orange-400 border-orange-500/30";
-      case "NOT_AUDITED":
-        return "bg-secondary text-muted-foreground border-border";
+        return "tone-warn t-chip";
       default:
-        return "bg-rose-500/20 text-rose-400 border-rose-500/30";
+        return "tone-bad t-chip";
     }
   };
 
   const getScoreColor = (sc: number | null | undefined) => {
     if (sc === null || sc === undefined) return "text-muted-foreground";
-    if (sc >= 80) return "text-emerald-400";
-    if (sc >= 60) return "text-amber-400";
-    return "text-rose-400";
+    if (sc >= 80) return "tone-good t-fg";
+    if (sc >= 60) return "tone-warn t-fg";
+    return "tone-bad t-fg";
   };
 
   // Helper to get selected agent detail data for the active tab
@@ -537,25 +535,68 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
   const toneOf = (v: string): Tone => {
     const s = String(v || "").toUpperCase();
-    if (s === "NOT_AUDITED" || !s) return "neutral";
+    if (!s || s === "NOT_AUDITED") return "neutral";
     if (["OPTIMAL_HEALTH", "HEALTHY", "VERIFIED", "SYNCHRONIZED"].includes(s)) return "good";
     if (/BREACH|SUSPEND|CRITICAL|HALT|FAIL|KILL/.test(s)) return "bad";
     return "warn";
   };
   const toneChip: Record<Tone, string> = {
-    good: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-    warn: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-    bad: "bg-rose-500/15 text-rose-400 border-rose-500/30",
+    good: "tone-good t-chip",
+    warn: "tone-warn t-chip",
+    bad: "tone-bad t-chip",
     neutral: "bg-secondary text-muted-foreground border-border",
   };
   const toneBar: Record<Tone, string> = {
-    good: "bg-emerald-400",
-    warn: "bg-amber-400",
-    bad: "bg-rose-400",
+    good: "tone-good t-bar",
+    warn: "tone-warn t-bar",
+    bad: "tone-bad t-bar",
     neutral: "bg-muted",
   };
-  const scoreTone = (sc: number | null | undefined): Tone => (sc === null || sc === undefined ? "neutral" : sc >= 80 ? "good" : sc >= 60 ? "warn" : "bad");
-  const scoreLabel = (sc: number | null | undefined) => (sc === null || sc === undefined ? "Not audited" : sc >= 80 ? "Healthy" : sc >= 60 ? "Needs a look" : "At risk");
+  const toneSoft: Record<Tone, string> = {
+    good: "tone-good t-soft",
+    warn: "tone-warn t-soft",
+    bad: "tone-bad t-soft",
+    neutral: "bg-secondary/50 border-border",
+  };
+
+  const capitalize = (v: string) => (v ? v.charAt(0).toUpperCase() + v.slice(1) : v);
+
+  // Break the long verdict paragraph into short points so it reads as separate cards.
+  const splitPoints = (text: string): string[] =>
+    String(text || "")
+      .split(/;\s+|:\s+(?=[A-Z][a-zA-Z]+ \()|(?<=\.)\s+(?=[A-Z])/)
+      .map((s) => s.trim().replace(/\.$/, ""))
+      .filter(Boolean);
+
+  // Turn "HEADING: detail" (or "first clause; rest" when asked) into a title and a body.
+  const parsePoint = (text: string, splitOnSemicolon = false) => {
+    const raw = String(text || "").trim();
+    const colon = raw.match(/^([^:(]{3,70}):\s+([\s\S]+)$/);
+    if (colon) {
+      const title = colon[1] === colon[1].toUpperCase() ? capitalize(colon[1].toLowerCase()) : colon[1];
+      return { title, body: colon[2] };
+    }
+    if (splitOnSemicolon) {
+      const semi = raw.match(/^([^;]{8,110});\s+([\s\S]+)$/);
+      if (semi) return { title: semi[1], body: capitalize(semi[2]) };
+    }
+    return { title: "", body: raw };
+  };
+
+  // "Trader (82.0, WARNING) executed no trades..." becomes an agent card with a score chip.
+  const parseAgentPoint = (text: string) => {
+    const m = String(text).match(/^(Trader|Rebalancer|Research)\s*\(([^)]*)\)\s*([\s\S]*)$/);
+    if (!m) return null;
+    const [score, label = ""] = m[2].split(",").map((s) => s.trim());
+    const labelUp = label.toUpperCase();
+    const tone: Tone = /HALT|CRITICAL|KILL|FAIL/.test(labelUp) ? "bad" : /WARN/.test(labelUp) ? "warn" : "good";
+    return { name: m[1], score, label: humanize(label), tone, body: capitalize(m[3].replace(/^(is|was)\s+/i, "Is ")) };
+  };
+  const findingTone = (title: string): Tone => (/kill|suspend|halt|breach|critical/i.test(title) ? "bad" : "good");
+  const scoreTone = (sc: number | null | undefined): Tone =>
+    sc === null || sc === undefined ? "neutral" : sc >= 80 ? "good" : sc >= 60 ? "warn" : "bad";
+  const scoreLabel = (sc: number | null | undefined) =>
+    sc === null || sc === undefined ? "Not audited" : sc >= 80 ? "Healthy" : sc >= 60 ? "Needs a look" : "At risk";
   const humanize = (v: string) => {
     const t = String(v || "").replace(/_/g, " ").toLowerCase();
     return t.charAt(0).toUpperCase() + t.slice(1);
@@ -564,7 +605,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const verdictTone = toneOf(verdict);
   const verdictHeadline =
     verdictTone === "neutral"
-      ? "Fleet Not Audited Yet"
+      ? "Fleet not audited yet"
       : verdictTone === "good"
       ? "Everything looks healthy"
       : verdictTone === "warn"
@@ -572,7 +613,6 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       : "Action needed";
 
   const overallScore = hasAudit ? Math.max(0, Math.min(100, Number(totalMeanScore) || 0)) : null;
-  const cadenceLabel = cadence === "1m" ? "month" : cadence === "2w" ? "2 weeks" : "week";
   const ringRadius = 54;
   const ringCircumference = 2 * Math.PI * ringRadius;
   const ringOffset = overallScore !== null ? ringCircumference * (1 - overallScore / 100) : ringCircumference;
@@ -630,8 +670,13 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const recommendedActions: string[] = status?.recommended_tuning || [];
 
   const harmonyBad = conflicts?.cannibalization_detected || conflicts?.threat_to_holdings_detected;
-
+  const cadenceLabel = cadence === "1m" ? "1 month" : cadence === "2w" ? "2 weeks" : "1 week";
   const hasNoData = (!status || !hasAudit) && !isLoading;
+
+  const verdictPoints = splitPoints(status?.verdict_rationale || "");
+  const detailPoints = verdictPoints.slice(1);
+  const visibleVerdictPoints = showAllVerdictPoints ? detailPoints : detailPoints.slice(0, 4);
+  const extraVerdictCount = Math.max(0, detailPoints.length - 4);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6 max-w-6xl mx-auto space-y-5 suite-stagger">
@@ -643,12 +688,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         <div className="space-y-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <span
-              className={`p-2.5 rounded-xl ${
-                isKillSwitchActive
-                  ? "bg-rose-500/10 text-rose-400"
-                  : isAgentActive
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : "bg-amber-500/10 text-amber-400"
+              className={`p-2.5 rounded-xl t-soft t-fg ${
+                isKillSwitchActive ? "tone-bad" : isAgentActive ? "tone-good" : "tone-warn"
               }`}
             >
               {isKillSwitchActive ? <ShieldAlert size={24} /> : isAgentActive ? <ShieldCheck size={24} /> : <AlertTriangle size={24} />}
@@ -675,7 +716,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             aria-pressed={isAgentActive}
             className={`key3d flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border disabled:opacity-50 ${
               isAgentActive
-                ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border-emerald-500/40"
+                ? "tone-good t-chip hover:brightness-110"
                 : "bg-secondary/70 hover:bg-secondary text-foreground border-border"
             }`}
             title="Switch the Watchdog on or off"
@@ -714,7 +755,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             <button
               onClick={() => handleToggleKillSwitch(false)}
               disabled={isTogglingKillSwitch}
-              className="key3d flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/40 text-sm font-semibold disabled:opacity-50"
+              className="key3d flex items-center gap-2 px-4 py-2.5 rounded-xl tone-good t-chip hover:brightness-110 border text-sm font-semibold disabled:opacity-50"
             >
               <Unlock size={16} />
               <span>Resume agents</span>
@@ -737,13 +778,15 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       {isKillSwitchActive && (
         <div
           role="alert"
-          className="p-5 rounded-2xl bg-rose-500/15 border border-rose-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          className="tone-bad t-soft p-5 rounded-2xl border-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
         >
-          <div className="flex items-start gap-3">
-            <ShieldAlert size={26} className="text-rose-400 shrink-0 mt-0.5" />
-            <div>
-              <h2 className="text-base font-bold text-rose-200">Emergency stop is on</h2>
-              <p className="text-sm text-rose-200/90 leading-relaxed mt-1">
+          <div className="flex items-start gap-4">
+            <span className="p-3 rounded-xl bg-card border border-border t-fg shrink-0">
+              <ShieldAlert size={26} />
+            </span>
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-foreground">Emergency stop is on</h2>
+              <p className="text-base text-foreground/85 leading-relaxed">
                 All agents are paused and no new trades will run. Your funds are safe. Resume when you are ready.
               </p>
             </div>
@@ -751,7 +794,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
           <button
             onClick={() => handleToggleKillSwitch(false)}
             disabled={isTogglingKillSwitch}
-            className="key3d-solid flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-black text-sm font-semibold hover:bg-emerald-400 shrink-0 disabled:opacity-50"
+            className="key3d-solid flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-500 text-black text-base font-semibold hover:bg-emerald-400 shrink-0 disabled:opacity-50"
           >
             <Unlock size={16} />
             <span>Resume agents</span>
@@ -763,125 +806,114 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         <div className="flex items-start gap-2.5 p-4 rounded-xl bg-secondary/40 border border-border text-sm text-muted-foreground leading-relaxed">
           <Info size={18} className="text-primary shrink-0 mt-0.5" />
           <span>
-            No fleet audit recorded yet for this wallet. Press <strong className="text-foreground">Check agents now</strong> to run live 4-node quantitative audit across your fleet.
+            No fleet audit is recorded for this wallet yet. Press <strong className="text-foreground">Check agents now</strong> to run a live 4-step audit
+            across your fleet.
           </span>
         </div>
       )}
 
-      {/* Live Streaming 4-Node Watchdog Deliberation Pipeline Execution Monitor */}
+      {/* Live 4-step audit progress */}
       {(isDeliberating || moderatorSteps.length > 0) && (
-        <div className="p-4 sm:p-5 rounded-2xl border border-primary/30 bg-card/90 backdrop-blur-md shadow-xl space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2.5">
-              <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary/15 text-primary">
-                <Shield size={16} className={isDeliberating ? "animate-pulse" : ""} />
+        <section aria-label="Live audit progress" className="p-5 rounded-2xl border border-primary/30 bg-card space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-secondary text-primary">
+                <Shield size={20} className={isDeliberating ? "animate-pulse" : ""} />
               </span>
               <div>
-                <h3 className="text-sm font-bold text-foreground">
-                  4-Node Watchdog Deliberation Engine
-                </h3>
-                <p className="text-[11px] text-muted-foreground font-mono">
-                  Full Fleet Health & Evidence Audit: Trader → Rebalancer → Research → Fleet Synthesis
-                </p>
+                <h2 className="text-lg font-bold text-foreground">Live audit</h2>
+                <p className="text-sm text-muted-foreground">Trader, then Rebalancer, then Research, then the whole fleet</p>
               </div>
             </div>
             {isDeliberating ? (
-              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full animate-pulse">
-                <RotateCw size={11} className="animate-spin" />
-                <span>AUDIT IN PROGRESS</span>
+              <span className="flex items-center gap-2 text-sm font-semibold px-3 py-1 rounded-full border bg-primary/15 text-primary border-primary/30">
+                <RotateCw size={14} className="animate-spin" />
+                Audit in progress
               </span>
             ) : (
-              <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-full">
-                <CheckCircle2 size={11} />
-                <span>FLEET AUDIT COMPLETE</span>
+              <span className={`flex items-center gap-2 text-sm font-semibold px-3 py-1 rounded-full border ${toneChip.good}`}>
+                <CheckCircle2 size={14} />
+                Audit complete
               </span>
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <ol className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {moderatorSteps.map((step) => {
               const isCurrent = isDeliberating && currentActiveModStep === step.step_number;
               const isDone = step.status === "completed";
-
               return (
-                <div
+                <li
                   key={step.step_number}
-                  className={`p-3 rounded-xl border transition-all text-xs space-y-2 ${
+                  className={`p-4 rounded-xl border space-y-2 ${
                     isCurrent
-                      ? "border-primary bg-primary/10 shadow-sm shadow-primary/20"
+                      ? "border-primary bg-primary/10"
                       : isDone
-                      ? "border-emerald-500/30 bg-emerald-500/5"
-                      : "border-border bg-secondary/30 text-muted-foreground"
+                      ? toneSoft.good
+                      : "border-border bg-secondary/40"
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] uppercase font-bold text-muted-foreground">
-                      Node {step.step_number}
-                    </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Step {step.step_number}</span>
                     {isCurrent ? (
-                      <span className="flex items-center gap-1 text-[9px] font-bold text-primary bg-primary/20 px-1.5 py-0.5 rounded animate-pulse">
-                        <RotateCw size={9} className="animate-spin" /> Live
+                      <span className="flex items-center gap-1.5 text-sm font-semibold text-primary">
+                        <RotateCw size={14} className="animate-spin" /> Running
                       </span>
                     ) : isDone ? (
-                      <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
-                        <CheckCircle2 size={9} /> Done
+                      <span className="flex items-center gap-1.5 text-sm font-semibold tone-good t-fg">
+                        <CheckCircle2 size={14} /> Done
                       </span>
                     ) : (
-                      <span className="text-[9px] text-muted-foreground">Queued</span>
+                      <span className="text-sm text-muted-foreground">Queued</span>
                     )}
                   </div>
+                  <h3 className="text-base font-bold text-foreground">{step.step_name}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{step.message}</p>
 
-                  <h4 className="font-bold text-foreground text-xs">{step.step_name}</h4>
-                  <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
-                    {step.message}
-                  </p>
-
-                  {/* Explicit Node Result */}
                   {isDone && (
-                    <div className="pt-1.5 mt-1 border-t border-border/50 text-[10px] space-y-1">
-                      <div className="flex justify-between items-center font-mono">
-                        <span className="text-muted-foreground">Audit Score:</span>
-                        <span className="font-bold text-emerald-400">
-                          {step.score !== undefined ? `${step.score}/100` : "Verified"}
+                    <div className="pt-2 mt-1 border-t border-border space-y-1 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Score</span>
+                        <span className="font-bold font-mono text-foreground">
+                          {step.score !== undefined ? `${step.score} / 100` : "Verified"}
                         </span>
                       </div>
                       {step.step_number === 1 && step.data?.metrics && (
-                        <div className="text-[9px] font-mono text-muted-foreground">
-                          Win-Rate: {Math.round(step.data.metrics.win_rate)}% &middot; R:R {step.data.metrics.avg_risk_reward_ratio}:1
-                        </div>
+                        <p className="text-muted-foreground">
+                          Win rate {Math.round(step.data.metrics.win_rate)}% &middot; Gain vs risk {step.data.metrics.avg_risk_reward_ratio}:1
+                        </p>
                       )}
                       {step.step_number === 2 && step.data?.metrics && (
-                        <div className="text-[9px] font-mono text-muted-foreground">
-                          Drift: {step.data.metrics.current_drift_pct}% &middot; Stables: {step.data.metrics.stablecoin_reserve_pct}%
-                        </div>
+                        <p className="text-muted-foreground">
+                          Drift {step.data.metrics.current_drift_pct}% &middot; Cash {step.data.metrics.stablecoin_reserve_pct}%
+                        </p>
                       )}
                       {step.step_number === 3 && step.data?.hallucination_audit && (
-                        <div className="text-[9px] font-mono text-muted-foreground">
-                          Faithfulness: {Math.round(step.data.hallucination_audit.faithfulness_ratio * 100)}% &middot; Grounded Claims: {step.data.hallucination_audit.grounded_claims_count}
-                        </div>
+                        <p className="text-muted-foreground">
+                          Fact accuracy {Math.round(step.data.hallucination_audit.faithfulness_ratio * 100)}% &middot; Verified claims{" "}
+                          {step.data.hallucination_audit.grounded_claims_count}
+                        </p>
                       )}
                       {step.step_number === 4 && (
-                        <div className="text-[9px] font-mono text-emerald-400 font-bold truncate">
-                          Master: {step.data?.verdict || "OPTIMAL_HEALTH"}
-                        </div>
+                        <p className="font-semibold text-foreground">Verdict: {humanize(step.data?.verdict || "OPTIMAL_HEALTH")}</p>
                       )}
                     </div>
                   )}
-                </div>
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ol>
+        </section>
       )}
 
-      {/* Summary: one score, one sentence */}
-      <section
-        aria-label="Fleet summary"
-        className="tilt3d grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 p-5 sm:p-6 rounded-2xl bg-card border border-border"
-        {...tilt3d(1.5)}
-      >
-        <div className="flex flex-col items-center justify-center gap-2">
-          <div className={`relative w-36 h-36 ${getScoreColor(overallScore)}`}>
+      {/* Summary: the score and the reasons behind it, each in its own card */}
+      <section aria-label="Fleet summary" className="grid grid-cols-1 lg:grid-cols-[19rem_1fr] gap-4">
+        <div
+          className="tilt3d flex flex-col items-center text-center gap-5 p-6 rounded-2xl bg-card border border-border"
+          {...tilt3d(1.5)}
+        >
+          <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Overall fleet health</p>
+          <div className={`relative w-44 h-44 ${getScoreColor(overallScore)}`}>
             <svg viewBox="0 0 128 128" className="w-full h-full -rotate-90" aria-hidden="true">
               <circle cx="64" cy="64" r={ringRadius} fill="none" strokeWidth="10" className="stroke-secondary" />
               <circle
@@ -897,115 +929,171 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-4xl font-extrabold font-mono leading-none">{overallScore !== null ? overallScore : "—"}</span>
-              <span className="text-sm text-muted-foreground mt-1">{overallScore !== null ? "out of 100" : "not audited"}</span>
+              <span className="text-5xl font-extrabold font-mono leading-none">
+                {overallScore !== null ? overallScore.toFixed(1).replace(/\.0$/, "") : "—"}
+              </span>
+              <span className="text-sm text-muted-foreground mt-1.5">{overallScore !== null ? "out of 100" : "not audited"}</span>
             </div>
           </div>
-          <span className="sr-only">Overall health score {overallScore} out of 100</span>
+          <span className="sr-only">
+            {overallScore !== null ? `Overall health score ${overallScore} out of 100` : "Fleet has not been audited yet"}
+          </span>
+
+          <div className="space-y-3">
+            <h2 className="text-2xl font-bold text-foreground text-balance">{verdictHeadline}</h2>
+            <span className={`inline-block px-3.5 py-1 text-sm font-semibold rounded-full border ${toneChip[verdictTone]}`}>
+              {humanize(verdict)}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed text-pretty">
+            The average of your Trader, Rebalancer and Research scores.
+          </p>
         </div>
 
-        <div className="space-y-4 min-w-0">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-2xl font-bold text-foreground text-balance">{verdictHeadline}</h2>
-              <span className={`px-3 py-1 text-sm font-semibold rounded-full border ${toneChip[verdictTone]}`}>{humanize(verdict)}</span>
-            </div>
-            <p className="text-base text-muted-foreground leading-relaxed max-w-2xl text-pretty">
-              {status?.verdict_rationale || "All three agents are working safely inside the limits you set."}
+        <div className="tilt3d p-6 rounded-2xl bg-card border border-border space-y-5" {...tilt3d(1.5)}>
+          <div className="flex items-center gap-3">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <Info size={20} />
+            </span>
+            <h2 className="text-xl font-bold text-foreground">Why the Watchdog gave this verdict</h2>
+          </div>
+
+          {verdictPoints.length === 0 ? (
+            <p className="text-lg text-foreground/85 leading-relaxed">
+              {hasAudit
+                ? "All three agents are working safely inside the limits you set."
+                : "Press Check agents now. The Watchdog will audit your Trader, Rebalancer and Research agents and explain its verdict here."}
             </p>
-          </div>
+          ) : (
+            <>
+              <p className="text-lg text-foreground leading-relaxed font-medium text-pretty">{capitalize(verdictPoints[0])}.</p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-2">
-              <div className="text-sm text-muted-foreground">Money in open trades</div>
-              <div className="text-lg font-bold font-mono text-foreground">
-                ${exposure} <span className="text-sm font-normal text-muted-foreground">of ${dailyLimit} daily limit</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-secondary overflow-hidden" role="presentation">
-                <div
-                  className={`h-full rounded-full transition-all ${exposurePct > 50 ? toneBar.warn : toneBar.good}`}
-                  style={{ width: `${exposurePct}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-2">
-              <div className="text-sm text-muted-foreground flex items-center gap-1.5">
-                <Clock size={14} className="text-primary" /> Next automatic check
-              </div>
-              <div className="text-lg font-bold text-foreground">
-                {status?.days_remaining !== undefined && status.days_remaining > 0 ? `In about ${status.days_remaining} days` : "Scheduled"}
-              </div>
-              <div className="text-sm text-muted-foreground">Runs every {cadenceLabel}</div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-2">
-              <div className="text-sm text-muted-foreground flex items-center gap-1.5">
-                <History size={14} className="text-primary" /> Last check
-              </div>
-              {isDeliberating ? (
-                <>
-                  <div className="text-lg font-bold text-primary flex items-center gap-2">
-                    <RotateCw size={16} className="animate-spin text-primary shrink-0" />
-                    <span>Auditing fleet...</span>
-                  </div>
-                  <div className="text-sm text-muted-foreground">Evaluating 4 deliberation nodes</div>
-                </>
-              ) : isLoading ? (
-                <>
-                  <div className="text-lg font-bold text-foreground flex items-center gap-2">
-                    <RotateCw size={16} className="animate-spin text-primary shrink-0" />
-                    <span>Updating...</span>
-                  </div>
-                  <div className="text-sm text-muted-foreground">Fetching telemetry</div>
-                </>
-              ) : (
-                <>
-                  <div className="text-lg font-bold text-foreground">
-                    {status?.last_run_at ? String(status.last_run_at).slice(0, 10) : "Not run yet"}
-                  </div>
-                  {status?.cid ? (
-                    <button
-                      onClick={() => copyCidToClipboard(status.cid)}
-                      className="flex items-center gap-1.5 text-sm text-primary hover:underline"
-                      title="Copy audit reference ID"
-                    >
-                      {copiedCid ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                      {copiedCid ? "Copied" : "Copy audit ID"}
-                    </button>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Press Check agents now</div>
-                  )}
-                </>
+              {visibleVerdictPoints.length > 0 && (
+                <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {visibleVerdictPoints.map((point, i) => {
+                    const agent = parseAgentPoint(point);
+                    return (
+                      <li key={i} className="p-4 rounded-xl bg-secondary/50 border border-border space-y-2">
+                        {agent ? (
+                          <>
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <h3 className="text-base font-bold text-foreground">{agent.name}</h3>
+                              <span className={`text-sm font-semibold px-2.5 py-0.5 rounded-full border ${toneChip[agent.tone]}`}>
+                                {agent.score} {agent.label && `· ${agent.label}`}
+                              </span>
+                            </div>
+                            <p className="text-base text-foreground/85 leading-relaxed">{agent.body}.</p>
+                          </>
+                        ) : (
+                          <p className="text-base text-foreground/85 leading-relaxed">{capitalize(point)}.</p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-            </div>
-          </div>
 
-          {status?.dropped_trades_count > 0 && (
-            <div className="flex items-start gap-2.5 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
-              <ShieldAlert size={18} className="text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-sm text-foreground/90 leading-relaxed">
-                <strong className="text-amber-400">{status.dropped_trades_count} trades were skipped</strong> by your safety rules to protect your money.
-              </p>
-            </div>
+              {extraVerdictCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllVerdictPoints((v) => !v)}
+                  className="text-sm font-semibold text-primary hover:underline"
+                >
+                  {showAllVerdictPoints ? "Show fewer" : `Show ${extraVerdictCount} more`}
+                </button>
+              )}
+            </>
           )}
         </div>
       </section>
 
+      {/* Status cards, one fact each */}
+      <section aria-label="Status" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(2)}>
+          <div className="flex items-center gap-2.5 text-base font-semibold text-muted-foreground">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <Coins size={18} />
+            </span>
+            Money in open trades
+          </div>
+          <div className="text-3xl font-bold font-mono text-foreground">
+            ${exposure} <span className="text-base font-normal text-muted-foreground">of ${dailyLimit} daily limit</span>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-secondary overflow-hidden" role="presentation">
+            <div
+              className={`h-full rounded-full transition-all ${exposurePct > 50 ? toneBar.warn : toneBar.good}`}
+              style={{ width: `${exposurePct}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(2)}>
+          <div className="flex items-center gap-2.5 text-base font-semibold text-muted-foreground">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <Clock size={18} />
+            </span>
+            Next automatic check
+          </div>
+          <div className="text-3xl font-bold text-foreground">
+            {status?.days_remaining !== undefined && status.days_remaining > 0 ? `In about ${status.days_remaining} days` : "Scheduled"}
+          </div>
+          <div className="text-base text-muted-foreground">Runs every {cadenceLabel}</div>
+        </div>
+
+        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(2)}>
+          <div className="flex items-center gap-2.5 text-base font-semibold text-muted-foreground">
+            <span className="p-2 rounded-lg bg-secondary text-primary">
+              <History size={18} />
+            </span>
+            Last check
+          </div>
+          {isDeliberating ? (
+            <>
+              <div className="text-3xl font-bold text-primary flex items-center gap-3">
+                <RotateCw size={24} className="animate-spin shrink-0" />
+                <span>Auditing...</span>
+              </div>
+              <div className="text-base text-muted-foreground">Running the 4-step audit</div>
+            </>
+          ) : (
+            <>
+              <div className="text-3xl font-bold text-foreground">{status?.last_run_at ? String(status.last_run_at).slice(0, 10) : "Not run yet"}</div>
+              {status?.cid ? (
+                <button
+                  onClick={() => copyCidToClipboard(status.cid)}
+                  className="flex items-center gap-1.5 text-base font-medium text-primary hover:underline"
+                  title="Copy audit reference ID"
+                >
+                  {copiedCid ? <Check size={16} /> : <Copy size={16} />}
+                  {copiedCid ? "Copied" : "Copy audit ID"}
+                </button>
+              ) : (
+                <div className="text-base text-muted-foreground">Press Check agents now</div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+
+      {status?.dropped_trades_count > 0 && (
+        <div className="tone-warn t-soft flex items-start gap-3 p-4 rounded-2xl border">
+          <ShieldAlert size={22} className="t-fg shrink-0 mt-0.5" />
+          <p className="text-base text-foreground leading-relaxed">
+            <strong className="font-bold">{status.dropped_trades_count} trades were skipped</strong> by your safety rules to protect your money.
+          </p>
+        </div>
+      )}
+
       {/* Do the agents work together? */}
       <div
-        className={`p-4 rounded-2xl border flex items-start sm:items-center gap-3 ${
-          harmonyBad ? "bg-rose-500/10 border-rose-500/30" : "bg-emerald-500/10 border-emerald-500/20"
-        }`}
+        className={`${harmonyBad ? toneSoft.bad : toneSoft.good} p-5 rounded-2xl border flex items-start sm:items-center gap-4`}
       >
-        {harmonyBad ? (
-          <AlertTriangle size={22} className="text-rose-400 shrink-0" />
-        ) : (
-          <ShieldCheck size={22} className="text-emerald-400 shrink-0" />
-        )}
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold text-foreground">{harmonyBad ? "Your agents are in conflict" : "Your agents are working together"}</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed mt-0.5">
+        <span className={`p-2.5 rounded-xl bg-card border border-border shrink-0 ${harmonyBad ? "tone-bad" : "tone-good"} t-fg`}>
+          {harmonyBad ? <AlertTriangle size={24} /> : <ShieldCheck size={24} />}
+        </span>
+        <div className="min-w-0 space-y-1">
+          <h3 className="text-lg font-bold text-foreground">{harmonyBad ? "Your agents are in conflict" : "Your agents are working together"}</h3>
+          <p className="text-base text-foreground/85 leading-relaxed">
             {conflicts?.conflict_summary || "No opposing trades were found and your portfolio is protected."}
           </p>
         </div>
@@ -1021,10 +1109,9 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {agentTabs.map(({ id, name, blurb, score, Icon, haltKey }) => {
             const selected = activeTabNode === id;
-            const isAgentAuditing = isDeliberating && currentActiveModStep === (id + 1);
-            const isAgentQueued = isDeliberating && currentActiveModStep < (id + 1);
-            const isAgentFetching = isLoading && score == null;
-            const tone = scoreTone(Number(score));
+            const isAgentAuditing = isDeliberating && currentActiveModStep === id + 1;
+            const isAgentQueued = isDeliberating && currentActiveModStep < id + 1;
+            const tone = scoreTone(score);
             const halted = haltKey ? killedAgents.includes(haltKey) : false;
             return (
               <button
@@ -1042,17 +1129,11 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                     {name}
                   </span>
                   {isAgentAuditing ? (
-                    <span className="text-xs font-mono font-bold text-primary flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded animate-pulse">
-                      <RotateCw size={12} className="animate-spin text-primary" /> Auditing...
+                    <span className="text-sm font-semibold text-primary flex items-center gap-1.5">
+                      <RotateCw size={14} className="animate-spin" /> Auditing
                     </span>
                   ) : isAgentQueued ? (
-                    <span className="text-xs font-mono text-muted-foreground bg-secondary/80 px-2 py-0.5 rounded">
-                      Queued
-                    </span>
-                  ) : isAgentFetching ? (
-                    <span className="text-xs font-mono text-muted-foreground flex items-center gap-1">
-                      <RotateCw size={10} className="animate-spin text-primary" /> Loading...
-                    </span>
+                    <span className="text-sm text-muted-foreground">Queued</span>
                   ) : (
                     <span className={`text-2xl font-bold font-mono ${getScoreColor(score)}`}>
                       {score !== null && score !== undefined ? score : "—"}
@@ -1061,7 +1142,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 </div>
                 <div className="w-full h-2 rounded-full bg-secondary overflow-hidden" role="presentation">
                   {isAgentAuditing ? (
-                    <div className="h-full bg-primary/70 animate-pulse w-full" />
+                    <div className="h-full w-full bg-primary/60 animate-pulse" />
                   ) : (
                     <div
                       className={`h-full rounded-full ${toneBar[tone]}`}
@@ -1072,20 +1153,14 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 <p className="text-sm text-muted-foreground leading-snug">{blurb}</p>
                 <div className="flex items-center gap-2">
                   {isAgentAuditing ? (
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-primary/15 text-primary border-primary/30 flex items-center gap-1">
-                      <RotateCw size={10} className="animate-spin" /> In Review
-                    </span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-primary/15 text-primary border-primary/30">In review</span>
                   ) : isAgentQueued ? (
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-secondary text-muted-foreground border-border">
-                      Pending
-                    </span>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip.neutral}`}>Pending</span>
                   ) : (
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip[tone]}`}>
-                      {scoreLabel(Number(score))}
-                    </span>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip[tone]}`}>{scoreLabel(score)}</span>
                   )}
                   {halted && (
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-rose-500/20 text-rose-300 border-rose-500/40">Paused</span>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${toneChip.bad}`}>Paused</span>
                   )}
                 </div>
               </button>
@@ -1095,17 +1170,16 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
 
         {/* Selected agent report */}
         <div className="tilt3d p-5 sm:p-6 rounded-2xl bg-card border border-border space-y-5" {...tilt3d(1.5)}>
-          {/* Deliberation Status Notice if currently auditing this agent */}
-          {isDeliberating && currentActiveModStep === (activeTabNode + 1) && (
-            <div className="p-3.5 rounded-xl bg-primary/10 border border-primary/30 flex items-center gap-2.5 text-xs text-primary animate-pulse">
-              <RotateCw size={15} className="animate-spin shrink-0 text-primary" />
-              <span>Real-time evaluation in progress for {agentTabs[activeTabNode].name}... live deliberation node streaming.</span>
+          {isDeliberating && currentActiveModStep === activeTabNode + 1 && (
+            <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 flex items-center gap-3 text-base text-foreground">
+              <RotateCw size={18} className="animate-spin shrink-0 text-primary" />
+              <span>The {agentTabs[activeTabNode].name} audit is running right now.</span>
             </div>
           )}
-          {isDeliberating && currentActiveModStep < (activeTabNode + 1) && (
-            <div className="p-3.5 rounded-xl bg-secondary/50 border border-border flex items-center gap-2.5 text-xs text-muted-foreground">
-              <Clock size={15} className="shrink-0 text-muted-foreground" />
-              <span>{agentTabs[activeTabNode].name} evaluation is queued in the 4-node deliberation pipeline.</span>
+          {isDeliberating && currentActiveModStep < activeTabNode + 1 && (
+            <div className="p-4 rounded-xl bg-secondary/50 border border-border flex items-center gap-3 text-base text-muted-foreground">
+              <Clock size={18} className="shrink-0" />
+              <span>The {agentTabs[activeTabNode].name} audit is waiting its turn.</span>
             </div>
           )}
           <div className="flex items-center justify-between gap-3 flex-wrap border-b border-border pb-4">
@@ -1118,41 +1192,41 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 {humanize(activeData.status)}
               </span>
               <span className={`font-mono font-bold text-lg px-3 py-1 rounded-lg bg-secondary ${getScoreColor(activeData.score)}`}>
-                {activeData.score !== null && activeData.score !== undefined ? `${activeData.score} / 100` : "Not Audited"}
+                {activeData.score !== null && activeData.score !== undefined ? `${activeData.score} / 100` : "Not audited"}
               </span>
             </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-secondary/30 border border-border space-y-1.5">
-            <div className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Info size={16} className="text-primary" /> Why this score
+          <div className="p-5 rounded-xl bg-secondary/50 border border-border space-y-2">
+            <div className="text-base font-bold text-foreground flex items-center gap-2">
+              <Info size={18} className="text-primary" /> Why this score
             </div>
-            <p className="text-base text-foreground/90 leading-relaxed text-pretty">{activeData.scoreExplanation}</p>
+            <p className="text-base sm:text-lg text-foreground/90 leading-relaxed text-pretty">{activeData.scoreExplanation}</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-3">
-              <div className="text-base font-semibold text-emerald-400 flex items-center gap-2">
-                <CheckCircle2 size={18} /> What went well
+            <div className="tone-good t-soft p-5 rounded-xl border space-y-3">
+              <div className="text-lg font-bold text-foreground flex items-center gap-2">
+                <CheckCircle2 size={20} className="t-fg" /> What went well
               </div>
-              <ul className="space-y-2.5 text-sm text-foreground/85">
+              <ul className="space-y-3 text-base text-foreground/90">
                 {activeData.strengths.map((s: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
-                    <Check size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                  <li key={idx} className="flex items-start gap-3 leading-relaxed">
+                    <Check size={18} className="t-fg shrink-0 mt-1" />
                     <span>{s}</span>
                   </li>
                 ))}
               </ul>
             </div>
 
-            <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-3">
-              <div className="text-base font-semibold text-amber-400 flex items-center gap-2">
-                <AlertTriangle size={18} /> What needs attention
+            <div className="tone-warn t-soft p-5 rounded-xl border space-y-3">
+              <div className="text-lg font-bold text-foreground flex items-center gap-2">
+                <AlertTriangle size={20} className="t-fg" /> What needs attention
               </div>
-              <ul className="space-y-2.5 text-sm text-foreground/85">
+              <ul className="space-y-3 text-base text-foreground/90">
                 {activeData.whatWasMissed.map((m: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-2.5 leading-relaxed">
-                    <ArrowRight size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                  <li key={idx} className="flex items-start gap-3 leading-relaxed">
+                    <ArrowRight size={18} className="t-fg shrink-0 mt-1" />
                     <span>{m}</span>
                   </li>
                 ))}
@@ -1171,36 +1245,68 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
         </div>
       </section>
 
-      {/* What it found and what to do */}
-      <section aria-label="Findings and next steps" className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(3)}>
-          <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-            <CheckCircle2 size={18} className="text-emerald-400" /> What the Watchdog found
-          </h2>
-          <ul className="space-y-2.5 text-sm text-muted-foreground">
-            {keyFindings.map((f, i) => (
-              <li key={i} className="flex items-start gap-2.5 leading-relaxed">
-                <Check size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
+      {/* What it found: one card per finding */}
+      {keyFindings.length > 0 && (
+      <section aria-label="What the Watchdog found" className="space-y-3">
+        <div className="flex items-center gap-3">
+          <span className="p-2 rounded-lg tone-good t-soft t-fg">
+            <CheckCircle2 size={22} />
+          </span>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">What the Watchdog found</h2>
+            <p className="text-sm text-muted-foreground">{keyFindings.length} observations from the latest check</p>
+          </div>
         </div>
-
-        <div className="tilt3d p-5 rounded-2xl bg-card border border-border space-y-3" {...tilt3d(3)}>
-          <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-            <Sparkles size={18} className="text-primary" /> What you can do next
-          </h2>
-          <ul className="space-y-2.5 text-sm text-muted-foreground">
-            {recommendedActions.map((t, i) => (
-              <li key={i} className="flex items-start gap-2.5 leading-relaxed">
-                <ArrowRight size={16} className="text-primary shrink-0 mt-0.5" />
-                <span>{t}</span>
+        <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {keyFindings.map((f, i) => {
+            const { title, body } = parsePoint(f);
+            const tone = findingTone(title);
+            return (
+              <li key={i} className="flex items-start gap-3 p-4 rounded-2xl bg-card border border-border">
+                <span className={`mt-0.5 p-1.5 rounded-lg shrink-0 t-soft t-fg ${tone === "bad" ? "tone-bad" : "tone-good"}`}>
+                  {tone === "bad" ? <AlertTriangle size={16} /> : <Check size={16} />}
+                </span>
+                <div className="space-y-1 min-w-0">
+                  {title && <h3 className="text-base font-bold text-foreground">{title}</h3>}
+                  <p className="text-base text-foreground/80 leading-relaxed">{body}</p>
+                </div>
               </li>
-            ))}
-          </ul>
-        </div>
+            );
+          })}
+        </ul>
       </section>
+      )}
+
+      {/* What to do next: one numbered card per step */}
+      {recommendedActions.length > 0 && (
+      <section aria-label="What you can do next" className="space-y-3">
+        <div className="flex items-center gap-3">
+          <span className="p-2 rounded-lg bg-secondary text-primary">
+            <Sparkles size={22} />
+          </span>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">What you can do next</h2>
+            <p className="text-sm text-muted-foreground">Suggested steps, most important first</p>
+          </div>
+        </div>
+        <ol className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {recommendedActions.map((t, i) => {
+            const { title, body } = parsePoint(t, true);
+            return (
+              <li key={i} className="flex items-start gap-3 p-4 rounded-2xl bg-card border border-border">
+                <span className="w-8 h-8 shrink-0 rounded-full bg-primary text-primary-foreground text-sm font-bold flex items-center justify-center">
+                  {i + 1}
+                </span>
+                <div className="space-y-1 min-w-0">
+                  {title && <h3 className="text-base font-bold text-foreground">{title}</h3>}
+                  <p className="text-base text-foreground/80 leading-relaxed">{body}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+      )}
 
       {/* Settings */}
       <section aria-label="Watchdog settings" className="space-y-3">
@@ -1309,11 +1415,16 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                 <div key={p.key} className="p-4 rounded-xl bg-secondary/30 border border-border space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-base font-semibold text-foreground">{p.label}</span>
-                    <span className={`font-mono font-bold text-sm px-2.5 py-1 rounded-lg border ${toneChip[tone]}`}>{p.score !== null && p.score !== undefined ? `${p.score} / 100` : "Not Audited"}</span>
+                    <span className={`font-mono font-bold text-sm px-2.5 py-1 rounded-lg border ${toneChip[tone]}`}>
+                      {p.score !== null && p.score !== undefined ? `${p.score} / 100` : "Not audited"}
+                    </span>
                   </div>
                   <p className="text-sm text-muted-foreground">{p.desc}</p>
                   <div className="w-full h-2 rounded-full bg-secondary overflow-hidden" role="presentation">
-                    <div className={`h-full rounded-full transition-all ${toneBar[tone]}`} style={{ width: `${p.score !== null && p.score !== undefined ? p.score : 0}%` }} />
+                    <div
+                      className={`h-full rounded-full transition-all ${toneBar[tone]}`}
+                      style={{ width: `${p.score !== null && p.score !== undefined ? p.score : 0}%` }}
+                    />
                   </div>
                   <p className="text-sm text-foreground/85 leading-relaxed">
                     <strong className="text-primary font-semibold">Result:</strong> {p.detail}
