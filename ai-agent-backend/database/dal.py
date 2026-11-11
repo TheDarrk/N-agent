@@ -1064,6 +1064,7 @@ def create_agent_wallet(
         "user_wallet": user_wallet,
         "chain_type": chain_type.lower(),
         "public_key": keypair["public_key"],
+        "private_key": keypair["private_key"],
         "agent_wallet_address": account_address,
         "label": final_label,
         "wallet_type": clean_wallet_type,
@@ -1218,6 +1219,7 @@ def create_evm_agent_wallet(user_wallet: str, label: str = "Trader Arbitrum / EV
         "user_wallet": user_wallet,
         "chain_type": "evm",
         "public_key": keypair["address"],
+        "private_key": keypair["private_key"],
         "agent_wallet_address": keypair["address"],
         "label": final_label,
         "status": "active"
@@ -1239,6 +1241,46 @@ def get_fund_agent_wallet_payload(user_wallet: str, key_id: int, amount_near: fl
     return {
         "receiverId": raw_addr,
         "actions": [{"type": "Transfer", "params": {"deposit": deposit_yocto}}]
+    }
+
+
+def export_agent_wallet_key(user_wallet: str, key_id: int) -> Dict[str, Any]:
+    """
+    Export the private key and access credentials of an agent wallet for the owner user.
+    Strictly verifies that the wallet belongs to user_wallet (the primary key in core_user_wallets).
+    Agents NEVER have access to this endpoint or to raw private keys.
+    """
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM core_agent_wallets WHERE id = ? AND wallet_address = ?",
+        (key_id, user_wallet)
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise ValueError(f"Agent wallet #{key_id} not found or does not belong to user {user_wallet}")
+
+    enc = get_encryption()
+    encrypted_priv = row["encrypted_private_key"]
+    if not encrypted_priv:
+        raise ValueError("No private key stored for this agent wallet (imported read-only)")
+
+    try:
+        decrypted_priv = enc.decrypt_field(user_wallet, "agent_priv_key", encrypted_priv)
+    except Exception as e:
+        # Fallback to key_manager if needed
+        from key_manager import decrypt_private_key
+        decrypted_priv = decrypt_private_key(encrypted_priv, wallet_address=user_wallet)
+
+    account_addr = row["agent_account_id"] or row["public_key"]
+    return {
+        "id": row["id"],
+        "user_wallet": row["wallet_address"],
+        "chain_type": row["chain_type"],
+        "public_key": row["public_key"],
+        "private_key": decrypted_priv,
+        "agent_wallet_address": account_addr,
+        "label": row["label"] or "Agent Wallet",
+        "wallet_type": row["wallet_type"]
     }
 
 

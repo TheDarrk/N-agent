@@ -1569,6 +1569,28 @@ async def generate_evm_agent_wallet_endpoint(body: GenerateEvmAgentWalletRequest
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ExportAgentKeyRequest(BaseModel):
+    user_wallet: str
+    key_id: int
+
+
+@app.post("/api/agent-wallet/export-key")
+async def export_agent_key_endpoint(body: ExportAgentKeyRequest):
+    """
+    Allow the authenticated user to export / copy their agent's private key and access credentials.
+    Strictly verifies ownership against user_wallet (the primary key in core_user_wallets).
+    Autonomous agents NEVER have access to this endpoint or raw private keys.
+    """
+    from database import export_agent_wallet_key
+    try:
+        credentials = export_agent_wallet_key(body.user_wallet, body.key_id)
+        return {"status": "success", "credentials": credentials}
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     if not os.getenv("NEAR_AI_API_KEY"):
         print("WARNING: NEAR_AI_API_KEY not found in environment variables. Agent will fail.")
