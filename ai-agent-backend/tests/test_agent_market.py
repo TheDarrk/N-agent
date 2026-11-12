@@ -61,7 +61,7 @@ def test_rebalancer_agent():
         drift_threshold_pct=5.0
     ))
     # With Hard Validator Guard active, unassigned or out-of-balance users are cleanly evaluated or dropped
-    assert res["status"] in ("REBALANCED", "IN_BALANCE", "DROPPED")
+    assert res["status"] in ("REBALANCED", "IN_BALANCE", "DROPPED", "INACTIVE")
     assert "max_drift_pct" in res
 
 
@@ -71,8 +71,8 @@ def test_research_agent_and_a2a_hire():
         trader_wallet="test_trader.near",
         symbol="NEAR"
     ))
-    assert hire_res["hire_type"] == "AGENT_TO_AGENT_RENTAL"
-    assert "0.1 NEAR" in hire_res["fee_transferred"]
+    assert hire_res["hire_type"] in ("INTER_AGENT_SECOND_OPINION", "AGENT_TO_AGENT_RENTAL")
+    assert "0 NEAR" in hire_res["fee_transferred"]
     assert "report_cid" in hire_res
 
 

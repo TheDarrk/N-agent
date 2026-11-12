@@ -132,7 +132,7 @@ async def query_rebalancer_status_tool(user_wallet: str) -> str:
 @tool
 async def request_research_report_tool(topic: str, user_wallet: str) -> str:
     """
-    Request a specialized institutional research report from the Research Agent (0.1 NEAR fee).
+    Request a specialized institutional research report from the Research Agent (Free - 0 NEAR).
     
     Args:
         topic: The research subject (e.g. "NEAR Liquid Staking Yields" or "AI Agent Microstructure")
@@ -149,7 +149,7 @@ async def request_research_report_tool(topic: str, user_wallet: str) -> str:
             f"**Summary:** {report.get('summary')}\n"
             f"**Key Catalysts:** {', '.join(report.get('key_catalysts', []))}\n"
             f"**Decentralized Storage CID:** `{report.get('cid')}`\n"
-            f"**Fee Settled:** {report.get('fee_paid_near')} NEAR -> {report.get('creator_account')}"
+            f"**Fee Settled:** Free (0 NEAR)"
         )
     except Exception as e:
         return f"Error generating research report: {str(e)}"
@@ -158,9 +158,9 @@ async def request_research_report_tool(topic: str, user_wallet: str) -> str:
 @tool
 async def trader_hire_research_tool(user_wallet: str, symbol: str = "NEAR") -> str:
     """
-    Demonstrate Track 7 Agent-to-Agent Hiring Economy:
-    The Trader Agent autonomously pays and hires the Research Agent (0.1 NEAR fee)
-    to receive an actionable alpha signal.
+    Inter-Agent Alpha Collaboration:
+    The Trader Agent consults the Research Agent (0 NEAR fee - Free)
+    to receive an actionable second opinion and alpha signal.
     
     Args:
         user_wallet: The trader's wallet address
@@ -170,11 +170,11 @@ async def trader_hire_research_tool(user_wallet: str, symbol: str = "NEAR") -> s
         res = await _researcher.hire_by_trader_agent(trader_wallet=user_wallet, symbol=symbol)
         signal = res["signal"]
         return (
-            f"🤝 **Agent-to-Agent Hire Completed:**\n"
-            f"- **Payer Agent:** {res['from_agent']} ({user_wallet})\n"
-            f"- **Recipient Agent:** {res['to_agent']} ({res['recipient']})\n"
-            f"- **Fee Transferred:** {res['fee_transferred']}\n"
-            f"- **Alpha Signal Returned:** {signal.get('action')} {signal.get('target_asset')} | Confidence: {signal.get('confidence')}%\n"
+            f"🤝 **Agent-to-Agent Second Opinion Completed:**\n"
+            f"- **Requesting Agent:** {res['from_agent']} ({user_wallet})\n"
+            f"- **Consulted Agent:** {res['to_agent']} ({res['recipient']})\n"
+            f"- **Fee:** {res['fee_transferred']}\n"
+            f"- **Alpha Signal Returned:** {signal.get('action') if isinstance(signal, dict) else signal}\n"
             f"- **Report CID:** `{res['report_cid']}`"
         )
     except Exception as e:
@@ -309,7 +309,7 @@ async def agent_suite_mcp_tool(
                 f"🔬 **Research Agent MCP Status ({user_wallet}):**\n"
                 f"- **Capability:** Institutional Multi-Node Research & Citation Grounding\n"
                 f"- **Decentralized Storage:** IPFS Pinning Active\n"
-                f"- **Agent-to-Agent Economy:** Track 7 Rental Active (0.1 NEAR)"
+                f"- **Inter-Agent Collaboration:** Second Opinion Active (Free - 0 NEAR)"
             )
 
         elif clean_agent in ("moderator", "watchdog"):

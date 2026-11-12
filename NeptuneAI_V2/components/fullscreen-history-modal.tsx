@@ -949,7 +949,7 @@ export default function FullScreenHistoryModal({
                                 Bullish: {tr.twitter_sentiment?.bullish_pct || 50}% • Bearish: {tr.twitter_sentiment?.bearish_pct || 50}%
                               </p>
                               <p className="text-[10px] text-muted-foreground">
-                                Researcher Agent Rental: {tr.researcher_intel ? "0.1 NEAR A2A Fee Settled" : "Standby"}
+                                Researcher Agent Second Opinion: {tr.researcher_intel ? "Delivered (Free)" : "Standby"}
                               </p>
                             </div>
 

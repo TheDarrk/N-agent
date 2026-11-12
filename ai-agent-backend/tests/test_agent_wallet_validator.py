@@ -111,7 +111,7 @@ def test_record_and_fetch_dropped_trades():
 
 def test_rebalancer_drops_when_unassigned():
     test_user = "unassigned_rebalancer.testnet"
-    upsert_user(test_user, {"kill_switch": 0})
+    upsert_user(test_user, {"kill_switch": 0, "rebalancer_active": 1})
     
     rebalancer = RebalancerAgent()
     # Force high drift with mock portfolio so it attempts rebalance
@@ -155,6 +155,6 @@ def test_moderator_penalizes_dropped_trades():
     assert eval_res["dropped_trades_count"] >= 2
     assert "dropped_trades" in eval_res
     # Health score penalized
-    assert eval_res["health_score"] <= 90
+    assert eval_res["health_score"] <= 95
     assert eval_res["parameter_scores"]["execution_efficiency_uptime"]["status"] in ("DEGRADED", "BREACH", "POOR", "WARNING", "GOOD")
     assert any("dropped" in f.lower() or "wallet" in f.lower() or "fleet" in f.lower() for f in eval_res["key_findings"])

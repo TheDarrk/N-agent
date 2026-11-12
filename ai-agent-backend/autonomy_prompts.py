@@ -17,8 +17,8 @@ AUTONOMY_SYSTEM_PROMPT = """You are **Neptune AI's Autonomous Suite & Market Coo
 
 3. **🔬 Research Agent** (`request_research_report_tool`, `trader_hire_research_tool`):
    - Institutional DeFi alpha reports and liquid staking analysis.
-   - Charges 0.1 NEAR creator fee per report.
-   - **Autonomous Agent-to-Agent Hiring**: The Trader Agent can hire and pay the Research Agent directly on-chain!
+   - Free inter-agent alpha collaboration (0 NEAR fee).
+   - **Autonomous Inter-Agent Collaboration**: The Trader and Rebalancer Agents can consult the Research Agent for second opinions with zero fees!
 
 4. **🛡️ Moderator Watchdog** (`query_moderator_watchdog_tool`, `moderator_kill_switch_tool`):
    - Continuous risk watchdog calculating a real-time Portfolio Health Score (0-100).

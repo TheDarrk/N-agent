@@ -51,11 +51,23 @@ def init_db(db_path: Optional[str] = None):
             "rsi_oversold": "REAL DEFAULT 30.0",
             "rsi_sweet_min": "REAL DEFAULT 45.0",
             "rsi_sweet_max": "REAL DEFAULT 62.0",
+            "ema_fast": "REAL DEFAULT 20.0",
+            "ema_slow": "REAL DEFAULT 50.0",
+            "ema_macro": "REAL DEFAULT 200.0",
+            "ema_days": "INTEGER DEFAULT 14",
             "pro_settings_json": "TEXT DEFAULT '{}'"
         }
         for col_name, col_type in pro_cols.items():
             if col_name not in t_cols:
                 conn.execute(f"ALTER TABLE trader_config ADD COLUMN {col_name} {col_type}")
+    except Exception:
+        pass
+
+    # Safe migration: ensure source_links_json column exists in research_config
+    try:
+        r_cols = [c["name"] for c in conn.execute("PRAGMA table_info(research_config)").fetchall()]
+        if "source_links_json" not in r_cols:
+            conn.execute("ALTER TABLE research_config ADD COLUMN source_links_json TEXT DEFAULT '[\"https://docs.near.org\", \"https://near.org/blog\", \"https://metapool.app\"]'")
     except Exception:
         pass
 
@@ -106,6 +118,10 @@ def get_user(wallet_address: str) -> Optional[Dict[str, Any]]:
             tc.rsi_oversold AS trader_rsi_oversold,
             tc.rsi_sweet_min AS trader_rsi_sweet_min,
             tc.rsi_sweet_max AS trader_rsi_sweet_max,
+            tc.ema_fast AS trader_ema_fast,
+            tc.ema_slow AS trader_ema_slow,
+            tc.ema_macro AS trader_ema_macro,
+            tc.ema_days AS trader_ema_days,
             tc.pro_settings_json AS trader_pro_settings,
             rc.agent_active AS rebalancer_active,
             rc.target_stables_pct AS rebalancer_target_stables,
@@ -281,6 +297,22 @@ def upsert_user(wallet_address: str, settings: Dict[str, Any] = None) -> Dict[st
     if "trader_rsi_sweet_max" in settings:
         trader_updates.append("rsi_sweet_max = ?")
         trader_params.append(float(settings["trader_rsi_sweet_max"]))
+    if "trader_ema_fast" in settings or "ema_fast" in settings:
+        val = settings.get("trader_ema_fast") if "trader_ema_fast" in settings else settings.get("ema_fast")
+        trader_updates.append("ema_fast = ?")
+        trader_params.append(float(val))
+    if "trader_ema_slow" in settings or "ema_slow" in settings:
+        val = settings.get("trader_ema_slow") if "trader_ema_slow" in settings else settings.get("ema_slow")
+        trader_updates.append("ema_slow = ?")
+        trader_params.append(float(val))
+    if "trader_ema_macro" in settings or "ema_macro" in settings:
+        val = settings.get("trader_ema_macro") if "trader_ema_macro" in settings else settings.get("ema_macro")
+        trader_updates.append("ema_macro = ?")
+        trader_params.append(float(val))
+    if "trader_ema_days" in settings or "ema_days" in settings:
+        val = settings.get("trader_ema_days") if "trader_ema_days" in settings else settings.get("ema_days")
+        trader_updates.append("ema_days = ?")
+        trader_params.append(int(val))
     if "trader_pro_settings" in settings:
         trader_updates.append("pro_settings_json = ?")
         p_val = settings["trader_pro_settings"]
@@ -1856,21 +1888,6 @@ def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confide
     conn.commit()
     conn.close()
 
-    # Mirror report to active marketplace subscribers
-    try:
-        mirror_report_to_subscribers(
-            creator_wallet=wallet_address,
-            report_data={
-                "title": title,
-                "query": query,
-                "cid": cid,
-                "summary": full_report.get("executive_summary", ""),
-                **full_report
-            }
-        )
-    except Exception as me:
-        print(f"[REPORT MIRROR ERROR] {me}")
-
     return cid
 
 
@@ -1935,9 +1952,6 @@ def save_research_report(wallet_address: str, title: str, query: str, full_repor
         print(f"[REPORT MIRROR ERROR] {me}")
 
     return cid
-
-
-def get_user_research_reports(wallet_address: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Retrieves research reports strictly isolated to the requesting user."""
     if not wallet_address or not str(wallet_address).strip():
         return []

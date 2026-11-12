@@ -12,7 +12,7 @@ Neptune AI is a universal cross-chain transaction assistant built on **NEAR Inte
 -   **Autonomous Fleet Coordination** — Coordinate 4 specialized agents accessible at `/agent-suite`:
     1. **Quantitative Trader Agent**: Automated momentum & chart pattern scalping with LLM-as-a-Judge, ATR dynamic TP/SL, and configurable trade limits (max capital $, max trades per day/week/month).
     2. **Portfolio Rebalancer Agent**: Dynamic 70/30 stables/NEAR ratio custodian.
-    3. **Deep Research & Alpha Agent**: Institutional DeFi research & yield intel with 0.1 NEAR creator compensation.
+    3. **Deep Research & Alpha Agent**: Institutional DeFi research & yield intel (Free inter-agent collaboration, 0 NEAR fee).
     4. **Moderator Watchdog Agent**: Real-time portfolio health custodian and emergency kill switch.
 -   **Agent Execution Wallets (Autonomous Key Pool)**:
     - Users can create up to 4 dedicated Agent Wallets in their pool.
@@ -258,7 +258,8 @@ You have access to the following tools. **Choosing the RIGHT tool is critical.**
 9. **Cross-chain swap without dest address   ask user for address BEFORE calling swap tool**
 10. **NEVER ask for the SOURCE wallet address if the user is connected. YOU ALREADY HAVE IT in the `[User wallet: ...]` context.**
 11. **Autonomy-related requests (strategies, settings, kill switch)   These are handled by a dedicated Autonomy sub-agent. Just acknowledge the feature exists and guide the user to the Autonomy panel.**
-12. **Direct token transfers (e.g. 'transfer 100 SHITZU to defishards.near', 'send 5 NEAR to bob.near')   Use `transfer_token_tool` (NEVER `get_swap_quote_tool`). A transfer between accounts is NOT a swap!**
+12. **Direct token transfers (e.g. 'transfer 100 SHITZU to defishards.near', 'send 5 NEAR to bob.near') — Use `transfer_token_tool` (NEVER `get_swap_quote_tool`). A transfer between accounts is NOT a swap!**
+13. **Cross-Chain / Multichain Trading (e.g. 'trade into multichain ETH', 'swap to ETH on Base/Ethereum', 'buy SOL on Solana'): 'Other blockchain' means true cross-chain trading to that destination blockchain, NOT just wrapped NEP-141 tokens on NEAR (`[NEAR] ETH`). Pass `destination_chain` (e.g. `eth`, `base`, `arbitrum`, `sol`) to route real cross-chain intents to the target blockchain.**
 
 **Context Boundaries:**
 You should ONLY discuss topics related to:

@@ -697,6 +697,10 @@ class ResearchRequest(BaseModel):
 class A2AHireRequest(BaseModel):
     user_wallet: str
     symbol: Optional[str] = "NEAR"
+    research_topic: Optional[str] = None
+    focus_area: Optional[str] = None
+    source_links: Optional[List[str]] = None
+    caller_agent: Optional[str] = "Trader"
 
 class ModeratorKillSwitchRequest(BaseModel):
     user_wallet: str
@@ -1016,12 +1020,16 @@ async def research_stream_endpoint(body: ResearchRequest):
 
 @app.post("/api/research/hire")
 async def research_agent_hire(body: A2AHireRequest):
-    """Agent-to-Agent Hire: Trader Agent hires Research Agent."""
+    """Agent-to-Agent Second Opinion & Research Collaboration (0 NEAR Fee - Free)."""
     from autonomous_agents.research_agent import ResearchAgent
     researcher = ResearchAgent()
     return await researcher.hire_by_trader_agent(
         trader_wallet=body.user_wallet,
-        symbol=body.symbol or "NEAR"
+        symbol=body.symbol or "NEAR",
+        research_topic=body.research_topic,
+        focus_area=body.focus_area,
+        source_links=body.source_links,
+        caller_agent=body.caller_agent or "Trader"
     )
 
 @app.get("/api/research/reports")

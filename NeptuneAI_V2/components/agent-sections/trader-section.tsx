@@ -186,6 +186,10 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   const [rsiOversold, setRsiOversold] = useState(30);
   const [rsiSweetMin, setRsiSweetMin] = useState(45);
   const [rsiSweetMax, setRsiSweetMax] = useState(62);
+  const [emaFast, setEmaFast] = useState(20);
+  const [emaSlow, setEmaSlow] = useState(50);
+  const [emaMacro, setEmaMacro] = useState(200);
+  const [emaDays, setEmaDays] = useState(14);
   const [selectedChartTrace, setSelectedChartTrace] = useState<any>(null);
 
   // Persistence & Save State
@@ -244,6 +248,18 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
           if (u.trader_rsi_sweet_max !== undefined && u.trader_rsi_sweet_max !== null) setRsiSweetMax(Number(u.trader_rsi_sweet_max));
           else if (u.rsi_sweet_max !== undefined && u.rsi_sweet_max !== null) setRsiSweetMax(Number(u.rsi_sweet_max));
+
+          if (u.trader_ema_fast !== undefined && u.trader_ema_fast !== null) setEmaFast(Number(u.trader_ema_fast));
+          else if (u.ema_fast !== undefined && u.ema_fast !== null) setEmaFast(Number(u.ema_fast));
+
+          if (u.trader_ema_slow !== undefined && u.trader_ema_slow !== null) setEmaSlow(Number(u.trader_ema_slow));
+          else if (u.ema_slow !== undefined && u.ema_slow !== null) setEmaSlow(Number(u.ema_slow));
+
+          if (u.trader_ema_macro !== undefined && u.trader_ema_macro !== null) setEmaMacro(Number(u.trader_ema_macro));
+          else if (u.ema_macro !== undefined && u.ema_macro !== null) setEmaMacro(Number(u.ema_macro));
+
+          if (u.trader_ema_days !== undefined && u.trader_ema_days !== null) setEmaDays(Number(u.trader_ema_days));
+          else if (u.ema_days !== undefined && u.ema_days !== null) setEmaDays(Number(u.ema_days));
 
           hasLoadedSettingsRef.current = accountId;
           if (u.trader_timeframe || u.max_tx_amount !== undefined) setSettingsConfirmed(true);
@@ -399,6 +415,10 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           trader_rsi_oversold: rsiOversold,
           trader_rsi_sweet_min: rsiSweetMin,
           trader_rsi_sweet_max: rsiSweetMax,
+          trader_ema_fast: emaFast,
+          trader_ema_slow: emaSlow,
+          trader_ema_macro: emaMacro,
+          trader_ema_days: emaDays,
         }),
       });
       if (res.ok) {
@@ -557,6 +577,14 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           setRsiSweetMin={setRsiSweetMin}
           rsiSweetMax={rsiSweetMax}
           setRsiSweetMax={setRsiSweetMax}
+          emaFast={emaFast}
+          setEmaFast={setEmaFast}
+          emaSlow={emaSlow}
+          setEmaSlow={setEmaSlow}
+          emaMacro={emaMacro}
+          setEmaMacro={setEmaMacro}
+          emaDays={emaDays}
+          setEmaDays={setEmaDays}
         />
 
         {/* Right 2 cols: Live Scan Decision & Active Position Monitor */}
@@ -890,7 +918,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                       <div className="flex items-center justify-between">
                         <span className="flex items-center gap-1.5 font-bold text-purple-400 text-[11px]">
                           <BrainCircuit size={13} />
-                          Researcher Agent Hired (0.1 NEAR)
+                          Researcher Agent Second Opinion (Free)
                         </span>
                         <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-bold">
                           {typeof activeRun.researcher_intel.signal === 'object' && activeRun.researcher_intel.signal !== null

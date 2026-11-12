@@ -32,7 +32,7 @@ function uid() {
 const SUGGESTIONS = [
   { icon: TrendingUp, label: "What is my Trader Agent doing right now?", desc: "Check active trades & TP/SL" },
   { icon: Sparkles, label: "Scan NEAR market for high confidence setups", desc: "4-node LLM Judge pipeline" },
-  { icon: Coins, label: "Have my Trader hire Research Agent for 0.1 NEAR", desc: "Autonomous Agent-to-Agent Rental" },
+  { icon: Coins, label: "Have my Trader hire Research Agent for second opinion", desc: "Inter-Agent Alpha Collaboration (Free)" },
   { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator Watchdog status" },
 ];
 

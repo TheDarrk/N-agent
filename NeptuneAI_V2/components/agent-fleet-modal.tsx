@@ -107,8 +107,8 @@ export default function AgentFleetModal({
       avatarBg: "bg-purple-500/20 text-purple-400 border-purple-500/30",
       icon: FileText,
       status: fleetData?.kill_switch_active ? "HALTED" : "ACTIVE",
-      stats: fleetData?.agents?.research?.summary || "Produces institutional alpha reports & fulfills Trader rentals for 0.1 NEAR",
-      highlights: ["Fee: 0.1 NEAR / report", "Storage: IPFS Recent 10", "A2A Economy: Active"]
+      stats: fleetData?.agents?.research?.summary || "Produces institutional alpha reports & fulfills Trader rentals (Free - 0 NEAR)",
+      highlights: ["Fee: Free (0 NEAR)", "Storage: IPFS Recent 10", "A2A Collaboration: Active"]
     },
     {
       id: "moderator",

@@ -488,14 +488,26 @@ async def analyze_token_indicators(
     timeframe: str = "1h",
     limit: int = 250,
     include_lookback_summary: bool = False,
+    period_fast: int = 20,
+    period_slow: int = 50,
+    period_macro: int = 200,
+    days: int = 14,
+    pro_settings: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Computes a full technical indicator snapshot for a token:
-    RSI, EMA 20/50/200, ATR, volume delta, trend regime.
+    RSI, configurable EMAs (fast, slow, macro), ATR, volume delta, trend regime.
     Uses closed candles only (drops currently forming candle to prevent look-ahead bias).
-    Returns None for EMA200 when fewer than 200 closed candles are available.
+    Returns None for EMA macro when fewer candles than macro period are available.
     """
-    raw_candles = await fetch_klines(symbol=symbol, timeframe=timeframe, limit=max(limit, 220))
+    cfg = pro_settings or {}
+    fast_p = int(cfg.get("ema_fast") or cfg.get("trader_ema_fast") or period_fast or 20)
+    slow_p = int(cfg.get("ema_slow") or cfg.get("trader_ema_slow") or period_slow or 50)
+    macro_p = int(cfg.get("ema_macro") or cfg.get("trader_ema_macro") or period_macro or 200)
+    days_p = int(cfg.get("ema_days") or cfg.get("trader_ema_days") or days or 14)
+
+    fetch_limit = max(limit, macro_p + 20)
+    raw_candles = await fetch_klines(symbol=symbol, timeframe=timeframe, limit=fetch_limit)
     # Exclude the still-forming candle to avoid look-ahead noise and mid-bar signal flip
     candles = raw_candles[:-1] if len(raw_candles) > 1 else raw_candles
 
@@ -506,17 +518,17 @@ async def analyze_token_indicators(
 
     current_price = closes[-1] if closes else 0.0
     rsi = _calc_rsi(closes, period=14)
-    ema20 = _calc_ema(closes, period=20)
-    ema50 = _calc_ema(closes, period=50)
-    ema200 = _calc_ema(closes, period=200)  # None if len(closes) < 200
+    ema_fast = _calc_ema(closes, period=fast_p)
+    ema_slow = _calc_ema(closes, period=slow_p)
+    ema_macro = _calc_ema(closes, period=macro_p)  # None if len(closes) < macro_p
     atr = _calc_atr(highs, lows, closes, period=14)
 
-    # Slope of EMA20
-    if len(closes) >= 3 and ema20 is not None:
-        prev_ema20 = _calc_ema(closes[:-1], min(len(closes) - 1, 20))
-        slope20 = round(((ema20 - prev_ema20) / max(1e-6, prev_ema20)) * 100, 2) if prev_ema20 else 0.0
+    # Slope of Fast EMA
+    if len(closes) >= 3 and ema_fast is not None:
+        prev_ema_fast = _calc_ema(closes[:-1], min(len(closes) - 1, fast_p))
+        slope_fast = round(((ema_fast - prev_ema_fast) / max(1e-6, prev_ema_fast)) * 100, 2) if prev_ema_fast else 0.0
     else:
-        slope20 = 0.0
+        slope_fast = 0.0
 
     # Institutional indicators & structure hint
     macd_data = _calc_macd(closes)
@@ -524,23 +536,23 @@ async def analyze_token_indicators(
     bb_data = _calc_bollinger_bands(closes, period=20, num_std=2.0)
     structure_hint = _determine_structure_hint(
         current_price=current_price,
-        ema20=ema20,
-        ema50=ema50,
-        ema200=ema200,
-        slope20=slope20,
+        ema20=ema_fast,
+        ema50=ema_slow,
+        ema200=ema_macro,
+        slope20=slope_fast,
         rsi=rsi,
         adx_info=adx_data
     )
 
     # Determine trend & signals (safe when EMAs are None)
-    if ema20 is not None and ema50 is not None:
-        if ema20 > ema50 and slope20 > 0:
+    if ema_fast is not None and ema_slow is not None:
+        if ema_fast > ema_slow and slope_fast > 0:
             ema_trend = "BULLISH"
-        elif ema20 < ema50 and slope20 < 0:
+        elif ema_fast < ema_slow and slope_fast < 0:
             ema_trend = "BEARISH"
         else:
             ema_trend = "SIDEWAYS"
-        ema_cross = "GOLDEN" if (ema20 >= ema50 and len(closes) > 2 and closes[-2] <= ema50) else ("DEATH" if ema20 < ema50 else "NEUTRAL")
+        ema_cross = "GOLDEN" if (ema_fast >= ema_slow and len(closes) > 2 and closes[-2] <= ema_slow) else ("DEATH" if ema_fast < ema_slow else "NEUTRAL")
     else:
         ema_trend = "INSUFFICIENT_HISTORY"
         ema_cross = "NEUTRAL"
@@ -568,10 +580,15 @@ async def analyze_token_indicators(
         "timeframe": timeframe,
         "current_price": current_price,
         "rsi": rsi,
-        "ema20": ema20,
-        "ema50": ema50,
-        "ema200": ema200,
-        "slope20": slope20,
+        "ema20": ema_fast,
+        "ema50": ema_slow,
+        "ema200": ema_macro,
+        "ema_fast": ema_fast,
+        "ema_slow": ema_slow,
+        "ema_macro": ema_macro,
+        "ema_periods": {"fast": fast_p, "slow": slow_p, "macro": macro_p, "days": days_p},
+        "slope20": slope_fast,
+        "slope_fast": slope_fast,
         "ema_trend": ema_trend,
         "ema_cross": ema_cross,
         "structure_hint": structure_hint,

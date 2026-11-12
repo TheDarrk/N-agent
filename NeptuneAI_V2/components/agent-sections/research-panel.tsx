@@ -354,7 +354,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-muted-foreground">Fee:</span>
             <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20">
-              0.1 NEAR
+              Free (0 NEAR)
             </span>
           </div>
         </div>

@@ -1286,6 +1286,25 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "active_strategy": active_strategy
             }
 
+        # Inter-Agent Second Opinion: Rebalancer requests Fundamental & Peg Audit on underweight asset
+        researcher_intel = None
+        try:
+            from autonomous_agents.research_agent import ResearchAgent
+            researcher = ResearchAgent()
+            rebal_topic = f"Portfolio Allocation & Risk Audit for Rebalancing {overweight.upper()} -> {underweight.upper()}"
+            rebal_focus = f"Peg Stability, DEX Liquidity Depth, Smart Contract Security, Drift Volatility for {underweight.upper()}"
+            print(f"[REBALANCER-RESEARCH] Requesting second opinion on {underweight.upper()} (0 NEAR Fee - Free Inter-Agent Alpha)...")
+            researcher_intel = await researcher.hire_by_trader_agent(
+                trader_wallet=user_wallet,
+                symbol=underweight.upper(),
+                research_topic=rebal_topic,
+                focus_area=rebal_focus,
+                caller_agent="Rebalancer"
+            )
+            print(f"[REBALANCER-RESEARCH] Second opinion signal: {researcher_intel.get('signal')} | Info: {researcher_intel.get('info_note')}")
+        except Exception as res_err:
+            print(f"[REBALANCER-RESEARCH] Second opinion notice: {res_err}")
+
         # Initialize Execution State Record in SQLite
         execution_id = f"exec_reb_{int(datetime.now(timezone.utc).timestamp())}_{overweight[:3]}_{underweight[:3]}"
         strat_id = active_strategy.get("id") if active_strategy else None

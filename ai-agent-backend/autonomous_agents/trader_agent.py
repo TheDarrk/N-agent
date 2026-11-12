@@ -1226,12 +1226,19 @@ class TraderAgent:
         # 2. Indicators Engine & Candle History & Pattern Recognition.
         # Reuse the functional scanner's complete result when the LLM selected
         # one of its rows; otherwise fetch the requested symbol once.
+        user = get_user(user_wallet) or {}
+        user_pro = {
+            "ema_fast": user.get("trader_ema_fast") or 20,
+            "ema_slow": user.get("trader_ema_slow") or 50,
+            "ema_macro": user.get("trader_ema_macro") or 200,
+            "ema_days": user.get("trader_ema_days") or 14
+        }
         if selected_scan_candidate and selected_scan_candidate.get("pattern_data") and selected_scan_candidate.get("indicators", {}).get("candles"):
             indicators = selected_scan_candidate["indicators"]
             candles = indicators["candles"]
             pattern_data = selected_scan_candidate["pattern_data"]
         else:
-            indicators = await analyze_token_indicators(symbol=selected_symbol, timeframe=timeframe)
+            indicators = await analyze_token_indicators(symbol=selected_symbol, timeframe=timeframe, pro_settings=user_pro)
             candles = indicators.get("candles") or await fetch_klines(symbol=selected_symbol, timeframe=timeframe, limit=50)
             pattern_data = analyze_chart_patterns(
                 candles=candles,
@@ -1345,23 +1352,31 @@ class TraderAgent:
             if not enable_researcher:
                 return None
             try:
-                print(f"[TRADER-PLUGIN] Hiring Research Agent for {selected_symbol} (0.1 NEAR fee)...")
+                topic = f"Deep Fundamental & Alpha Second Opinion for {selected_symbol} Spot Execution"
+                focus_area = f"Microstructure, DEX Liquidity Depth, Smart Contract Audits, Whale Flows, Catalyst Unlocks for {selected_symbol}"
+                print(f"[TRADER-PLUGIN] Requesting Research Second Opinion for {selected_symbol} (0 NEAR Fee - Free Inter-Agent Alpha)...")
                 hire_result = await self.research_agent.hire_by_trader_agent(
                     trader_wallet=user_wallet,
-                    symbol=selected_symbol
+                    symbol=selected_symbol,
+                    research_topic=topic,
+                    focus_area=focus_area,
+                    caller_agent="Trader"
                 )
                 full_rep = hire_result.get("full_report", {})
                 return {
                     "hired": True,
-                    "fee_paid": hire_result.get("fee_transferred"),
+                    "fee_paid": hire_result.get("fee_transferred", "0 NEAR"),
                     "recipient": hire_result.get("recipient"),
                     "report_cid": hire_result.get("report_cid"),
                     "signal": hire_result.get("signal", "ACCUMULATE"),
+                    "research_topic": topic,
+                    "focus_area": focus_area,
+                    "info_note": hire_result.get("info_note", "Make sure Researcher Agent (or you) have configured the data source in source links accordingly."),
                     "executive_summary": full_rep.get("executive_summary", ""),
                     "risk_factors": full_rep.get("risk_factors", "")
                 }
             except Exception as e:
-                print(f"[TRADER-PLUGIN] Research agent hire notice: {e}")
+                print(f"[TRADER-PLUGIN] Research agent second opinion notice: {e}")
                 return None
 
         twitter_data, researcher_intel, multiframe_chart = await asyncio.gather(

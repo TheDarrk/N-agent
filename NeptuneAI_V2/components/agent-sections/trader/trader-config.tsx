@@ -69,6 +69,14 @@ type Props = {
   setRsiSweetMin?: (v: number) => void;
   rsiSweetMax?: number;
   setRsiSweetMax?: (v: number) => void;
+  emaFast?: number;
+  setEmaFast?: (v: number) => void;
+  emaSlow?: number;
+  setEmaSlow?: (v: number) => void;
+  emaMacro?: number;
+  setEmaMacro?: (v: number) => void;
+  emaDays?: number;
+  setEmaDays?: (v: number) => void;
 };
 
 const PRESETS = [
@@ -530,6 +538,68 @@ export default function TraderSetup(p: Props) {
                 </div>
               </div>
             </SettingBox>
+
+            {/* EMA Periods & Days-Wise Trend Horizon */}
+            <SettingBox>
+              <LabelWithTip tip="Configure custom Exponential Moving Average (EMA) periods and day-based lookback horizon. Controls trend detection, golden/death cross triggers, and dynamic pullback support.">
+                EMA Periods & Days-Wise Horizon
+              </LabelWithTip>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-[11px] text-muted-foreground block mb-0.5">Fast / Slow / Macro Periods</span>
+                  <div className="flex items-center gap-1 font-mono">
+                    <input
+                      type="number"
+                      min="5"
+                      max="50"
+                      value={p.emaFast ?? 20}
+                      onChange={(e) => p.setEmaFast && p.setEmaFast(Number(e.target.value))}
+                      className="w-10 rounded-lg border border-border bg-secondary/40 py-1 text-center font-bold text-foreground text-xs"
+                      title="Fast EMA period (e.g. 9 or 20)"
+                    />
+                    <span className="text-muted-foreground">/</span>
+                    <input
+                      type="number"
+                      min="20"
+                      max="100"
+                      value={p.emaSlow ?? 50}
+                      onChange={(e) => p.setEmaSlow && p.setEmaSlow(Number(e.target.value))}
+                      className="w-10 rounded-lg border border-border bg-secondary/40 py-1 text-center font-bold text-foreground text-xs"
+                      title="Slow EMA period (e.g. 50)"
+                    />
+                    <span className="text-muted-foreground">/</span>
+                    <input
+                      type="number"
+                      min="50"
+                      max="300"
+                      value={p.emaMacro ?? 200}
+                      onChange={(e) => p.setEmaMacro && p.setEmaMacro(Number(e.target.value))}
+                      className="w-12 rounded-lg border border-border bg-secondary/40 py-1 text-center font-bold text-foreground text-xs"
+                      title="Macro Baseline EMA period (e.g. 200)"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[11px] text-muted-foreground block mb-0.5">Lookback Horizon</span>
+                  <div className="flex items-center gap-1">
+                    {[7, 14, 30, 90].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => p.setEmaDays && p.setEmaDays(d)}
+                        className={`px-1.5 py-1 rounded font-mono text-[11px] font-bold ${
+                          (p.emaDays ?? 14) === d
+                            ? "bg-primary/20 text-primary border border-primary/40"
+                            : "bg-secondary/40 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {d}d
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </SettingBox>
           </SettingGrid>
         </AdvancedGroup>
 
@@ -623,14 +693,14 @@ export default function TraderSetup(p: Props) {
             onChange={p.setEnableResearcher}
             icon={BrainCircuit}
             label="Second opinion"
-            tip="Pays the Research agent 0.1 NEAR per check for extra insight before a trade."
+            tip="Consults the Research agent for second opinions on candidate tokens (Free - 0 NEAR). Make sure data source links are configured."
           />
           <Switch
             checked={p.allowCrossChain}
             onChange={p.onToggleCrossChain}
             icon={Globe2}
-            label="Other blockchains"
-            tip="Also trade ETH, BTC, SOL and ARB coins, not just NEAR-based ones."
+            label="Cross-Chain & Multichain Trading"
+            tip="Execute true cross-chain trades into multichain ETH, SOL, Base, and Arbitrum, not just wrapped tokens on NEAR."
           />
           </SettingGrid>
         </AdvancedGroup>
