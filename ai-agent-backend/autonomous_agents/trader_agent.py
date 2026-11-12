@@ -559,16 +559,57 @@ class TraderAgent:
                 combined["limit_warning"] = f"Trade frequency limit reached ({today_trades}/{max_trades_day}). Technical setup and chart generated in simulation mode."
             return combined
 
+        # Pipeline Error: Fail closed with clear error verdict and zero fallback to hardcoded tokens
+        if pipeline_res.get("status") == "error":
+            error_reason = pipeline_res.get("error") or "Pipeline encountered an error during analysis."
+            print(f"[TRADER PIPELINE ERROR] {error_reason}")
+            trace = {
+                "agent": "trader",
+                "user_wallet": user_wallet,
+                "symbol": symbol or "MARKET",
+                "timeframe": "4h",
+                "verdict": "ERROR",
+                "stage": "PIPELINE_ERROR",
+                "confidence_score": 0,
+                "min_required": min_confidence,
+                "expected_roi_pct": 0.0,
+                "reasoning": f"Analysis failed: {error_reason}",
+                "chart_image": None,
+                "pipeline": pipeline_res
+            }
+            cid = await upload_trade_trace(trace)
+            return {
+                "success": False,
+                "status": "ERROR",
+                "verdict": "ERROR",
+                "symbol": symbol or "MARKET",
+                "timeframe": "4h",
+                "confidence_score": 0,
+                "min_confidence": min_confidence,
+                "expected_roi_pct": 0.0,
+                "reasoning": f"Analysis failed: {error_reason}",
+                "cid": cid,
+                "pipeline": pipeline_res,
+                "binary_evidence_checks": {},
+                "chart_image": None,
+                "ascii_chart": "",
+                "twitter_sentiment": {},
+            }
+
         # Stand aside or no candidates
         stand_aside_reason = (
             (pipeline_res.get("judge") or {}).get("reasoning")
-            or "Screener found no qualifying setups scoring >= 70 against selection rubric."
+            or pipeline_res.get("halt_cause")
+            or (pipeline_res.get("screener") or {}).get("selection_reasoning")
+            or (pipeline_res.get("screener") or {}).get("reasoning_scratchpad")
+            or f"Screener found no qualifying setups scoring >= {min_confidence} against selection rubric."
         )
         chosen_sym = (pipeline_res.get("judge") or {}).get("chosen_coin") or "MARKET"
 
-        # Stand aside: render chart for the evaluated or primary candidate so frontend always has visual context
+        # Stand aside: ONLY render chart if a specific coin was legitimately evaluated by Judge or Council.
+        # NEVER fall back to an arbitrary first token (e.g. ZEC) if no candidate qualified or if pipeline failed.
         chart_image_info = None
-        target_sym = chosen_sym if (chosen_sym and chosen_sym != "MARKET") else (list(coin_data.keys())[0] if coin_data else None)
+        target_sym = chosen_sym if (chosen_sym and chosen_sym not in ("MARKET", "NONE", "None", "")) else None
         if target_sym and target_sym in coin_data:
             try:
                 chosen_ind = await analyze_token_indicators(symbol=target_sym, timeframe="4h")

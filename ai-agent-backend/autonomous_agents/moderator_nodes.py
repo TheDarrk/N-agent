@@ -234,7 +234,7 @@ async def call_judge_llm(
     temperature: float = 0.1
 ) -> Dict[str, Any]:
     """
-    Calls the LLM Judge endpoint and robustly parses the JSON output.
+    Calls the LLM Judge endpoint with SSE streaming and robustly parses the JSON output.
     """
     api_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("AI_RUN_KEY") or ""
     base_url = (os.getenv("NEAR_AI_BASE_URL") or "https://cloud-api.near.ai/v1").rstrip("/")
@@ -256,63 +256,41 @@ async def call_judge_llm(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "chat_template_kwargs": {"enable_thinking": False},
-        "response_format": {"type": "json_object"}
+        "stream": True,
+        "chat_template_kwargs": {"enable_thinking": False}
     }
 
-    # 1. Try Primary: NEAR AI with 15s timeout
-    try:
-        timeout_config = httpx.Timeout(15.0, connect=5.0)
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
-            resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+    raw_timeout = float(os.getenv("NEAR_AI_TIMEOUT", "300") or "300")
+    timeout_config = httpx.Timeout(raw_timeout, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout_config) as client:
+        async with client.stream("POST", f"{base_url}/chat/completions", headers=headers, json=payload) as resp:
             if resp.status_code == 200:
-                data = resp.json()
-                choices = data.get("choices", [])
-                if choices:
-                    content = choices[0].get("message", {}).get("content", "").strip()
-                    if content:
-                        if content.startswith("```"):
-                            content = re.sub(r"^```(?:json)?\s*", "", content)
-                            content = re.sub(r"\s*```$", "", content)
-                        return json.loads(content)
-    except Exception as near_e:
-        print(f"[JUDGE LLM] Primary endpoint error ({near_e}), falling back to Google Gemini...")
-
-    # 2. Try Fallback: Google Gemini
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if google_key:
-        try:
-            gem_payload = {
-                "model": "gemini-2.5-flash-lite",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"}
-            }
-            gem_headers = {
-                "Authorization": f"Bearer {google_key}",
-                "Content-Type": "application/json"
-            }
-            timeout_config = httpx.Timeout(20.0, connect=5.0)
-            async with httpx.AsyncClient(timeout=timeout_config) as client:
-                resp = await client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    choices = data.get("choices", [])
-                    if choices:
-                        content = choices[0].get("message", {}).get("content", "").strip()
-                        if content:
-                            if content.startswith("```"):
-                                content = re.sub(r"^```(?:json)?\s*", "", content)
-                                content = re.sub(r"\s*```$", "", content)
-                            return json.loads(content)
-        except Exception as gem_e:
-            print(f"[JUDGE LLM] Gemini fallback error: {gem_e}")
-
-    raise RuntimeError("All Judge LLM endpoints failed.")
+                full_content = ""
+                full_reasoning = ""
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: ") and line != "data: [DONE]":
+                        try:
+                            chunk = json.loads(line[6:])
+                            delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                            full_content += delta.get("content") or ""
+                            full_reasoning += delta.get("reasoning_content") or ""
+                        except Exception:
+                            pass
+                content = full_content.strip() or full_reasoning.strip()
+                if content:
+                    if "```json" in content:
+                        content = content.split("```json")[1].split("```")[0].strip()
+                    elif "```" in content:
+                        content = content.split("```")[1].split("```")[0].strip()
+                    start = content.find("{")
+                    end = content.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        content = content[start:end+1]
+                    return json.loads(content)
+                raise RuntimeError("GLM 5.3 Flash Judge endpoint returned empty response")
+            else:
+                err_text = (await resp.aread()).decode(errors="ignore")[:300]
+                raise RuntimeError(f"GLM 5.3 Flash Judge endpoint failed (HTTP {resp.status_code}): {err_text}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

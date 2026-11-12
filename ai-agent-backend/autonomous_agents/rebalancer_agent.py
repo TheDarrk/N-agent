@@ -306,61 +306,26 @@ class AutonomousRebalancerAgent:
             ],
             "temperature": 0.1,
             "max_tokens": max_tokens,
-            "chat_template_kwargs": {"enable_thinking": False},
-            "response_format": resp_format
+            "chat_template_kwargs": {"enable_thinking": False}
         }
 
-        # 1. Try Primary (NEAR AI) with 15s timeout
-        try:
-            timeout_config = httpx.Timeout(15.0, connect=5.0)
-            async with httpx.AsyncClient(timeout=timeout_config) as client:
-                resp = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    choices = data.get("choices", [])
-                    if choices:
-                        msg = choices[0].get("message", {})
-                        content = msg.get("content") or msg.get("reasoning_content") or ""
-                        if content.strip():
-                            return content.strip()
-        except Exception as near_e:
-            print(f"[REBALANCER LLM] Primary endpoint error ({near_e}), falling back to Google Gemini...")
-
-        # 2. Try Fallback: Google Gemini
-        google_key = os.getenv("GOOGLE_API_KEY")
-        if google_key:
-            try:
-                gem_payload = {
-                    "model": "gemini-2.5-flash-lite",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content}
-                    ],
-                    "temperature": 0.1,
-                    "max_tokens": max_tokens,
-                    "response_format": {"type": "json_object"}
-                }
-                gem_headers = {
-                    "Authorization": f"Bearer {google_key}",
-                    "Content-Type": "application/json"
-                }
-                timeout_config = httpx.Timeout(20.0, connect=5.0)
-                async with httpx.AsyncClient(timeout=timeout_config) as client:
-                    resp = await client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        msg = (data.get("choices") or [{}])[0].get("message", {})
-                        content = msg.get("content") or msg.get("reasoning_content") or ""
-                        if content.strip():
-                            return content.strip()
-            except Exception as gem_e:
-                print(f"[REBALANCER LLM] Gemini fallback error: {gem_e}")
-
-        raise RuntimeError("All Rebalancer LLM endpoints failed.")
+        raw_timeout = float(os.getenv("NEAR_AI_TIMEOUT", "180") or "180")
+        timeout_config = httpx.Timeout(raw_timeout, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
+            resp = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    msg = choices[0].get("message", {})
+                    content = msg.get("content") or msg.get("reasoning_content") or ""
+                    if content.strip():
+                        return content.strip()
+            raise RuntimeError(f"GLM 5.3 Flash rebalancer endpoint failed (HTTP {resp.status_code}): {resp.text[:300]}")
 
     def _extract_json(self, raw: str) -> Optional[Dict[str, Any]]:
         raw = raw.strip()

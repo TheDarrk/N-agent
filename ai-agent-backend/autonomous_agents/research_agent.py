@@ -652,63 +652,38 @@ class ResearchAgent:
             "model": self.model,
             "messages": messages,
             "temperature": 0.2,
-            "stream": False
+            "stream": True
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        if response_json:
-            payload["response_format"] = {"type": "json_object"}
+        # Notice: Omitting response_format enables GLM 5.3 Flash to reason naturally without sampler hang
 
         def _request():
-            # 1. Try NEAR AI with 15s timeout
-            try:
-                timeout_config = httpx.Timeout(15.0, connect=5.0)
-                with httpx.Client(timeout=timeout_config, verify=False) as client:
-                    resp = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+            raw_timeout = float(os.getenv("NEAR_AI_TIMEOUT", "300") or "300")
+            timeout_config = httpx.Timeout(raw_timeout, connect=15.0)
+            with httpx.Client(timeout=timeout_config, verify=False) as client:
+                with client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as resp:
                     if resp.status_code == 200:
-                        data = resp.json()
-                        msg = data["choices"][0].get("message", {})
-                        content = msg.get("content") or ""
-                        reasoning = msg.get("reasoning_content") or ""
+                        full_content = ""
+                        full_reasoning = ""
+                        for line in resp.iter_lines():
+                            if line.startswith("data: ") and line != "data: [DONE]":
+                                try:
+                                    chunk = json.loads(line[6:])
+                                    delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                                    full_content += delta.get("content") or ""
+                                    full_reasoning += delta.get("reasoning_content") or ""
+                                except Exception:
+                                    pass
                         ResearchAgent._API_KEY_VALID = True
-                        res = content.strip() or reasoning.strip()
+                        res = full_content.strip() or full_reasoning.strip()
                         if res:
                             return res
                     elif resp.status_code in (401, 403):
                         ResearchAgent._API_KEY_VALID = False
-            except Exception as near_e:
-                print(f"[RESEARCH LLM CALL] NEAR AI error ({near_e}), falling back to Google Gemini...")
-
-            # 2. Try Fallback: Google Gemini
-            google_key = os.getenv("GOOGLE_API_KEY")
-            if google_key:
-                try:
-                    gem_payload = {
-                        "model": "gemini-2.5-flash-lite",
-                        "messages": messages,
-                        "temperature": 0.2,
-                    }
-                    if response_json:
-                        gem_payload["response_format"] = {"type": "json_object"}
-                    gem_headers = {
-                        "Authorization": f"Bearer {google_key}",
-                        "Content-Type": "application/json"
-                    }
-                    timeout_config = httpx.Timeout(20.0, connect=5.0)
-                    with httpx.Client(timeout=timeout_config, verify=False) as client:
-                        resp = client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            msg = data["choices"][0].get("message", {})
-                            content = msg.get("content") or ""
-                            reasoning = msg.get("reasoning_content") or ""
-                            res = content.strip() or reasoning.strip()
-                            if res:
-                                return res
-                except Exception as gem_e:
-                    print(f"[RESEARCH LLM CALL] Gemini fallback error: {gem_e}")
-
-            raise Exception("All Research LLM endpoints failed.")
+                        raise Exception(f"GLM 5.3 Flash auth error (HTTP {resp.status_code})")
+                    else:
+                        raise Exception(f"GLM 5.3 Flash research endpoint failed (HTTP {resp.status_code})")
 
         for attempt in range(2):
             try:

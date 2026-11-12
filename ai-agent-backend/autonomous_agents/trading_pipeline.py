@@ -524,74 +524,48 @@ async def call_pipeline_llm(
     response_schema_cls: Optional[Any] = None,
     schema_name: str = "Output"
 ) -> str:
-    """Execute LLM call with primary endpoint and instant Google Gemini fallback."""
+    """Execute LLM call using the single application model: GLM 5.3 Flash (z-ai/glm-5.3-flash).
+    Zero fallback models (no Gemini, no OpenAI). Exclusively z-ai/glm-5.3-flash.
+    Omits constrained decoding schema so GLM 5.3 Flash reasons naturally and responds rapidly."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    response_format = (
-        make_structured_response_format(response_schema_cls, schema_name)
-        if response_schema_cls is not None
-        else {"type": "json_object"}
-    )
-    payload = {
-        "model": model,
+    payload: Dict[str, Any] = {
+        "model": "z-ai/glm-5.3-flash",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.4,
         "max_tokens": max_tokens,
-        "response_format": response_format,
+        "stream": True
     }
 
-    # 1. Try Primary (NEAR AI) with 15s timeout
-    try:
-        timeout_config = httpx.Timeout(15.0, connect=5.0)
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
-            resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+    raw_timeout = float(os.getenv("NEAR_AI_TIMEOUT", "300") or "300")
+    timeout_config = httpx.Timeout(raw_timeout, connect=15.0)
+
+    async with httpx.AsyncClient(timeout=timeout_config) as client:
+        async with client.stream("POST", f"{base_url}/chat/completions", headers=headers, json=payload) as resp:
             if resp.status_code == 200:
-                data = resp.json()
-                msg = (data.get("choices") or [{}])[0].get("message", {})
-                content = msg.get("content") or msg.get("reasoning_content") or ""
-                if content:
-                    return content.strip()
-    except Exception as e:
-        safe_print(f"[PIPELINE LLM] Primary endpoint error ({e}), attempting Google Gemini fallback...")
-
-    # 2. Try Fallback: Google Gemini
-    google_key = os.getenv("GOOGLE_API_KEY")
-    if google_key:
-        try:
-            gem_payload = {
-                "model": "gemini-2.5-flash-lite",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.4,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"}
-            }
-            gem_headers = {
-                "Authorization": f"Bearer {google_key}",
-                "Content-Type": "application/json"
-            }
-            timeout_config = httpx.Timeout(20.0, connect=5.0)
-            async with httpx.AsyncClient(timeout=timeout_config) as client:
-                resp = await client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    msg = (data.get("choices") or [{}])[0].get("message", {})
-                    content = msg.get("content") or msg.get("reasoning_content") or ""
-                    if content:
-                        return content.strip()
-                else:
-                    safe_print(f"[PIPELINE LLM] Gemini returned HTTP {resp.status_code}: {resp.text[:300]}")
-        except Exception as gem_e:
-            safe_print(f"[PIPELINE LLM] Gemini fallback error: {gem_e}")
-
-    raise RuntimeError(f"All LLM endpoints failed for {schema_name}.")
+                full_content = ""
+                full_reasoning = ""
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: ") and line != "data: [DONE]":
+                        try:
+                            chunk = json.loads(line[6:])
+                            delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                            full_content += delta.get("content") or ""
+                            full_reasoning += delta.get("reasoning_content") or ""
+                        except Exception:
+                            pass
+                res = full_content.strip() or full_reasoning.strip()
+                if res:
+                    return res
+                raise RuntimeError(f"GLM 5.3 Flash returned empty content for {schema_name}.")
+            else:
+                err_body = (await resp.aread()).decode(errors="ignore")[:400]
+                raise RuntimeError(f"GLM 5.3 Flash endpoint error (HTTP {resp.status_code}): {err_body}")
 
 
 class ScreenerAgent:
@@ -2097,6 +2071,7 @@ class JudgeAgent:
                             judge_output.runner_up = matching[0]
 
                 # Programmatic Guard: filter out false-positive R:R hallucination flags where drift is actually <= 0.02 or rr_match is True
+                raw_had_major_flags = any(f.severity == "major" for f in judge_output.hallucination_flags)
                 filtered_flags = []
                 for flag in judge_output.hallucination_flags:
                     if flag.field in ("risk_reward", "risk_reward_structural", "rr_match"):
@@ -2129,7 +2104,7 @@ class JudgeAgent:
 
                 # If rejection was triggered solely by a discarded math false positive, recover execution
                 has_major_flags = any(f.severity == "major" for f in judge_output.hallucination_flags)
-                if not has_major_flags and judge_output.final_decision == "NO_TRADE" and council_output.plans:
+                if raw_had_major_flags and not has_major_flags and judge_output.final_decision == "NO_TRADE" and council_output.plans:
                     first_p = council_output.plans[0]
                     judge_output.chosen_coin = first_p.coin
                     judge_output.direction = first_p.direction

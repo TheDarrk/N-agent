@@ -79,42 +79,19 @@ async def invoke_glm(
         payload["tools"] = [_tool_schema(tool) for tool in tools]
 
     near_key = os.getenv("NEAR_AI_API_KEY") or os.getenv("OPENAI_API_KEY") or "near-ai-default-key"
-    google_key = os.getenv("GOOGLE_API_KEY")
-    body = None
-
-    # Try Primary: NEAR AI endpoint (with 15s timeout to prevent hanging)
-    try:
-        timeout = httpx.Timeout(15.0, connect=5.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            headers = {"Authorization": f"Bearer {near_key}", "Content-Type": "application/json"}
-            url = f"{(os.getenv('NEAR_AI_BASE_URL') or BASE_URL).rstrip('/')}/chat/completions"
-            response = await client.post(url, headers=headers, json=payload)
-            if response.status_code == 200:
-                body = response.json()
-            else:
-                print(f"[LLM TRANSPORT] NEAR AI returned {response.status_code}, attempting Google Gemini fallback...")
-    except Exception as near_err:
-        print(f"[LLM TRANSPORT] NEAR AI timeout/error ({near_err}), attempting Google Gemini fallback...")
-
-    # Fallback to Google Gemini OpenAI-compatible endpoint
-    if not body and google_key:
-        try:
-            gemini_payload = dict(payload)
-            gemini_payload["model"] = "gemini-2.5-flash-lite"
-            timeout = httpx.Timeout(20.0, connect=5.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                headers = {"Authorization": f"Bearer {google_key}", "Content-Type": "application/json"}
-                url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                response = await client.post(url, headers=headers, json=gemini_payload)
-                if response.status_code == 200:
-                    body = response.json()
-                else:
-                    print(f"[LLM TRANSPORT] Gemini returned {response.status_code}: {response.text[:200]}")
-        except Exception as gem_err:
-            print(f"[LLM TRANSPORT] Gemini error: {gem_err}")
+    timeout_val = _timeout()
+    timeout = httpx.Timeout(timeout_val, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        headers = {"Authorization": f"Bearer {near_key}", "Content-Type": "application/json"}
+        url = f"{(os.getenv('NEAR_AI_BASE_URL') or BASE_URL).rstrip('/')}/chat/completions"
+        response = await client.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            body = response.json()
+        else:
+            raise RuntimeError(f"GLM 5.3 Flash endpoint returned HTTP {response.status_code}: {response.text[:300]}")
 
     if not body:
-        raise RuntimeError("All LLM endpoints (NEAR AI & Google Gemini) failed or timed out.")
+        raise RuntimeError("GLM 5.3 Flash endpoint returned empty response.")
 
     choice = (body.get("choices") or [{}])[0]
     message = choice.get("message") or {}
