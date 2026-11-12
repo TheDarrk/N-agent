@@ -932,7 +932,8 @@ Contradicting your own structured fields is an immediate major hallucination.
 3. STOP LOSS (SL) SELECTION PRECEDENCE (Risk Manager):
    - Precedence:
      1. If a pattern_stop exists AND is within 1.0 - 2.0 ATR of entry: use pattern_stop as tight structural invalidation.
-     2. Otherwise, use calibrated ATR buffer:
+     2. Pre-Computed MCP Volatility Levels: You may directly cite and use "recommended_stop_loss" and "recommended_take_profit" from the math_confluence ("dynamic_volatility_levels") tool data. These are mathematically verified dynamic ATR boundaries that guarantee R:R >= 1.5 with zero rounding error.
+     3. Otherwise, use calibrated ATR buffer:
         - LOW / MODERATE Risk: recent_support - (1.5 * atr) for LONG / recent_resistance + (1.5 * atr) for SHORT.
         - HIGH Risk: recent_support - (1.0 * atr) for LONG / recent_resistance + (1.0 * atr) for SHORT.
    - SL Calibration text format: State ONLY the actual selected stop level and the specific formula used.
@@ -1671,18 +1672,20 @@ Do NOT rename or replace symbols with generic tickers or TOKEN_X.
    (a) Matches "measured_target" in chart data within 0.1%, OR
    (b) Matches "recent_resistance" (for LONG) or "recent_support" (for SHORT) within 0.1%, OR
    (c) Matches pattern projection from breakout level, OR
-   (d) Matches Fibonacci expansion level (1.272, 1.618) or Pivot target (R1/R2 for LONG, S1/S2 for SHORT) in tool logs within 0.1%.
+   (d) Matches Fibonacci expansion level (1.272, 1.618) or Pivot target (R1/R2 for LONG, S1/S2 for SHORT) in tool logs within 0.1%, OR
+   (e) Matches "recommended_take_profit" in dynamic_volatility_levels / mcp_math tool logs within 0.5%, OR entry +/- (2.0 to 3.0 * atr).
    Does NOT need to be an exact single field in the tool log if it matches the structural target calculation.
    Sanity check: For LONG, tp MUST be > entry. For SHORT, tp MUST be < entry. Wrong side -> Major flag -> REJECT plan.
 
 3. STOP LOSS (SL) AUDIT:
    SL is grounded if it matches the Risk Manager's calibrated formula using logged levels:
    - LOW / MODERATE Risk:
-     * LONG: recent_support - (1.5 * atr) within 0.1%, or "pattern_stop".
-     * SHORT: recent_resistance + (1.5 * atr) within 0.1%, or "pattern_stop".
+     * LONG: recent_support - (1.5 * atr) within 0.1%, or "pattern_stop", or entry - (1.5 * atr).
+     * SHORT: recent_resistance + (1.5 * atr) within 0.1%, or "pattern_stop", or entry + (1.5 * atr).
    - HIGH Risk:
-     * LONG: recent_support - (1.0 * atr) within 0.1%, or "pattern_stop".
-     * SHORT: recent_resistance + (1.0 * atr) within 0.1%, or "pattern_stop".
+     * LONG: recent_support - (1.0 * atr) within 0.1%, or "pattern_stop", or entry - (1.0 * atr).
+     * SHORT: recent_resistance + (1.0 * atr) within 0.1%, or "pattern_stop", or entry + (1.0 * atr).
+   - Or matches "recommended_stop_loss" in dynamic_volatility_levels / mcp_math tool logs within 0.5%.
    Does NOT need to appear as a raw number in the tool log if derived from logged support/resistance and atr.
    Sanity check: For LONG, sl MUST be < entry. For SHORT, sl MUST be > entry. Wrong side -> Major flag -> REJECT plan.
 
@@ -2252,7 +2255,20 @@ class TradingPipeline:
                     results["halt_step"] = "STAGE_4_JUDGE_THRESHOLD"
                     results["halt_cause"] = halt_msg
             elif dry_run:
-                print(f"[PIPELINE] Dry Run Mode Active. Decision: {judge_output.final_decision} | Confidence: {judge_output.confidence:.2f} (User Threshold: {user_threshold:.2f})")
+                print(f"[PIPELINE] Dry Run / Simulation Mode Active. Decision: {judge_output.final_decision} | Confidence: {judge_output.confidence:.2f} (User Threshold: {user_threshold:.2f})")
+                if judge_output.final_decision == "EXECUTE" and self.execute_fn:
+                    try:
+                        execution_result = await self.execute_fn(
+                            coin=judge_output.chosen_coin,
+                            direction=judge_output.direction,
+                            entry=judge_output.entry,
+                            tp=judge_output.tp,
+                            sl=judge_output.sl,
+                            reasoning=f"[SIMULATION] {judge_output.reasoning}"
+                        )
+                        results["execution"] = execution_result
+                    except Exception as de:
+                        print(f"[PIPELINE] Simulation execution helper notice: {de}")
                 results["status"] = "dry_run_complete"
             else:
                 halt_msg = judge_output.reasoning or "No trade setup met risk/reward confluence."

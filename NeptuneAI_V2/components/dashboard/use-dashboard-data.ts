@@ -118,7 +118,20 @@ export function useDashboardData(accountId: string | null) {
     setData(EMPTY_DASHBOARD);
     setLoading(true);
     refresh();
-    return setVisibleInterval(refresh, 20000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    const cleanupInterval = setVisibleInterval(refresh, 15000);
+
+    return () => {
+      cleanupInterval();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [refresh]);
 
   useEffect(() => {

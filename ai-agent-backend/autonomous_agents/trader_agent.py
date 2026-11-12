@@ -65,7 +65,8 @@ class TraderAgent:
         custom_coins: Optional[List[str]] = None,
         force_timeframe: Optional[str] = None,
         force_min_confidence: Optional[int] = None,
-        enable_researcher_plugin: Optional[bool] = None
+        enable_researcher_plugin: Optional[bool] = None,
+        is_manual_scan: bool = False
     ) -> Dict[str, Any]:
         """
         Executes the 3-Node + Deterministic Hard-Cap Execution Pipeline.
@@ -109,7 +110,7 @@ class TraderAgent:
         elif custom_coins is None and symbol:
             custom_coins = [symbol.strip().upper()]
 
-        print(f"\n{'='*70}\n[AUTONOMOUS TRADER PIPELINE] Starting for wallet: {user_wallet} | Network: {user.get('near_network', 'testnet')} | Timeframe: {timeframe}\n{'='*70}")
+        print(f"\n{'='*70}\n[AUTONOMOUS TRADER PIPELINE] Starting for wallet: {user_wallet} | Network: {user.get('near_network', 'testnet')} | Timeframe: {timeframe} | Manual Scan: {is_manual_scan}\n{'='*70}")
 
         # ─── PRE-FLIGHT HARD CAPS ─────────────────────────────────
         if user.get("kill_switch", 0):
@@ -121,19 +122,19 @@ class TraderAgent:
             }
 
         today_trades = count_trades_today(user_wallet)
-        if today_trades >= max_trades_day:
-            return {
-                "success": False,
-                "status": "DAILY_LIMIT_REACHED",
-                "message": f"Daily frequency limit reached ({today_trades}/{max_trades_day} trades today)."
-            }
-
+        today_limit_reached = today_trades >= max_trades_day
         week_trades = count_trades_this_week(user_wallet)
-        if week_trades >= max_trades_week:
+        week_limit_reached = week_trades >= max_trades_week
+
+        # For autonomous background scheduler runs, halt before scan if caps reached
+        if not is_manual_scan and (today_limit_reached or week_limit_reached):
+            status = "DAILY_LIMIT_REACHED" if today_limit_reached else "WEEKLY_LIMIT_REACHED"
+            msg = f"Daily frequency limit reached ({today_trades}/{max_trades_day} trades today)." if today_limit_reached else f"Weekly frequency limit reached ({week_trades}/{max_trades_week} trades this week)."
+            print(f"[TRADER-HARD-CAP] {msg}")
             return {
                 "success": False,
-                "status": "WEEKLY_LIMIT_REACHED",
-                "message": f"Weekly frequency limit reached ({week_trades}/{max_trades_week} trades this week)."
+                "status": status,
+                "message": msg
             }
 
         # ─── DISPATCH: REFACTORED SCREENER -> COUNCIL -> JUDGE PIPELINE ────
@@ -144,7 +145,8 @@ class TraderAgent:
                 coin_mode=active_coin_mode,
                 custom_coins=custom_coins,
                 timeframe=timeframe,
-                dry_run=False
+                dry_run=False,
+                is_manual_scan=is_manual_scan
             )
 
         # ─── LEGACY NODE 1: PRE-SCANNER & LLM MARKET SCREENER ─────────────
@@ -304,7 +306,8 @@ class TraderAgent:
         coin_mode: Optional[str] = None,
         custom_coins: Optional[List[str]] = None,
         timeframe: Optional[str] = None,
-        dry_run: bool = False
+        dry_run: bool = False,
+        is_manual_scan: bool = False
     ) -> Dict[str, Any]:
         """
         Executes the refactored Screener → Council → Judge → Execution pipeline.
@@ -322,7 +325,7 @@ class TraderAgent:
         effective_timeframe = timeframe or user.get("trader_timeframe", "1h")
         active_coin_mode = coin_mode or user.get("trader_coin_mode", "auto")
 
-        print(f"\n{'='*70}\n[REFACTORED PIPELINE: SCREENER -> COUNCIL -> JUDGE]\nWallet: {user_wallet} | Mode: {active_coin_mode} | Timeframe: {effective_timeframe} | Dry Run: {dry_run}\n{'='*70}")
+        print(f"\n{'='*70}\n[REFACTORED PIPELINE: SCREENER -> COUNCIL -> JUDGE]\nWallet: {user_wallet} | Mode: {active_coin_mode} | Timeframe: {effective_timeframe} | Dry Run: {dry_run} | Manual: {is_manual_scan}\n{'='*70}")
 
         # Pre-flight hard cap checks
         if user.get("kill_switch", 0):
@@ -334,20 +337,22 @@ class TraderAgent:
             }
 
         today_trades = count_trades_today(user_wallet)
-        if today_trades >= max_trades_day:
+        today_limit_reached = today_trades >= max_trades_day
+        week_trades = count_trades_this_week(user_wallet)
+        week_limit_reached = week_trades >= max_trades_week
+
+        # For autonomous background scheduler runs, halt before scan if caps reached
+        if not is_manual_scan and (today_limit_reached or week_limit_reached):
+            status = "DAILY_LIMIT_REACHED" if today_limit_reached else "WEEKLY_LIMIT_REACHED"
+            msg = f"Daily frequency limit reached ({today_trades}/{max_trades_day} trades today)." if today_limit_reached else f"Weekly frequency limit reached ({week_trades}/{max_trades_week} trades this week)."
+            print(f"[TRADER-HARD-CAP] {msg}")
             return {
                 "success": False,
-                "status": "DAILY_LIMIT_REACHED",
-                "message": f"Daily frequency limit reached ({today_trades}/{max_trades_day} trades today)."
+                "status": status,
+                "message": msg
             }
 
-        week_trades = count_trades_this_week(user_wallet)
-        if week_trades >= max_trades_week:
-            return {
-                "success": False,
-                "status": "WEEKLY_LIMIT_REACHED",
-                "message": f"Weekly frequency limit reached ({week_trades}/{max_trades_week} trades this week)."
-            }
+        effective_dry_run = dry_run or (today_limit_reached or week_limit_reached)
 
         # ─── PRE-SCANNER EXECUTION ─────────────────────────────────────
         # In custom mode: scans user custom coins.
@@ -544,12 +549,14 @@ class TraderAgent:
             execute_fn=execute_callback
         )
 
-        pipeline_res = await pipeline.run(coin_data, dry_run=dry_run, min_confidence=min_confidence)
+        pipeline_res = await pipeline.run(coin_data, dry_run=effective_dry_run, min_confidence=min_confidence)
 
-        # If executed, merge execution outcome with full pipeline output
-        if pipeline_res.get("status") == "executed" and pipeline_res.get("execution"):
+        # If executed or simulated, merge execution outcome with full pipeline output
+        if pipeline_res.get("status") in ("executed", "dry_run_complete") and pipeline_res.get("execution"):
             combined = dict(pipeline_res["execution"])
             combined["pipeline"] = pipeline_res
+            if today_limit_reached or week_limit_reached:
+                combined["limit_warning"] = f"Trade frequency limit reached ({today_trades}/{max_trades_day}). Technical setup and chart generated in simulation mode."
             return combined
 
         # Stand aside or no candidates

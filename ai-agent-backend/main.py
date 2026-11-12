@@ -732,7 +732,8 @@ async def trader_analyze(body: TraderScanRequest):
         custom_coins=body.custom_coins,
         force_timeframe=body.timeframe,
         force_min_confidence=body.min_confidence,
-        enable_researcher_plugin=body.enable_researcher_plugin
+        enable_researcher_plugin=body.enable_researcher_plugin,
+        is_manual_scan=True
     )
     return result
 

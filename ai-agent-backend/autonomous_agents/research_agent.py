@@ -1760,9 +1760,9 @@ class ResearchAgent:
         """Synchronous 3-node pipeline execution."""
         effective_range = date_range or "1_month"
 
-        # Pre-crawl seed links to depth 4 if provided
+        # Pre-crawl seed links to depth 4 if provided (skip heavy crawler for fast inter-agent second opinions)
         clean_seed_links = [l.strip() for l in (links or []) if l.strip().startswith("http")]
-        if clean_seed_links:
+        if clean_seed_links and not is_agent_requester:
             try:
                 await asyncio.to_thread(
                     self.crawler_tool.crawl_custom_sources,

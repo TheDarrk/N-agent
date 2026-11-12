@@ -1952,6 +1952,8 @@ def save_research_report(wallet_address: str, title: str, query: str, full_repor
         print(f"[REPORT MIRROR ERROR] {me}")
 
     return cid
+
+def get_user_research_reports(wallet_address: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Retrieves research reports strictly isolated to the requesting user."""
     if not wallet_address or not str(wallet_address).strip():
         return []

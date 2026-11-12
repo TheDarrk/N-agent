@@ -273,7 +273,14 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
   // Execution & Live Data State
   const [isScanning, setIsScanning] = useState(false);
-  const [scanResult, setScanResult] = useState<any>(null);
+  const [scanResult, setScanResult] = useState<any>(() => {
+    if (typeof window === "undefined" || !accountId) return null;
+    try {
+      const saved = localStorage.getItem("neptune_latest_trader_run_" + accountId);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  });
   const [showAsciiChart, setShowAsciiChart] = useState(false);
   const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [modalChartUri, setModalChartUri] = useState<string | null>(null);
@@ -290,30 +297,42 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
   const [copiedCid, setCopiedCid] = useState<string | null>(null);
 
+  // Restore cached scan result if accountId changes
+  useEffect(() => {
+    if (!accountId) {
+      setScanResult(null);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem("neptune_latest_trader_run_" + accountId);
+      if (saved) setScanResult(JSON.parse(saved));
+    } catch {}
+  }, [accountId]);
+
   const handleCopyTrace = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedCid(id);
     setTimeout(() => setCopiedCid(null), 2000);
   };
 
-  // Fetch trades and recent traces
+  // Fetch trades and recent traces strictly isolated to the user's wallet
   const fetchTrades = async () => {
     if (!accountId) return;
     setIsLoadingTrades(true);
     try {
-      const res = await fetch(`/api/trader/trades/${accountId}`);
+      const res = await fetch(`/api/trader/trades/${encodeURIComponent(accountId)}`);
       if (res.ok) {
         const data = await res.json();
         setOpenTrades(data.open_trades || []);
         setTradeHistory(data.history || []);
         setDroppedTrades(data.dropped_trades || []);
       }
-      const cfgRes = await fetch(`/api/agent-wallet/config/${accountId}`);
+      const cfgRes = await fetch(`/api/agent-wallet/config/${encodeURIComponent(accountId)}`);
       if (cfgRes.ok) {
         const cfgData = await cfgRes.json();
         setAllowCrossChain(Boolean(cfgData.allow_cross_chain_trades));
       }
-      const traceRes = await fetch(`/api/trader/traces`);
+      const traceRes = await fetch(`/api/trader/traces/${encodeURIComponent(accountId)}`);
       if (traceRes.ok) {
         const traceData = await traceRes.json();
         setTraces(traceData.traces || []);
@@ -327,7 +346,58 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
   useEffect(() => {
     fetchTrades();
-    return setVisibleInterval(fetchTrades, 30000);
+    return setVisibleInterval(fetchTrades, 15000);
+  }, [accountId]);
+
+  // Tab visibility: refresh instantly when user switches back to this tab
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && accountId) {
+        fetchTrades();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [accountId]);
+
+  // In-progress scan persistence across page refreshes and tab switches
+  useEffect(() => {
+    if (!accountId) return;
+    try {
+      const rawMeta = localStorage.getItem("neptune_trader_scan_in_progress");
+      if (rawMeta) {
+        const meta = JSON.parse(rawMeta);
+        const elapsed = Date.now() - (meta.startedAt || 0);
+        if (meta.accountId === accountId && elapsed < 120000) {
+          setIsScanning(true);
+          const pollInterval = setInterval(async () => {
+            try {
+              const res = await fetch(`/api/trader/traces/${encodeURIComponent(accountId)}`);
+              if (res.ok) {
+                const traceData = await res.json();
+                const list = traceData.traces || [];
+                setTraces(list);
+                if (list.length > 0) {
+                  const newest = list[0];
+                  const traceTime = newest.created_at ? new Date(newest.created_at).getTime() : 0;
+                  const currentElapsed = Date.now() - meta.startedAt;
+                  if (traceTime >= meta.startedAt - 5000 || currentElapsed > 35000) {
+                    setIsScanning(false);
+                    localStorage.removeItem("neptune_trader_scan_in_progress");
+                    clearInterval(pollInterval);
+                    await fetchTrades();
+                  }
+                }
+              }
+            } catch {}
+          }, 3000);
+
+          return () => clearInterval(pollInterval);
+        } else {
+          localStorage.removeItem("neptune_trader_scan_in_progress");
+        }
+      }
+    } catch {}
   }, [accountId]);
 
   // Handle adding custom coin (max 20)
@@ -356,8 +426,16 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       if (onConnectWallet) onConnectWallet(); else alert("Please connect your wallet first");
       return;
     }
+    const scanMeta = {
+      accountId,
+      startedAt: Date.now(),
+      coinMode,
+      timeframe,
+    };
+    try {
+      localStorage.setItem("neptune_trader_scan_in_progress", JSON.stringify(scanMeta));
+    } catch {}
     setIsScanning(true);
-    setScanResult(null);
     try {
       const res = await fetch("/api/trader/analyze", {
         method: "POST",
@@ -373,11 +451,17 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       });
       const data = await res.json();
       setScanResult(data);
+      try {
+        localStorage.setItem("neptune_latest_trader_run_" + accountId, JSON.stringify(data));
+      } catch {}
       await fetchTrades();
     } catch (e) {
       console.error("Scan error:", e);
     } finally {
       setIsScanning(false);
+      try {
+        localStorage.removeItem("neptune_trader_scan_in_progress");
+      } catch {}
     }
   };
 
@@ -642,6 +726,22 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   ? "bg-emerald-500/5 border-emerald-500/30"
                   : "bg-card border-border"
               }`}>
+                {isScanning && (
+                  <div className="mb-3 px-3.5 py-2.5 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-between animate-pulse">
+                    <div className="flex items-center gap-2">
+                      <RotateCw size={14} className="animate-spin text-primary" />
+                      <span className="text-xs font-bold text-primary">
+                        Scanning market in real-time... evaluating mathematical indicators &amp; 20 Trading Book heuristics
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-muted-foreground">In Progress</span>
+                  </div>
+                )}
+                {activeRun.limit_warning && (
+                  <div className="mb-3 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center justify-between">
+                    <span>{activeRun.limit_warning}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <span className={`w-2.5 h-2.5 rounded-full ${activeRun.success ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />

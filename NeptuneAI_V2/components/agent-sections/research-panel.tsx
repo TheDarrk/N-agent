@@ -4,7 +4,8 @@ import { tilt3d } from "./trader/tilt-3d";
 import ReportView from "./research/report-view";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { setVisibleInterval } from "@/lib/visible-interval";
 import {
   FileText,
   Sparkles,
@@ -138,7 +139,14 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const [dateRange, setDateRange] = useState("1_month");
 
   const [reports, setReports] = useState<Report[]>([]);
-  const [activeReport, setActiveReport] = useState<Report | null>(null);
+  const [activeReport, setActiveReport] = useState<Report | null>(() => {
+    if (typeof window === "undefined" || !accountId) return null;
+    try {
+      const saved = localStorage.getItem("neptune_latest_research_" + accountId);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [currentActiveStep, setCurrentActiveStep] = useState<number>(0);
   const [stepCards, setStepCards] = useState<CoTStepCard[]>([]);
@@ -147,9 +155,28 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const [isHiringA2A, setIsHiringA2A] = useState(false);
   const [latestA2AResult, setLatestA2AResult] = useState<any>(null);
 
-  const fetchReports = async () => {
+  // Restore cached research report when accountId changes
+  useEffect(() => {
+    if (!accountId) {
+      setActiveReport(null);
+      return;
+    }
     try {
-      const res = await fetch("/api/research/reports");
+      const saved = localStorage.getItem("neptune_latest_research_" + accountId);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setActiveReport(parsed);
+        if (parsed.cot_step_cards) setStepCards(parsed.cot_step_cards);
+      }
+    } catch {}
+  }, [accountId]);
+
+  const fetchReports = useCallback(async () => {
+    try {
+      const url = accountId
+        ? `/api/research/reports/${encodeURIComponent(accountId)}`
+        : "/api/research/reports";
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         const list = data.reports || [];
@@ -164,11 +191,66 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
     } catch (e) {
       console.error("Error fetching reports:", e);
     }
-  };
+  }, [accountId, activeReport, isLoading]);
 
   useEffect(() => {
     fetchReports();
-  }, []);
+    return setVisibleInterval(fetchReports, 20000);
+  }, [fetchReports]);
+
+  // Tab visibility: refresh reports when user returns to this tab
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchReports();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [fetchReports]);
+
+  // Check if a research generation was in progress before refresh
+  useEffect(() => {
+    if (!accountId) return;
+    try {
+      const raw = localStorage.getItem("neptune_research_in_progress");
+      if (raw) {
+        const meta = JSON.parse(raw);
+        const elapsed = Date.now() - (meta.startedAt || 0);
+        if (meta.accountId === accountId && elapsed < 180000) {
+          setIsLoading(true);
+          const poll = setInterval(async () => {
+            try {
+              const res = await fetch(`/api/research/reports/${encodeURIComponent(accountId)}`);
+              if (res.ok) {
+                const data = await res.json();
+                const list = data.reports || [];
+                setReports(list);
+                if (list.length > 0) {
+                  const newest = list[0];
+                  const created = newest.created_at ? new Date(newest.created_at).getTime() : 0;
+                  const currentElapsed = Date.now() - meta.startedAt;
+                  if (created >= meta.startedAt - 5000 || currentElapsed > 45000) {
+                    setIsLoading(false);
+                    setActiveReport(newest);
+                    if (newest.cot_step_cards) setStepCards(newest.cot_step_cards);
+                    localStorage.removeItem("neptune_research_in_progress");
+                    try {
+                      localStorage.setItem("neptune_latest_research_" + accountId, JSON.stringify(newest));
+                    } catch {}
+                    clearInterval(poll);
+                  }
+                }
+              }
+            } catch {}
+          }, 3000);
+          return () => clearInterval(poll);
+        } else {
+          localStorage.removeItem("neptune_research_in_progress");
+        }
+      }
+    } catch {}
+  }, [accountId]);
 
   const handleGenerate = async () => {
     if (!accountId) {
@@ -176,6 +258,13 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       else alert("Please connect wallet first to generate and sign research reports");
       return;
     }
+
+    try {
+      localStorage.setItem(
+        "neptune_research_in_progress",
+        JSON.stringify({ accountId, startedAt: Date.now(), topic })
+      );
+    } catch {}
 
     // Immediately clear all previous reports & cards to avoid any stale dummy context
     setActiveReport(null);
@@ -236,6 +325,9 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
               setCurrentActiveStep(data.step_number + 1);
               if (data.report) {
                 setActiveReport(data.report);
+                try {
+                  localStorage.setItem("neptune_latest_research_" + accountId, JSON.stringify(data.report));
+                } catch {}
               }
             } else if (data.type === "pre_crawl") {
               setLiveToolCalls((prev) => [
@@ -277,6 +369,9 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           if (generated.cot_step_cards) {
             setStepCards(generated.cot_step_cards);
           }
+          try {
+            localStorage.setItem("neptune_latest_research_" + accountId, JSON.stringify(generated));
+          } catch {}
           await fetchReports();
         }
       } catch (err) {
@@ -285,6 +380,9 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
     } finally {
       setIsLoading(false);
       setCurrentActiveStep(0);
+      try {
+        localStorage.removeItem("neptune_research_in_progress");
+      } catch {}
     }
   };
 

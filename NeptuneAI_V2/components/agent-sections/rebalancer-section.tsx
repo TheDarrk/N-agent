@@ -4,6 +4,7 @@ import { tilt3d } from "./trader/tilt-3d";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { setVisibleInterval } from "@/lib/visible-interval";
 import {
   Scale,
   RotateCw,
@@ -293,6 +294,20 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
 
   useEffect(() => {
     fetchStrategyAndStatus();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && accountId) {
+        fetchStrategyAndStatus();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    const cleanup = setVisibleInterval(fetchStrategyAndStatus, 20000);
+
+    return () => {
+      cleanup();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [accountId]);
 
   // ─── COIN SELECTION (ADD / REMOVE) ───

@@ -149,17 +149,60 @@ function formatBalanceManual(balance: string | bigint | number, decimals: number
     return `${int}.${remStr}`.replace(/\.?0+$/, "");
 }
 
+const WALLET_STORAGE_KEY = "neptune_connected_wallet";
+const ADDRESSES_STORAGE_KEY = "neptune_wallet_addresses";
+const CHAINS_STORAGE_KEY = "neptune_connected_chains";
+
 // ─── Provider ────────────────────────────────────────────
 export default function WalletProvider({ children }: { children: React.ReactNode }) {
     const [network, setNetworkState] = useState<NearNetwork>("testnet");
     const [isTestnetModalOpen, setIsTestnetModalOpen] = useState(false);
 
-    const [state, setState] = useState<WalletState>({
-        accountId: null,
-        walletAddresses: {},
-        connectedChains: [],
-        balances: {},
-        isConnecting: false,
+    const [state, setState] = useState<WalletState>(() => {
+        if (typeof window === "undefined") {
+            return {
+                accountId: null,
+                walletAddresses: {},
+                connectedChains: [],
+                balances: {},
+                isConnecting: false,
+            };
+        }
+        try {
+            const savedWallet = localStorage.getItem(WALLET_STORAGE_KEY);
+            const currentNet = getNetwork();
+            if (savedWallet) {
+                const validation = validateNetworkAccount(savedWallet, currentNet);
+                if (validation.valid) {
+                    let savedAddrs: Record<string, string> = { near: savedWallet };
+                    let savedChains: string[] = ["near"];
+                    const rawAddrs = localStorage.getItem(ADDRESSES_STORAGE_KEY);
+                    const rawChains = localStorage.getItem(CHAINS_STORAGE_KEY);
+                    if (rawAddrs) {
+                        try { savedAddrs = JSON.parse(rawAddrs); } catch {}
+                    }
+                    if (rawChains) {
+                        try { savedChains = JSON.parse(rawChains); } catch {}
+                    }
+                    return {
+                        accountId: savedWallet,
+                        walletAddresses: savedAddrs,
+                        connectedChains: savedChains,
+                        balances: {},
+                        isConnecting: false,
+                    };
+                }
+            }
+        } catch (e) {
+            console.warn("[Wallet] Failed to load saved wallet session:", e);
+        }
+        return {
+            accountId: null,
+            walletAddresses: {},
+            connectedChains: [],
+            balances: {},
+            isConnecting: false,
+        };
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -169,49 +212,6 @@ export default function WalletProvider({ children }: { children: React.ReactNode
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const activeWalletRef = useRef<any>(null);
     const unsubscribersRef = useRef<(() => void)[]>([]);
-
-    // Initialize network from backend SSOT on mount
-    useEffect(() => {
-        const current = getNetwork();
-        setNetworkState(current);
-
-        // Authoritative sync from backend /api/network
-        syncNetworkFromBackend().then((cfg) => {
-            setNetworkState(cfg.network);
-        });
-
-        const handleNetworkChanged = (e: Event) => {
-            const customEvent = e as CustomEvent<NearNetwork>;
-            if (customEvent.detail) {
-                setNetworkState(customEvent.detail);
-            }
-        };
-
-        window.addEventListener(NETWORK_CHANGE_EVENT, handleNetworkChanged);
-        return () => window.removeEventListener(NETWORK_CHANGE_EVENT, handleNetworkChanged);
-    }, []);
-
-    // Set network handler (updates state, storage, and backend)
-    const setNetwork = useCallback((net: NearNetwork) => {
-        setNetworkState(net);
-        saveNetwork(net, state.accountId);
-
-        // Hard Network Validation check on existing connected account
-        if (state.accountId) {
-            const validation = validateNetworkAccount(state.accountId, net);
-            if (!validation.valid) {
-                console.warn("[Wallet] Active account does not match new network:", validation.error);
-                // Clear state on network mismatch so user connects appropriate network account
-                setState({
-                    accountId: null,
-                    walletAddresses: {},
-                    connectedChains: [],
-                    balances: {},
-                    isConnecting: false,
-                });
-            }
-        }
-    }, [state.accountId]);
 
     // ── Dedicated NEAR Balance Fetcher (Works for both Testnet & Mainnet without HotKit) ──
     const fetchNearBalances = useCallback(async (nearAddress: string) => {
@@ -259,6 +259,128 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         }
     }, []);
 
+    // Initialize network from backend SSOT on mount & restore background wallet connector
+    useEffect(() => {
+        const current = getNetwork();
+        setNetworkState(current);
+
+        // Authoritative sync from backend /api/network
+        syncNetworkFromBackend().then((cfg) => {
+            setNetworkState(cfg.network);
+        });
+
+        // Trigger balance fetch immediately if account was restored from localStorage
+        if (state.accountId && state.walletAddresses?.near) {
+            fetchNearBalances(state.walletAddresses.near);
+        }
+
+        // Silent background NearConnector initialization so active wallets can sign without re-modal
+        if (state.accountId) {
+            (async () => {
+                try {
+                    const targetNet = getNetwork();
+                    const { NearConnector } = await import("@hot-labs/near-connect");
+                    const nc = new NearConnector({
+                        network: targetNet,
+                        manifest: localManifest as any,
+                    });
+                    nearConnectorRef.current = nc;
+                    await nc.whenManifestLoaded.catch(() => {});
+                    if (Array.isArray(nc.wallets)) {
+                        for (const w of nc.wallets) {
+                            try {
+                                const accounts = await w.getAccounts();
+                                if (accounts && accounts.length > 0) {
+                                    activeWalletRef.current = w;
+                                    break;
+                                }
+                            } catch {}
+                        }
+                    }
+                } catch (e) {
+                    // Non-fatal background connector load
+                }
+            })();
+        }
+
+        const handleNetworkChanged = (e: Event) => {
+            const customEvent = e as CustomEvent<NearNetwork>;
+            if (customEvent.detail) {
+                setNetworkState(customEvent.detail);
+            }
+        };
+
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === WALLET_STORAGE_KEY) {
+                const newWallet = e.newValue;
+                if (!newWallet) {
+                    setState({
+                        accountId: null,
+                        walletAddresses: {},
+                        connectedChains: [],
+                        balances: {},
+                        isConnecting: false,
+                    });
+                } else {
+                    const currentNet = getNetwork();
+                    const validation = validateNetworkAccount(newWallet, currentNet);
+                    if (validation.valid) {
+                        let addrs = { near: newWallet };
+                        let chs = ["near"];
+                        try {
+                            const rawA = localStorage.getItem(ADDRESSES_STORAGE_KEY);
+                            const rawC = localStorage.getItem(CHAINS_STORAGE_KEY);
+                            if (rawA) addrs = JSON.parse(rawA);
+                            if (rawC) chs = JSON.parse(rawC);
+                        } catch {}
+                        setState({
+                            accountId: newWallet,
+                            walletAddresses: addrs,
+                            connectedChains: chs,
+                            balances: {},
+                            isConnecting: false,
+                        });
+                        if (addrs.near) fetchNearBalances(addrs.near);
+                    }
+                }
+            }
+        };
+
+        window.addEventListener(NETWORK_CHANGE_EVENT, handleNetworkChanged);
+        window.addEventListener("storage", handleStorageChange);
+        return () => {
+            window.removeEventListener(NETWORK_CHANGE_EVENT, handleNetworkChanged);
+            window.removeEventListener("storage", handleStorageChange);
+        };
+    }, [state.accountId, state.walletAddresses?.near, fetchNearBalances]);
+
+    // Set network handler (updates state, storage, and backend)
+    const setNetwork = useCallback((net: NearNetwork) => {
+        setNetworkState(net);
+        saveNetwork(net, state.accountId);
+
+        // Hard Network Validation check on existing connected account
+        if (state.accountId) {
+            const validation = validateNetworkAccount(state.accountId, net);
+            if (!validation.valid) {
+                console.warn("[Wallet] Active account does not match new network:", validation.error);
+                if (typeof window !== "undefined") {
+                    localStorage.removeItem(WALLET_STORAGE_KEY);
+                    localStorage.removeItem(ADDRESSES_STORAGE_KEY);
+                    localStorage.removeItem(CHAINS_STORAGE_KEY);
+                }
+                // Clear state on network mismatch so user connects appropriate network account
+                setState({
+                    accountId: null,
+                    walletAddresses: {},
+                    connectedChains: [],
+                    balances: {},
+                    isConnecting: false,
+                });
+            }
+        }
+    }, [state.accountId]);
+
     // ── Extract addresses from HOT Kit wallets array (Mainnet mode) ──
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const syncWallets = useCallback((kit: any) => {
@@ -304,6 +426,12 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             if (!validation.valid) {
                 console.warn("[Wallet] HOT Kit returned account conflicting with active network:", primaryId);
                 return;
+            }
+
+            if (typeof window !== "undefined") {
+                localStorage.setItem(WALLET_STORAGE_KEY, primaryId);
+                localStorage.setItem(ADDRESSES_STORAGE_KEY, JSON.stringify(addresses));
+                localStorage.setItem(CHAINS_STORAGE_KEY, JSON.stringify(chains));
             }
 
             setState((prev) => ({
@@ -360,6 +488,13 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         }
 
         console.log(`[Wallet] Connected to NEAR ${targetNet}:`, directAccountId);
+
+        if (typeof window !== "undefined") {
+            localStorage.setItem(WALLET_STORAGE_KEY, directAccountId);
+            localStorage.setItem(ADDRESSES_STORAGE_KEY, JSON.stringify({ near: directAccountId }));
+            localStorage.setItem(CHAINS_STORAGE_KEY, JSON.stringify(["near"]));
+        }
+
         setState({
             accountId: directAccountId,
             walletAddresses: { near: directAccountId },
@@ -508,6 +643,12 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             try { unsub(); } catch { }
         }
         unsubscribersRef.current = [];
+
+        if (typeof window !== "undefined") {
+            localStorage.removeItem(WALLET_STORAGE_KEY);
+            localStorage.removeItem(ADDRESSES_STORAGE_KEY);
+            localStorage.removeItem(CHAINS_STORAGE_KEY);
+        }
 
         setState({
             accountId: null,
