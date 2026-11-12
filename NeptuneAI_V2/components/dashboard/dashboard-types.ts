@@ -261,14 +261,15 @@ export interface TradeStats {
 }
 
 export function computeStats(trades: TradesResponse | null): TradeStats {
-  const open = trades?.open_trades ?? [];
-  const history = trades?.history ?? [];
+  const open = (trades?.open_trades ?? []).filter((t) => t.status === "OPEN");
+  const validClosedStatuses = new Set(["CLOSED_TP", "CLOSED_SL", "CLOSED", "COMPLETED"]);
+  const history = (trades?.history ?? []).filter((t) => validClosedStatuses.has(String(t.status).toUpperCase()));
   const fills = [...history.map((t) => tradeFill(t, false)), ...open.map((t) => tradeFill(t, true))].sort(
     (a, b) => a.t - b.t,
   );
   const closed = fills.filter((f) => !f.open);
-  const wins = closed.filter((f) => f.pnl > 0).length;
-  const losses = closed.filter((f) => f.pnl <= 0).length;
+  const wins = closed.filter((f) => f.pnl > 0.001).length;
+  const losses = closed.filter((f) => f.pnl < -0.001).length;
   const realizedPnl = closed.reduce((s, f) => s + f.pnl, 0);
   const unrealizedPnl = fills.filter((f) => f.open).reduce((s, f) => s + f.pnl, 0);
   const exposure = open.reduce((s, t) => s + (Number(t.amount_usd) || 0), 0);

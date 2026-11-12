@@ -73,6 +73,7 @@ export default function NeptuneAgentSuite({
   onConnectWallet
 }: Props) {
   const [fleetData, setFleetData] = useState<FleetData | null>(null);
+  const [myHires, setMyHires] = useState<any[]>([]);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [shareModalAgent, setShareModalAgent] = useState<"trader" | "rebalancer" | "research" | null>(null);
@@ -87,6 +88,15 @@ export default function NeptuneAgentSuite({
         const data = await res.json();
         setFleetData(data);
       }
+      if (accountId) {
+        const hiresRes = await fetch(`/api/marketplace/hires/${encodeURIComponent(accountId)}`);
+        if (hiresRes.ok) {
+          const hiresData = await hiresRes.json();
+          setMyHires(hiresData.my_hires || []);
+        }
+      } else {
+        setMyHires([]);
+      }
     } catch (e) {
       console.error("Failed to fetch fleet:", e);
     }
@@ -96,6 +106,28 @@ export default function NeptuneAgentSuite({
     fetchFleet();
     return setVisibleInterval(fetchFleet, 15000);
   }, [accountId]);
+
+  const handleCancelHire = async (hireId: string) => {
+    if (!accountId) return;
+    if (!confirm("Are you sure you want to stop renting this agent and unhire it?")) return;
+    try {
+      const res = await fetch("/api/marketplace/hire/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscriber_wallet: accountId,
+          hire_id: hireId
+        })
+      });
+      if (res.ok) {
+        await fetchFleet();
+        setSaveSuccessMsg("Rental cancelled! Local autonomous agent restored.");
+        setTimeout(() => setSaveSuccessMsg(null), 3500);
+      }
+    } catch (err) {
+      console.error("Cancel hire error:", err);
+    }
+  };
 
   const handleToggleAgentActive = async (agentId: string, currentActive: boolean) => {
     const targetWallet = accountId || "guest.near";
@@ -191,6 +223,9 @@ export default function NeptuneAgentSuite({
   if (activeAgentSubView) {
     const currentAgent = agentCards.find((a) => a.id === activeAgentSubView);
     const agentActive = (fleetData?.agents as any)?.[activeAgentSubView]?.is_active ?? false;
+    const activeHired = myHires.find(
+      (h) => h.agent_type === activeAgentSubView && h.status === "active"
+    );
 
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-background">
@@ -255,22 +290,64 @@ export default function NeptuneAgentSuite({
                 <span className="hidden md:inline">Share to Marketplace</span>
               </button>
             )}
-            {/* Active Toggle */}
-            <button
-              onClick={() => handleToggleAgentActive(activeAgentSubView, agentActive)}
-              disabled={isUpdating === activeAgentSubView}
-              aria-pressed={agentActive}
-              className={`suite-press flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
-                agentActive
-                  ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
-                  : "bg-secondary border-border text-muted-foreground hover:bg-secondary"
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/60"}`} />
-              <span>{agentActive ? "AGENT ACTIVE" : "AGENT INACTIVE"}</span>
-            </button>
+            {/* Active Toggle or Rented Badge */}
+            {activeHired ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                  RENTED
+                </span>
+                <button
+                  onClick={() => handleCancelHire(activeHired.id)}
+                  className="suite-press px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors"
+                >
+                  Stop Renting
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleToggleAgentActive(activeAgentSubView, agentActive)}
+                disabled={isUpdating === activeAgentSubView}
+                aria-pressed={agentActive}
+                className={`suite-press flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                  agentActive
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
+                    : "bg-secondary border-border text-muted-foreground hover:bg-secondary"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/60"}`} />
+                <span>{agentActive ? "AGENT ACTIVE" : "AGENT INACTIVE"}</span>
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Rented Notice Banner if Hired */}
+        {activeHired && (
+          <div className="suite-rise mx-3 sm:mx-5 mt-3 px-3 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                <Store size={16} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-foreground">
+                  Renting from Creator: <span className="font-mono text-purple-300">{activeHired.creator_wallet}</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  {activeHired.pricing_model === "profit_share"
+                    ? `Trades will be mirrored directly into your wallet. Creator receives ${activeHired.profit_share_percent || 10}% profit share on winning trades.`
+                    : `Operations and reports are automatically mirrored to your wallet.`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => handleCancelHire(activeHired.id)}
+              className="suite-press px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-bold text-xs shrink-0 transition-colors"
+            >
+              Stop Renting (Unhire)
+            </button>
+          </div>
+        )}
 
         {/* Sandbox Notice if No Wallet Connected */}
         {!accountId && (
@@ -397,16 +474,21 @@ export default function NeptuneAgentSuite({
 
       {/* 4 Agent Cards Grid */}
       <div className="grid grid-cols-1 gap-x-6 gap-y-14 pb-6 pt-12 md:grid-cols-2">
-        {agentCards.map((agent, index) => (
-          <AgentOverviewCard
-            key={agent.id}
-            agent={agent}
-            index={index + 1}
-            isActive={(fleetData?.agents as any)?.[agent.id]?.is_active ?? false}
-            onShare={() => setShareModalAgent(agent.id as any)}
-            onConfigure={() => onSelectAgentSubView(agent.id)}
-          />
-        ))}
+        {agentCards.map((agent, index) => {
+          const hired = myHires.find((h) => h.agent_type === agent.id && h.status === "active");
+          return (
+            <AgentOverviewCard
+              key={agent.id}
+              agent={agent}
+              index={index + 1}
+              isActive={(fleetData?.agents as any)?.[agent.id]?.is_active ?? false}
+              hired={hired}
+              onCancelHire={handleCancelHire}
+              onShare={() => setShareModalAgent(agent.id as any)}
+              onConfigure={() => onSelectAgentSubView(agent.id)}
+            />
+          );
+        })}
       </div>
       <ShareAgentModal
         isOpen={!!shareModalAgent}
@@ -462,13 +544,17 @@ function AgentOverviewCard({
   index,
   isActive,
   onShare,
-  onConfigure
+  onConfigure,
+  hired,
+  onCancelHire
 }: {
   agent: OverviewAgent;
   index: number;
   isActive: boolean;
   onShare: () => void;
   onConfigure: () => void;
+  hired?: any;
+  onCancelHire?: (hireId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const cardRef = React.useRef<HTMLElement>(null);
@@ -501,7 +587,7 @@ function AgentOverviewCard({
         ref={cardRef}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
-        data-active={isActive}
+        data-active={isActive || !!hired}
         className="agent3d-card group flex flex-col gap-4 px-5 pb-5 sm:px-6 sm:pb-6"
       >
         <div className="agent3d-bg" aria-hidden="true">
@@ -514,20 +600,27 @@ function AgentOverviewCard({
             <span className="agent3d-orbit" aria-hidden="true" />
             <AgentAvatar agentId={agent.id} size={52} />
           </div>
-          <span
-            className={`agent3d-pop mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold ${
-              isActive
-                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
-                : "border-border bg-secondary text-secondary-foreground"
-            }`}
-          >
+          {hired ? (
+            <div className="agent3d-pop mt-4 inline-flex items-center gap-1.5 rounded-full border border-purple-500/50 bg-purple-500/15 text-purple-300 px-3 py-1.5 text-xs font-bold shadow-[0_0_15px_rgba(168,85,247,0.25)]">
+              <span className="h-2 w-2 rounded-full animate-pulse bg-purple-400" />
+              <span>RENTED</span>
+            </div>
+          ) : (
             <span
-              className={`h-2 w-2 rounded-full ${
-                isActive ? "animate-glow bg-emerald-400" : "bg-muted-foreground"
+              className={`agent3d-pop mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold ${
+                isActive
+                  ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                  : "border-border bg-secondary text-secondary-foreground"
               }`}
-            />
-            {isActive ? "Running" : "Standby"}
-          </span>
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  isActive ? "animate-glow bg-emerald-400" : "bg-muted-foreground"
+                }`}
+              />
+              {isActive ? "Running" : "Standby"}
+            </span>
+          )}
         </div>
 
         {/* Name + plain-language summary */}
@@ -543,7 +636,25 @@ function AgentOverviewCard({
           </p>
         </div>
 
-        <AgentCardScene agentId={agent.id} isActive={isActive} />
+        {/* Rented Metadata Banner if Hired */}
+        {hired && (
+          <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3 text-xs space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-purple-300">Rented From:</span>
+              <span className="font-mono text-foreground font-bold truncate max-w-[160px]">{hired.creator_wallet}</span>
+            </div>
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span>Fee Model:</span>
+              <span className="font-semibold text-foreground">
+                {hired.pricing_model === "profit_share"
+                  ? `${hired.profit_share_percent || 10}% Profit Share`
+                  : `${hired.fixed_fee_tokens || 1} NEAR Fixed`}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <AgentCardScene agentId={agent.id} isActive={isActive || !!hired} />
 
         {/* Details */}
         <div className="relative">
@@ -600,15 +711,25 @@ function AgentOverviewCard({
               <span>Set it up</span>
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
             </button>
-            {agent.id !== "moderator" && (
+            {hired ? (
               <button
-                onClick={onShare}
-                className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-border bg-secondary px-4 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                title="Share this agent to the decentralized marketplace"
+                onClick={() => onCancelHire && onCancelHire(hired.id)}
+                className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-red-500/40 bg-red-500/15 hover:bg-red-500/25 px-4 text-sm font-semibold text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60 transition-colors"
+                title="Stop renting this agent and restore your own configuration"
               >
-                <Store size={16} className="text-primary" />
-                <span>Share</span>
+                <span>Stop Renting</span>
               </button>
+            ) : (
+              agent.id !== "moderator" && (
+                <button
+                  onClick={onShare}
+                  className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-border bg-secondary px-4 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  title="Share this agent to the decentralized marketplace"
+                >
+                  <Store size={16} className="text-primary" />
+                  <span>Share</span>
+                </button>
+              )
             )}
           </div>
         </div>

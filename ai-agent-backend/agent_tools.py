@@ -375,8 +375,105 @@ def get_swap_quote_tool(
 
 
 
-# Global storage for last quote
+# Global storage for last quote & last transfer
 _last_quote = None
+_last_transfer = None
+
+
+@tool
+def transfer_token_tool(
+    token: str,
+    amount: float,
+    recipient: str,
+    source_chain: str = "near",
+    memo: str = ""
+) -> str:
+    """
+    Prepare a direct token transfer to send tokens (NEAR, NEP-141 like SHITZU, USDC, USDT, etc.)
+    to a recipient address or NEAR account.
+    Call this tool whenever user asks to transfer, send, tip, or pay tokens to an address or account ID (NOT for swapping).
+    
+    Args:
+        token: Token symbol to send (e.g. "SHITZU", "NEAR", "USDC", "USDT")
+        amount: Amount of tokens to transfer (must be > 0)
+        recipient: The destination wallet address or account ID (e.g. "defishards.near", "bob.near", or 0x...)
+        source_chain: Source blockchain (default "near")
+        memo: Optional memo or reference note
+        
+    Returns: Confirmation prompt with transfer details.
+    """
+    global _last_transfer
+    clean_token = (token or "").strip().upper()
+    clean_recip = (recipient or "").strip()
+    clean_chain = (source_chain or "near").lower()
+
+    if not clean_token:
+        return "❌ Please specify which token you want to transfer (e.g. NEAR, SHITZU, USDC)."
+    if amount <= 0:
+        return "❌ Transfer amount must be greater than zero."
+    if not clean_recip:
+        return "❌ Please provide a valid recipient account ID or wallet address."
+
+    # Validate NEAR recipient format if on NEAR
+    if clean_chain == "near":
+        is_valid_near = (
+            clean_recip.endswith(".near") or
+            clean_recip.endswith(".testnet") or
+            clean_recip.endswith(".tg") or
+            (len(clean_recip) == 64 and all(c in "0123456789abcdef" for c in clean_recip.lower()))
+        )
+        if not is_valid_near:
+            return (
+                f"⚠️ Invalid NEAR recipient address `{clean_recip}`.\n"
+                f"NEAR account IDs must end with `.near`, `.testnet`, or be a 64-character hex public key."
+            )
+
+    _last_transfer = {
+        "token": clean_token,
+        "amount": float(amount),
+        "recipient": clean_recip,
+        "source_chain": clean_chain,
+        "memo": memo
+    }
+
+    return (
+        f"📤 **Transfer Confirmation**\n\n"
+        f"• **Send**: {amount} {clean_token}\n"
+        f"• **To**: `{clean_recip}`\n"
+        f"• **Network**: {clean_chain.upper()}\n"
+        f"{f'• **Memo**: {memo}\\n' if memo else ''}\n"
+        f"[TRANSFER_ID: {id(_last_transfer)}]\n\n"
+        f"Please reply **yes** or **confirm** to execute this transfer in your wallet, or **no** to cancel."
+    )
+
+
+@tool
+def confirm_transfer_tool() -> str:
+    """
+    Confirm and prepare the token transfer transaction after user approves the transfer.
+    Call this ONLY when user confirms a pending transfer (says yes, proceed, confirm, etc.).
+    
+    Returns: Status message about transfer transaction preparation.
+    """
+    global _last_transfer
+    if not _last_transfer:
+        return "❌ No active transfer request found. Please request a transfer first (e.g., 'transfer 100 SHITZU to defishards.near')."
+
+    try:
+        from tools import create_transfer_transaction
+        _ = create_transfer_transaction(
+            token=_last_transfer["token"],
+            amount=_last_transfer["amount"],
+            recipient=_last_transfer["recipient"],
+            source_chain=_last_transfer.get("source_chain", "near"),
+            memo=_last_transfer.get("memo", "")
+        )
+        return (
+            f"[TRANSFER_READY] Transfer transaction prepared for {_last_transfer['amount']} "
+            f"{_last_transfer['token']} to {_last_transfer['recipient']}. User needs to sign in their wallet."
+        )
+    except Exception as e:
+        return f"❌ Error preparing transfer transaction: {str(e)}"
 
 
 @tool
@@ -700,13 +797,15 @@ def get_autonomy_status_tool(wallet_address: str) -> str:
 
 from market_agent_tools import AGENT_MARKET_TOOLS, agent_suite_mcp_tool, configure_agent_tool, fetch_agent_history_tool
 
-# Swap Agent   handles token swaps, quotes, discovery, and agent suite MCP controls
+# Swap Agent   handles token swaps, quotes, transfers, discovery, and agent suite MCP controls
 SWAP_TOOL_LIST = [
     get_available_tokens_tool,
     get_token_chains_tool,
     validate_token_names_tool,
     get_swap_quote_tool,
     confirm_swap_tool,
+    transfer_token_tool,
+    confirm_transfer_tool,
     hot_pay_coming_soon_tool,
     agent_suite_mcp_tool,
     configure_agent_tool,

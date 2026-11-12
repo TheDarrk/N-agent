@@ -961,6 +961,119 @@ def create_deposit_transaction(
         return tx_payload
 
 
+def create_transfer_transaction(
+    token: str,
+    amount: float,
+    recipient: str,
+    source_chain: str = "near",
+    account_id: str = "",
+    memo: str = ""
+) -> Any:
+    """
+    Builds a direct transfer transaction for sending tokens (native NEAR or NEP-141)
+    to a recipient address without routing through swap intents.
+    """
+    clean_chain = (source_chain or "near").lower()
+    clean_token = token.strip().upper()
+    recipient_clean = recipient.strip()
+
+    if clean_chain == "near":
+        # Native NEAR transfer
+        if clean_token in ("NEAR", "WNEAR") and not clean_token.startswith("NEP141:"):
+            amount_yocto = str(int(Decimal(str(amount)) * Decimal(10**24)))
+            return [{
+                "receiverId": recipient_clean,
+                "actions": [{
+                    "type": "Transfer",
+                    "params": {
+                        "deposit": amount_yocto
+                    }
+                }]
+            }]
+
+        # NEP-141 token transfer (e.g. SHITZU, USDC, USDT, etc.)
+        from knowledge_base import _token_cache, get_token_by_symbol
+        tokens = _token_cache if _token_cache else []
+        token_data = get_token_by_symbol(clean_token, tokens)
+
+        contract_id = None
+        decimals = 18
+        if token_data:
+            contract_id = token_data.get("contractAddress") or token_data.get("defuseAssetId", "").replace("nep141:", "")
+            decimals = token_data.get("decimals", 18)
+
+        # Specific fallback for top NEAR NEP-141 ecosystem tokens
+        if not contract_id:
+            known_nep141 = {
+                "SHITZU": ("token.0xshitzu.near", 18),
+                "USDC": ("17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", 6),
+                "USDT": ("usdt.tkn.near", 6),
+                "BLACKDRAGON": ("blackdragon.tkn.near", 24),
+                "REF": ("token.v2.ref-finance.near", 18),
+                "LONK": ("token.lonkingnearbackto2024.near", 8),
+            }
+            if clean_token in known_nep141:
+                contract_id, decimals = known_nep141[clean_token]
+            elif "." in clean_token or clean_token.endswith(".near"):
+                contract_id = clean_token.lower()
+                decimals = 18
+            else:
+                contract_id = f"token.{clean_token.lower()}.near"
+                decimals = 18
+
+        amount_raw = str(int(Decimal(str(amount)) * Decimal(10**decimals)))
+        return [{
+            "receiverId": contract_id,
+            "actions": [{
+                "type": "FunctionCall",
+                "params": {
+                    "methodName": "ft_transfer",
+                    "args": {
+                        "receiver_id": recipient_clean,
+                        "amount": amount_raw,
+                        "memo": memo or f"Transfer {amount} {clean_token} via Neptune AI"
+                    },
+                    "gas": "30000000000000",
+                    "deposit": "1"  # 1 yoctoNEAR required by NEP-141 standard
+                }
+            }]
+        }]
+
+    elif is_evm_chain(clean_chain):
+        chain_id = get_evm_chain_id(clean_chain)
+        if clean_token in ("ETH", "MATIC", "BNB", "AVAX"):
+            wei_amount = str(int(Decimal(str(amount)) * Decimal(10**18)))
+            return {
+                "chainId": chain_id,
+                "to": recipient_clean,
+                "value": wei_amount,
+                "data": "0x",
+                "from": account_id
+            }
+        else:
+            from knowledge_base import _token_cache, get_token_by_symbol
+            token_data = get_token_by_symbol(clean_token, _token_cache or [])
+            contract_addr = token_data.get("contractAddress", "") if token_data else ""
+            decimals = token_data.get("decimals", 18) if token_data else 18
+            amount_raw = int(Decimal(str(amount)) * Decimal(10**decimals))
+            return {
+                "chainId": chain_id,
+                "to": contract_addr,
+                "value": "0",
+                "data": encode_erc20_transfer(recipient_clean, amount_raw),
+                "from": account_id
+            }
+    else:
+        return {
+            "chain": clean_chain,
+            "type": "native_transfer",
+            "to": recipient_clean,
+            "from": account_id,
+            "amount": float(amount),
+            "token": clean_token
+        }
+
+
 def create_evm_deposit_transaction(
     token_in: str,
     amount: float,

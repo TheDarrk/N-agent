@@ -941,10 +941,10 @@ async def rebalancer_evaluate(body: RebalanceRequest):
 
 @app.get("/api/rebalancer/status/{wallet_address}")
 async def rebalancer_status(wallet_address: str):
-    """Get current Rebalancer Agent telemetry."""
+    """Get current Rebalancer Agent telemetry (strictly read-only, zero trade side-effects)."""
     from autonomous_agents.rebalancer_agent import RebalancerAgent
     rebalancer = RebalancerAgent()
-    return await rebalancer.evaluate_and_rebalance(user_wallet=wallet_address)
+    return await rebalancer.get_portfolio_drift_status(user_wallet=wallet_address)
 
 @app.post("/api/rebalancer/dry-run-quote")
 async def rebalancer_dry_run_quote(body: DryRunQuoteRequest):

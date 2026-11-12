@@ -1014,6 +1014,73 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
     # 5. GOVERNED EXECUTION STATE MACHINE (PROPOSAL -> VALIDATION -> APPROVAL -> EXECUTION -> RECONCILIATION)
     # =================================================================
 
+    async def get_portfolio_drift_status(
+        self,
+        user_wallet: str,
+        target_allocation: Optional[Dict[str, float]] = None,
+        drift_threshold_pct: float = 5.0
+    ) -> Dict[str, Any]:
+        """
+        Strictly read-only evaluation of portfolio drift and holdings.
+        NEVER executes swaps and NEVER records dropped trades.
+        """
+        user = get_user(user_wallet) or {}
+        active_strategy = get_active_rebalancer_strategy(user_wallet)
+        is_active = bool(user.get("rebalancer_active", 0))
+
+        if not target_allocation:
+            if active_strategy and active_strategy.get("allocations"):
+                target_allocation = {k.lower(): float(v) for k, v in active_strategy["allocations"].items()}
+            else:
+                target_allocation = {"near": 30.0, "usdt": 70.0}
+        else:
+            target_allocation = {k.lower(): float(v) for k, v in target_allocation.items()}
+
+        targets = target_allocation
+        tokens = list(targets.keys())
+        prices = await get_token_prices(tokens)
+        real_portfolio = await get_wallet_portfolio(user_wallet)
+
+        current_holdings: Dict[str, Dict[str, float]] = {}
+        for t in targets.keys():
+            t_lower = t.lower()
+            amt = float(real_portfolio.get(t_lower, 0.0))
+            p = float(prices.get(t_lower, 1.0))
+            current_holdings[t_lower] = {"amount": amt, "usd_value": amt * p}
+
+        total_usd = sum(h["usd_value"] for h in current_holdings.values())
+        if total_usd <= 0.0:
+            return {
+                "status": "IN_BALANCE" if is_active else "INACTIVE",
+                "max_drift_pct": 0.0,
+                "drift_threshold_pct": drift_threshold_pct,
+                "current_allocation": {k.upper(): 0.0 for k in targets.keys()},
+                "target_allocation": {k.upper(): round(v, 1) for k, v in targets.items()},
+                "total_portfolio_usd": 0.0,
+                "action_taken": "No funded asset balances detected in wallet",
+                "is_active": is_active,
+                "active_strategy": active_strategy
+            }
+
+        current_pcts = {
+            t: (current_holdings.get(t, {}).get("usd_value", 0.0) / total_usd) * 100.0
+            for t in targets.keys()
+        }
+        drifts = {t: current_pcts.get(t, 0.0) - targets[t] for t in targets.keys()}
+        max_drift = max(abs(d) for d in drifts.values()) if drifts else 0.0
+
+        return {
+            "status": "IN_BALANCE" if max_drift <= drift_threshold_pct else "DRIFT_DETECTED",
+            "max_drift_pct": round(max_drift, 2),
+            "drift_threshold_pct": drift_threshold_pct,
+            "current_allocation": {k.upper(): round(v, 1) for k, v in current_pcts.items()},
+            "target_allocation": {k.upper(): round(v, 1) for k, v in targets.items()},
+            "total_portfolio_usd": round(total_usd, 2),
+            "action_taken": f"Monitored drift: {round(max_drift, 1)}%",
+            "is_active": is_active,
+            "active_strategy": active_strategy
+        }
+
     async def evaluate_and_rebalance(
         self,
         user_wallet: str,
@@ -1037,6 +1104,15 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "state": "REJECTED",
                 "status": "BLOCKED_KILL_SWITCH",
                 "message": "Kill switch active. Rebalancer will not trade."
+            }
+
+        if not bool(user.get("rebalancer_active", 0)):
+            return {
+                "success": True,
+                "state": "IDLE",
+                "status": "INACTIVE",
+                "max_drift_pct": 0.0,
+                "message": "Rebalancer agent is inactive for this wallet."
             }
 
         # Retrieve active strategy
@@ -1488,6 +1564,20 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             ))
         except Exception as notify_err:
             print(f"[REBALANCER: NOTIFY ERROR] Failed to dispatch rebalance alert email: {notify_err}")
+
+        # Mirror rebalance execution event to active marketplace subscribers
+        try:
+            from database import mirror_rebalance_to_subscribers
+            mirror_rebalance_to_subscribers(
+                creator_wallet=user_wallet,
+                rebalance_data={
+                    "overweight": overweight,
+                    "underweight": underweight,
+                    "amount_usd": rebalance_amount_usd
+                }
+            )
+        except Exception as copy_err:
+            print(f"[REBALANCER-MIRROR] Error mirroring to subscribers: {copy_err}")
 
         return {
             "success": True,

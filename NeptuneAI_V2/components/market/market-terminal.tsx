@@ -186,14 +186,34 @@ export default function MarketTerminal({ data }: { data: DashboardData }) {
   const markers: ChartMarker[] = useMemo(() => {
     if (!showAgent) return [];
     const all = [...(data.trades?.open_trades ?? []), ...(data.trades?.history ?? [])];
-    return all
-      .filter((t) => normalizeSymbol(t.symbol) === selected)
-      .flatMap((t) => {
-        const ms = parseTimestamp(t.created_at);
-        if (ms === null) return [];
-        const short = /SELL|SHORT/i.test(String(t.action));
-        return [{ time: Math.floor(ms / 1000), side: short ? ("sell" as const) : ("buy" as const), label: short ? "Trader short" : "Trader buy" }];
+    const seenTimes = new Set<number>();
+    const res: ChartMarker[] = [];
+
+    const validTrades = all.filter(
+      (t) =>
+        normalizeSymbol(t.symbol) === selected &&
+        t.status !== "DROPPED" &&
+        t.status !== "CANCELLED" &&
+        t.status !== "REJECTED"
+    );
+
+    for (const t of validTrades) {
+      const ms = parseTimestamp(t.created_at);
+      if (ms === null) continue;
+      // Round to nearest 60-second window to prevent stacked overlapping markers
+      const timeSec = Math.floor(ms / 60000) * 60;
+      if (seenTimes.has(timeSec)) continue;
+      seenTimes.add(timeSec);
+
+      const short = /SELL|SHORT/i.test(String(t.action));
+      res.push({
+        time: timeSec,
+        side: short ? ("sell" as const) : ("buy" as const),
+        label: short ? "Trader short" : "Trader buy"
       });
+    }
+
+    return res.sort((a, b) => a.time - b.time);
   }, [data.trades, selected, showAgent]);
 
   const lines: ChartLine[] = useMemo(() => {

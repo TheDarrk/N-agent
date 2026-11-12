@@ -1714,6 +1714,8 @@ def record_dropped_trade(
 
 def get_dropped_trades(user_wallet: str, limit: int = 20) -> List[Dict[str, Any]]:
     """Retrieve dropped trades for a user."""
+    if not user_wallet or not str(user_wallet).strip():
+        return []
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM trader_active_trades
@@ -1736,17 +1738,14 @@ def get_dropped_trades(user_wallet: str, limit: int = 20) -> List[Dict[str, Any]
 
 
 def get_open_trades(user_wallet: str = None) -> List[Dict[str, Any]]:
-    """Get all currently OPEN trades."""
+    """Get all currently OPEN trades scoped strictly to user_wallet."""
+    if not user_wallet or not str(user_wallet).strip():
+        return []
     conn = get_connection()
-    if user_wallet:
-        rows = conn.execute(
-            "SELECT * FROM trader_active_trades WHERE wallet_address = ? AND status = 'OPEN' ORDER BY created_at DESC",
-            (user_wallet,)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM trader_active_trades WHERE status = 'OPEN' ORDER BY created_at DESC"
-        ).fetchall()
+    rows = conn.execute(
+        "SELECT * FROM trader_active_trades WHERE wallet_address = ? AND status = 'OPEN' ORDER BY created_at DESC",
+        (user_wallet,)
+    ).fetchall()
     conn.close()
     res = []
     for r in rows:
@@ -1777,9 +1776,17 @@ def update_trade_status(trade_id: int, status: str, current_price: float = None)
     conn.commit()
     conn.close()
 
+    if status == "CLOSED_TP":
+        try:
+            settle_trade_profit_share(trade_id, status)
+        except Exception as se:
+            print(f"[SETTLEMENT ERROR] Trade #{trade_id}: {se}")
+
 
 def get_user_trade_history(user_wallet: str, limit: int = 20) -> List[Dict[str, Any]]:
     """Get trade history for a user."""
+    if not user_wallet or not str(user_wallet).strip():
+        return []
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM trader_active_trades
@@ -1848,6 +1855,22 @@ def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confide
     """, (wallet_address, trace_uuid, cid, symbol.upper(), verdict, confidence, json.dumps(trace_payload, default=str), clean_image_path))
     conn.commit()
     conn.close()
+
+    # Mirror report to active marketplace subscribers
+    try:
+        mirror_report_to_subscribers(
+            creator_wallet=wallet_address,
+            report_data={
+                "title": title,
+                "query": query,
+                "cid": cid,
+                "summary": full_report.get("executive_summary", ""),
+                **full_report
+            }
+        )
+    except Exception as me:
+        print(f"[REPORT MIRROR ERROR] {me}")
+
     return cid
 
 
@@ -1895,11 +1918,29 @@ def save_research_report(wallet_address: str, title: str, query: str, full_repor
     ))
     conn.commit()
     conn.close()
+
+    # Mirror report to active marketplace subscribers
+    try:
+        mirror_report_to_subscribers(
+            creator_wallet=wallet_address,
+            report_data={
+                "title": title,
+                "query": query,
+                "cid": cid,
+                "summary": full_report.get("executive_summary", ""),
+                **full_report
+            }
+        )
+    except Exception as me:
+        print(f"[REPORT MIRROR ERROR] {me}")
+
     return cid
 
 
 def get_user_research_reports(wallet_address: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Retrieves research reports strictly isolated to the requesting user."""
+    if not wallet_address or not str(wallet_address).strip():
+        return []
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM research_reports
@@ -2118,10 +2159,11 @@ def get_marketplace_agents(agent_type: str = None) -> List[Dict[str, Any]]:
     results = []
     for r in rows:
         d = dict(r)
-        try:
-            d["config_snapshot"] = json.loads(d.get("config_snapshot_json", "{}"))
-        except Exception:
-            d["config_snapshot"] = {}
+        # Protect creator proprietary strategy: never leak raw indicators/prompts
+        d["config_snapshot"] = {
+            "strategy_type": d.get("agent_type"),
+            "is_proprietary": True
+        }
         pt = d.get("pricing_type", "")
         pv = d.get("pricing_value", 0.0)
         if pt == "profit_share":
@@ -2228,7 +2270,7 @@ def get_user_hires(user_wallet: str) -> dict:
     my_hires = []
     for r in hired_rows:
         d = dict(r)
-        d["config_snapshot"] = json.loads(d.get("config_snapshot_json", "{}"))
+        d["config_snapshot"] = {"strategy_type": d.get("agent_type"), "is_proprietary": True}
         my_hires.append(d)
 
     return {"my_hires": my_hires, "my_subscribers": [dict(r) for r in sub_rows]}
@@ -2312,6 +2354,142 @@ def mirror_trade_to_subscribers(creator_wallet: str, trade_data: dict, cid_ref: 
         except Exception as e:
             print(f"[MARKETPLACE MIRROR ERROR] {sub_wallet}: {e}")
     return created_ids
+
+
+def mirror_rebalance_to_subscribers(creator_wallet: str, rebalance_data: dict) -> List[str]:
+    """Mirror a master rebalancer execution to all active subscribers."""
+    subscribers = get_subscribers_for_creator_agent(creator_wallet, "rebalancer")
+    if not subscribers:
+        return []
+
+    mirrored = []
+    overweight = rebalance_data.get("overweight", "NEAR")
+    underweight = rebalance_data.get("underweight", "USDT")
+    amount = float(rebalance_data.get("amount_usd", 0.0))
+
+    for sub in subscribers:
+        sub_wallet = sub["subscriber_wallet"]
+        if sub_wallet == creator_wallet:
+            continue
+        try:
+            log_agent_action(
+                user_wallet=sub_wallet,
+                agent_name="rebalancer",
+                trigger_type="marketplace_rebalance_mirror",
+                reasoning_text=f"Mirrored portfolio rebalance from creator {creator_wallet}: rebalancing {overweight} -> {underweight}.",
+                action_taken=f"RENTED_REBALANCE: {overweight} -> {underweight} (~${amount:.2f})",
+                status="executed"
+            )
+            mirrored.append(sub_wallet)
+        except Exception as e:
+            print(f"[REBALANCER MIRROR ERROR] {sub_wallet}: {e}")
+    return mirrored
+
+
+def mirror_report_to_subscribers(creator_wallet: str, report_data: dict) -> List[str]:
+    """Mirror a master researcher report internally into each subscriber's research_reports table."""
+    subscribers = get_subscribers_for_creator_agent(creator_wallet, "research")
+    if not subscribers:
+        return []
+
+    delivered = []
+    title = report_data.get("title", "Market Research Intel")
+    query = report_data.get("query", "Alpha Intel")
+    cid = report_data.get("cid", "")
+    summary = report_data.get("summary", "")
+    full_json = json.dumps(report_data)
+
+    conn = get_connection()
+    for sub in subscribers:
+        sub_wallet = sub["subscriber_wallet"]
+        if sub_wallet == creator_wallet:
+            continue
+        try:
+            report_uuid = f"rep-mirror-{uuid.uuid4().hex[:10]}"
+            sub_cid = f"{cid}-sub-{sub_wallet.replace('.', '_')[:8]}"
+            conn.execute("""
+                INSERT OR IGNORE INTO research_reports (
+                    wallet_address, report_uuid, cid, title, research_query,
+                    executive_summary, hired_by_agent, full_report_json
+                ) VALUES (?, ?, ?, ?, ?, ?, 'marketplace_rented', ?)
+            """, (sub_wallet, report_uuid, sub_cid, title, query, summary, full_json))
+            log_agent_action(
+                user_wallet=sub_wallet,
+                agent_name="research",
+                trigger_type="marketplace_report_delivery",
+                reasoning_text=f"Delivered institutional research report '{title}' from master agent {creator_wallet}.",
+                action_taken=f"RENTED_REPORT_DELIVERED: {title}",
+                cid_reference=sub_cid,
+                status="executed"
+            )
+            delivered.append(sub_wallet)
+        except Exception as e:
+            print(f"[RESEARCH MIRROR ERROR] {sub_wallet}: {e}")
+    conn.commit()
+    conn.close()
+    return delivered
+
+
+def settle_trade_profit_share(trade_id: int, status: str) -> Optional[Dict[str, Any]]:
+    """
+    When a mirrored trade closes in profit (status == 'CLOSED_TP'),
+    calculates and records the creator's profit share fee settlement.
+    """
+    if status != "CLOSED_TP":
+        return None
+
+    conn = get_connection()
+    mirror = conn.execute("""
+        SELECT m.*, s.pricing_type, s.pricing_value, t.entry_price_usd, t.take_profit_usd, t.position_size_usd, t.symbol
+        FROM marketplace_trade_mirrors m
+        JOIN marketplace_subscriptions s ON m.hire_id = s.hire_id
+        JOIN trader_active_trades t ON m.mirrored_trade_id = t.id
+        WHERE m.mirrored_trade_id = ?
+    """, (trade_id,)).fetchone()
+
+    if not mirror:
+        conn.close()
+        return None
+
+    entry = float(mirror["entry_price_usd"] or 0)
+    tp = float(mirror["take_profit_usd"] or 0)
+    size = float(mirror["position_size_usd"] or 0)
+    pricing_type = mirror["pricing_type"]
+    pricing_value = float(mirror["pricing_value"] or 0)
+
+    fee_usd = 0.0
+    profit_usd = 0.0
+    if pricing_type == "profit_share" and entry > 0 and tp > entry:
+        gain_pct = (tp - entry) / entry
+        profit_usd = gain_pct * size
+        fee_usd = profit_usd * (pricing_value / 100.0)
+    elif pricing_type == "fee_per_trade":
+        fee_usd = pricing_value
+
+    settlement_id = f"settle-{uuid.uuid4().hex[:8]}"
+    conn.execute("""
+        UPDATE marketplace_trade_mirrors
+        SET error_message = ?
+        WHERE id = ?
+    """, (f"SETTLED: ${fee_usd:.2f} profit cut to {mirror['creator_wallet']} (ID: {settlement_id})", mirror["id"]))
+    conn.commit()
+    conn.close()
+
+    log_agent_action(
+        user_wallet=mirror["subscriber_wallet"],
+        agent_name="trader",
+        trigger_type="marketplace_profit_share",
+        reasoning_text=f"Profitable trade closed on {mirror['symbol']} (+${profit_usd:.2f}). Transferred {pricing_value}% cut (${fee_usd:.2f}) to master creator {mirror['creator_wallet']}.",
+        action_taken=f"FEE_SETTLED: ${fee_usd:.2f} -> {mirror['creator_wallet']}",
+        status="executed"
+    )
+
+    return {
+        "settled": True,
+        "fee_usd": fee_usd,
+        "creator_wallet": mirror["creator_wallet"],
+        "subscriber_wallet": mirror["subscriber_wallet"]
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

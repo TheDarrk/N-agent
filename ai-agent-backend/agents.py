@@ -115,30 +115,71 @@ async def process_message(
     print(f"[AGENT] Processing: {user_msg} | Step: {current_step} | Account: {account_id} | Wallet: {wallet_type}")
     
     # -- Handle confirmation state FIRST (before routing) ----------
+    if current_step == "WAITING_TRANSFER_CONFIRMATION":
+        pending = session_state.get("pending_transfer", {})
+        user_lower = user_msg.lower().strip()
+        is_confirmed = any(word in user_lower for word in ["yes", "confirm", "go", "proceed", "ok", "sure", "yep", "yeah", "send"])
+
+        if is_confirmed:
+            try:
+                from tools import create_transfer_transaction, get_sign_action_type
+                source_chain = pending.get("source_chain", "near").lower()
+                tx_payload = create_transfer_transaction(
+                    token=pending["token"],
+                    amount=pending["amount"],
+                    recipient=pending["recipient"],
+                    source_chain=source_chain,
+                    account_id=pending.get("account_id", account_id),
+                    memo=pending.get("memo", "")
+                )
+                action = get_sign_action_type(source_chain)
+                return {
+                    "response": f"  Transfer transaction prepared for {pending['amount']} {pending['token']} to `{pending['recipient']}`! Please review and sign it in your wallet.",
+                    "action": action,
+                    "payload": tx_payload,
+                    "new_state": {"step": "IDLE"}
+                }
+            except Exception as e:
+                return {
+                    "response": f"  Error preparing transfer: {str(e)}",
+                    "new_state": {"step": "IDLE"}
+                }
+        else:
+            return {
+                "response": "Transfer cancelled. Let me know if you would like to do anything else!",
+                "new_state": {"step": "IDLE"}
+            }
+
     if current_step == "WAITING_CONFIRMATION":
         pending = session_state.get("pending_quote", {})
         user_lower = user_msg.lower().strip()
         is_confirmed = any(word in user_lower for word in ["yes", "confirm", "go", "proceed", "ok", "sure", "yep", "yeah"])
         
         if is_confirmed:
-            from tools import create_deposit_transaction, get_sign_action_type
-            source_chain = pending.get("source_chain", "near").lower()
-            tx_payload = create_deposit_transaction(
-                token_in=pending["token_in"],
-                token_out=pending["token_out"],
-                amount=pending["amount"],
-                min_amount_out=pending.get("min_amount_out", 0),
-                deposit_address=pending["deposit_address"],
-                source_chain=source_chain,
-                account_id=pending.get("account_id", account_id)
-            )
-            action = get_sign_action_type(source_chain)
-            return {
-                "response": f"  Transaction prepared for {source_chain.upper()}! Please review and sign it in your wallet.",
-                "action": action,
-                "payload": tx_payload,
-                "new_state": {"step": "IDLE"}
-            }
+            try:
+                from tools import create_deposit_transaction, get_sign_action_type
+                source_chain = pending.get("source_chain", "near").lower()
+                tx_payload = create_deposit_transaction(
+                    token_in=pending["token_in"],
+                    token_out=pending["token_out"],
+                    amount=pending["amount"],
+                    min_amount_out=pending.get("min_amount_out", 0),
+                    deposit_address=pending["deposit_address"],
+                    source_chain=source_chain,
+                    account_id=pending.get("account_id", account_id)
+                )
+                action = get_sign_action_type(source_chain)
+                return {
+                    "response": f"  Transaction prepared for {source_chain.upper()}! Please review and sign it in your wallet.",
+                    "action": action,
+                    "payload": tx_payload,
+                    "new_state": {"step": "IDLE"}
+                }
+            except Exception as e:
+                return {
+                    "response": f"  Error preparing swap transaction: {str(e)}",
+                    "new_state": {"step": "IDLE"}
+                }
         else:
             return {
                 "response": "No problem! Swap cancelled. Let me know if you'd like to try a different swap!",
@@ -516,7 +557,50 @@ async def _process_swap_message(
         
         # Determine new state based on tool results
         new_state = {"step": "IDLE"}
-        
+
+        # Check if a transfer was prepared or initiated
+        transfer_prepared = False
+        for msg in tool_messages:
+            if hasattr(msg, 'content') and '[TRANSFER_READY]' in msg.content:
+                transfer_prepared = True
+                break
+
+        if transfer_prepared:
+            from agent_tools import _last_transfer
+            if _last_transfer:
+                try:
+                    from tools import create_transfer_transaction, get_sign_action_type
+                    source_chain = _last_transfer.get("source_chain", "near").lower()
+                    tx_payload = create_transfer_transaction(
+                        token=_last_transfer["token"],
+                        amount=_last_transfer["amount"],
+                        recipient=_last_transfer["recipient"],
+                        source_chain=source_chain,
+                        account_id=account_id,
+                        memo=_last_transfer.get("memo", "")
+                    )
+                    action_type = get_sign_action_type(source_chain)
+                    return {
+                        "response": f"  Transfer transaction prepared for {_last_transfer['amount']} {_last_transfer['token']} to `{_last_transfer['recipient']}`! Please sign in your wallet.",
+                        "action": action_type,
+                        "payload": tx_payload,
+                        "new_state": {"step": "IDLE"}
+                    }
+                except Exception as e:
+                    print(f"[AGENT] Error creating transfer payload: {e}")
+
+        # Check if a transfer quote was just provided - transition to WAITING_TRANSFER_CONFIRMATION
+        for msg in tool_messages:
+            if hasattr(msg, 'content') and '[TRANSFER_ID:' in msg.content:
+                from agent_tools import _last_transfer
+                if _last_transfer:
+                    new_state = {
+                        "step": "WAITING_TRANSFER_CONFIRMATION",
+                        "pending_transfer": _last_transfer.copy()
+                    }
+                    print(f"[AGENT] State -> WAITING_TRANSFER_CONFIRMATION (transfer stored)")
+                break
+
         # Check if a quote was just provided   transition to WAITING_CONFIRMATION
         for msg in tool_messages:
             if hasattr(msg, 'content') and '[QUOTE_ID:' in msg.content:

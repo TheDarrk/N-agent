@@ -239,11 +239,21 @@ export default function FullScreenHistoryModal({
   }, [isOpen, onClose]);
 
   const fetchData = async () => {
-    const targetWallet = accountId || "guest.near";
+    if (!accountId) {
+      setOpenTrades([]);
+      setTrades([]);
+      setDroppedTrades([]);
+      setTraces([]);
+      setFleetLogs([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const targetWallet = accountId;
     setIsLoading(true);
     try {
-      // 1. Fetch trades
-      const tradesRes = await fetch(`/api/trader/trades/${targetWallet}`);
+      // 1. Fetch trades strictly scoped to connected wallet
+      const tradesRes = await fetch(`/api/trader/trades/${encodeURIComponent(targetWallet)}`);
       if (tradesRes.ok) {
         const data = await tradesRes.json();
         setOpenTrades(data.open_trades || []);
@@ -251,15 +261,15 @@ export default function FullScreenHistoryModal({
         setDroppedTrades(data.dropped_trades || []);
       }
 
-      // 2. Fetch decentralized traces
-      const tracesRes = await fetch("/api/trader/traces");
+      // 2. Fetch decentralized traces scoped to connected wallet
+      const tracesRes = await fetch(`/api/trader/traces/${encodeURIComponent(targetWallet)}`);
       if (tracesRes.ok) {
         const data = await tracesRes.json();
         setTraces(data.traces || []);
       }
 
-      // 3. Fetch fleet logs
-      const fleetRes = await fetch(`/api/fleet/${targetWallet}`);
+      // 3. Fetch fleet logs scoped to connected wallet
+      const fleetRes = await fetch(`/api/fleet/${encodeURIComponent(targetWallet)}`);
       if (fleetRes.ok) {
         const data = await fleetRes.json();
         if (data.recent_activity) {
