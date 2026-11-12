@@ -67,6 +67,8 @@ try:
     from market_sentiment import (
         get_crypto_fear_and_greed_index,
         get_aggregate_market_sentiment,
+        get_token_sentiment_screener_line,
+        get_token_market_sentiment,
     )
 except ImportError:
     from ..trader_mcp import (
@@ -79,6 +81,8 @@ except ImportError:
     from ..market_sentiment import (
         get_crypto_fear_and_greed_index,
         get_aggregate_market_sentiment,
+        get_token_sentiment_screener_line,
+        get_token_market_sentiment,
     )
 
 
@@ -350,6 +354,7 @@ Job: from the pre-screened candidates, pick the coins worth trading (max 3) and 
 - last_6_closes_4h, last_candle_4h (body%, upper_wick%, lower_wick%)
 - pattern, pattern_status (forming | confirmed | none)
 - Derivatives: funding, oi_chg (24h)
+- Sentiment & Index: cfgi_fng (per-coin live Fear & Greed 0-100), coincodex (per-coin price prediction sentiment, technical indicator bull/bear signal counts, 5-day price forecast)
 - Context: market_12h (12h trend of the broad-market reference)
 Values are raw, with no averaging. You decide what each value implies. Use your own trading knowledge, plus the reference notes below.
 
@@ -385,7 +390,7 @@ Funding and open interest (perpetual futures):
 - Momentum and participation (20): RSI and MACD state, rel_vol, whether the move is early or stretched.
 - Volatility (10): whether ATR pays for the risk.
 - Pattern and candle evidence (10): fit with direction and context, and whether the pattern is confirmed.
-- Positioning and context (10): funding, OI, and the broad-market backdrop.
+- Positioning, Sentiment & Context (10): funding, OI, per-coin Fear & Greed (CFGI), CoinCodex bull/bear signals, and broad-market backdrop.
 
 Use vol_24h only as a tiebreaker between similar setups.
 
@@ -496,6 +501,8 @@ def format_screener_coin_line(symbol: str, data: Any) -> str:
     funding = data.get("funding", "+0.00%")
     oi_chg = data.get("oi_chg", "+0%")
     market_12h = data.get("market_12h", "NEUTRAL")
+    sentiment = data.get("sentiment_line") or data.get("sentiment") or ""
+    sentiment_str = f" | sentiment={sentiment}" if sentiment else ""
 
     return (
         f"{symbol}: price={price} chg_24h={chg_24h} rel_vol={rel_vol} | "
@@ -503,7 +510,7 @@ def format_screener_coin_line(symbol: str, data: Any) -> str:
         f"4h: trend={trend_4h} ema20/50/200={ema_4h} slope20={slope_4h} rsi={rsi_4h} macd_hist={macd_hist_4h} atr={atr_4h} | "
         f"swing_high={sw_h} swing_low={sw_l} range_pos={range_pos} dist_resistance={dist_res} dist_support={dist_sup} | "
         f"last_6_closes_4h={last_6} last_candle={last_candle} | "
-        f"pattern={pattern} status={status} | funding={funding} oi_chg={oi_chg} | market_12h={market_12h}"
+        f"pattern={pattern} status={status} | funding={funding} oi_chg={oi_chg} | market_12h={market_12h}{sentiment_str}"
     )
 
 
@@ -741,6 +748,11 @@ class ScreenerAgent:
         # Format coin data cleanly with raw indicators (no aggregation loss, all qualifying tokens evaluated)
         coin_lines = []
         for symbol, data in active_coin_data.items():
+            if isinstance(data, dict) and "sentiment_line" not in data and "sentiment" not in data:
+                try:
+                    data["sentiment_line"] = get_token_sentiment_screener_line(symbol)
+                except Exception:
+                    data["sentiment_line"] = "cfgi_fng=50/100 (Neutral)"
             coin_lines.append(format_screener_coin_line(symbol, data))
 
         fng = get_crypto_fear_and_greed_index()
@@ -1458,7 +1470,10 @@ class CouncilAgent:
                 })
                 fng_val = sentiment_data.get("fear_and_greed", {}).get("value")
                 fng_regime = sentiment_data.get("fear_and_greed", {}).get("value_classification")
-                print(f"[COUNCIL TOOL: SENTIMENT SUCCESS] Fear & Greed: {fng_val} ({fng_regime})")
+                tok_sent = sentiment_data.get("token_sentiment", {})
+                cfgi_val = tok_sent.get("cfgi", {}).get("score") if tok_sent.get("cfgi") else "N/A"
+                codex_sent = tok_sent.get("coincodex", {}).get("sentiment") if tok_sent.get("coincodex") else "N/A"
+                print(f"[COUNCIL TOOL: SENTIMENT SUCCESS] {coin} -> Macro F&G: {fng_val} ({fng_regime}) | CFGI F&G: {cfgi_val} | CoinCodex: {codex_sent}")
             except Exception as se:
                 print(f"[COUNCIL TOOL: SENTIMENT ERROR] {coin}: {se}")
                 market_sentiment_all[coin] = {}

@@ -236,3 +236,20 @@ def validate_pattern_geometry(
         "is_structurally_sound": is_valid,
         "geometry_checks": checks
     }
+
+
+def get_per_coin_sentiment_mcp(symbol: str) -> Dict[str, Any]:
+    """
+    Crawls and evaluates real-time institutional market sentiment for a cryptocurrency token.
+    Integrates CFGI.io per-coin Fear & Greed index and CoinCodex technical indicator consensus.
+    """
+    try:
+        from market_sentiment import get_token_market_sentiment
+        return get_token_market_sentiment(symbol)
+    except Exception as e:
+        return {
+            "symbol": symbol,
+            "error": str(e),
+            "screener_summary": "cfgi_fng=50/100 (Neutral) | coincodex=Neutral"
+        }
+
