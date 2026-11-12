@@ -30,6 +30,15 @@ def init_db(db_path: Optional[str] = None):
     with open(schema_path, "r", encoding="utf-8") as f:
         schema_sql = f.read()
     conn.executescript(schema_sql)
+
+    # Safe migration: ensure encrypted_seed_phrase column exists in core_agent_wallets
+    try:
+        cols = [c["name"] for c in conn.execute("PRAGMA table_info(core_agent_wallets)").fetchall()]
+        if "encrypted_seed_phrase" not in cols:
+            conn.execute("ALTER TABLE core_agent_wallets ADD COLUMN encrypted_seed_phrase TEXT DEFAULT NULL")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
     print("[DB] Neptune v2.1 database initialized cleanly with 18 tables.")
@@ -1009,9 +1018,12 @@ def create_agent_wallet(
     from decimal import Decimal
     keypair = generate_near_keypair()
     
-    # Encrypt private key using wallet-specific salt
+    # Encrypt private key and seed phrase using wallet-specific salt
     enc = get_encryption()
     encrypted_priv = enc.encrypt_field(user_wallet, "agent_priv_key", keypair["private_key"])
+    encrypted_seed = None
+    if keypair.get("seed_phrase"):
+        encrypted_seed = enc.encrypt_field(user_wallet, "agent_seed_phrase", keypair["seed_phrase"])
 
     clean_wallet_type = (wallet_type or "implicit").strip().lower()
     f_near = float(funding_near) if funding_near and float(funding_near) > 0 else 0.1
@@ -1051,10 +1063,10 @@ def create_agent_wallet(
     assigned_json = json.dumps([assigned_agent]) if assigned_agent else "[]"
     cursor = conn.execute("""
         INSERT INTO core_agent_wallets (
-            wallet_address, chain_type, public_key, encrypted_private_key,
+            wallet_address, chain_type, public_key, encrypted_private_key, encrypted_seed_phrase,
             agent_account_id, label, wallet_type, assigned_agents_json, scope, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'function_call', ?)
-    """, (user_wallet, chain_type.lower(), keypair["public_key"], encrypted_priv, account_address, final_label, clean_wallet_type, assigned_json, initial_status))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'function_call', ?)
+    """, (user_wallet, chain_type.lower(), keypair["public_key"], encrypted_priv, encrypted_seed, account_address, final_label, clean_wallet_type, assigned_json, initial_status))
     key_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -1065,6 +1077,7 @@ def create_agent_wallet(
         "chain_type": chain_type.lower(),
         "public_key": keypair["public_key"],
         "private_key": keypair["private_key"],
+        "seed_phrase": keypair.get("seed_phrase"),
         "agent_wallet_address": account_address,
         "label": final_label,
         "wallet_type": clean_wallet_type,
@@ -1095,26 +1108,145 @@ def activate_agent_wallet(user_wallet: str, key_id: int, tx_hash: str = "", assi
     return ok
 
 
-def import_agent_wallet(user_wallet: str, public_key: str, agent_account_id: str, label: str = "", private_key: str = "", chain_type: str = None) -> Dict[str, Any]:
-    """Import an existing testnet keypair as an Agent Wallet (max 4 per user)."""
+def import_agent_wallet(
+    user_wallet: str,
+    agent_account_id: str = "",
+    private_key: str = "",
+    public_key: str = "",
+    label: str = "",
+    chain_type: str = None,
+    seed_phrase: str = ""
+) -> Dict[str, Any]:
+    """Import an existing account or custom keypair into the user's agent wallet pool (max 4)."""
     conn = get_connection()
     upsert_user(user_wallet)
+
+    clean_account = (agent_account_id or "").strip()
+    clean_priv = (private_key or "").strip()
+    clean_pub = (public_key or "").strip()
+    clean_seed = (seed_phrase or "").strip()
+
+    # 1. Handle seed phrase (12 words) if provided
+    if clean_seed or (clean_priv and len(clean_priv.split()) in (12, 24)):
+        phrase = clean_seed or clean_priv
+        try:
+            from bip_utils import Bip39SeedGenerator, Bip44, Bip44Coins
+            import base58
+            seed_bytes = Bip39SeedGenerator(phrase).Generate()
+            ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.NEAR_PROTOCOL).Purpose().Coin().Account(0)
+            priv_bytes = ctx.PrivateKey().Raw().ToBytes()
+            pub_bytes = ctx.PublicKey().RawCompressed().ToBytes()[1:]
+            clean_pub = f"ed25519:{base58.b58encode(pub_bytes).decode()}"
+            clean_priv = f"ed25519:{base58.b58encode(priv_bytes + pub_bytes).decode()}"
+            clean_seed = phrase
+        except Exception as e:
+            conn.close()
+            raise ValueError(f"Invalid seed phrase: {e}")
+
+    # 2. Derive public key and account from private key if not explicitly provided
+    if clean_priv and not clean_pub:
+        if clean_priv.startswith("0x") or (len(clean_priv) == 64 and all(c in "0123456789abcdefABCDEF" for c in clean_priv)):
+            try:
+                from eth_account import Account
+                evm_hex = clean_priv if clean_priv.startswith("0x") else f"0x{clean_priv}"
+                acct = Account.from_key(evm_hex)
+                clean_pub = acct.address
+                if not clean_account:
+                    clean_account = acct.address
+            except Exception as e:
+                conn.close()
+                raise ValueError(f"Invalid EVM private key: {e}")
+        else:
+            try:
+                import base58
+                raw_b58 = clean_priv.replace("ed25519:", "").strip()
+                key_bytes = base58.b58decode(raw_b58)
+                if len(key_bytes) == 64:
+                    pub_b58 = base58.b58encode(key_bytes[32:]).decode()
+                    clean_pub = f"ed25519:{pub_b58}"
+                elif len(key_bytes) == 32:
+                    from nacl.signing import SigningKey
+                    sk = SigningKey(key_bytes)
+                    pub_b58 = base58.b58encode(bytes(sk.verify_key)).decode()
+                    clean_pub = f"ed25519:{pub_b58}"
+                else:
+                    raise ValueError(f"Unexpected private key byte length: {len(key_bytes)}")
+            except Exception as e:
+                conn.close()
+                raise ValueError(f"Could not derive public key from private key: {e}")
+
+    # 3. Auto-detect on-chain NEAR account name if not provided
+    if not clean_account and clean_pub:
+        if clean_pub.startswith("0x"):
+            clean_account = clean_pub
+        else:
+            try:
+                import urllib.request
+                import json
+                import base58
+                url = f"https://api.fastnear.com/v1/public_key/{clean_pub}"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                res = json.loads(urllib.request.urlopen(req, timeout=4).read())
+                account_ids = res.get("account_ids", [])
+                named = [a for a in account_ids if a.endswith(".near") or a.endswith(".testnet")]
+                if named:
+                    clean_account = named[0]
+                elif account_ids:
+                    clean_account = account_ids[0]
+                else:
+                    clean_account = base58.b58decode(clean_pub.replace("ed25519:", "").strip()).hex()
+            except Exception:
+                import base58
+                clean_account = base58.b58decode(clean_pub.replace("ed25519:", "").strip()).hex()
+
+    if not clean_pub and not clean_account:
+        conn.close()
+        raise ValueError("Please provide a valid Private Key, 12-Word Seed Phrase, or Account ID.")
+
+    detected_chain = (chain_type or ("evm" if (clean_account.startswith("0x") or clean_pub.startswith("0x")) else "near")).lower()
+    enc = get_encryption()
+    encrypted_priv = enc.encrypt_field(user_wallet, "agent_priv_key", clean_priv) if clean_priv else ""
+    encrypted_seed = enc.encrypt_field(user_wallet, "agent_seed_phrase", clean_seed) if clean_seed else None
+    final_label = label.strip() if label else (clean_account if clean_account else f"Agent Wallet")
+
+    # Deduplication: update if this account is already in the user's pool
+    existing = conn.execute(
+        "SELECT id FROM core_agent_wallets WHERE wallet_address = ? AND agent_account_id = ?",
+        (user_wallet, clean_account)
+    ).fetchone()
+    if existing:
+        conn.execute("""
+            UPDATE core_agent_wallets
+            SET public_key = ?, encrypted_private_key = ?, encrypted_seed_phrase = ?,
+                label = ?, status = 'active'
+            WHERE id = ?
+        """, (clean_pub, encrypted_priv, encrypted_seed, final_label, existing["id"]))
+        key_id = existing["id"]
+        conn.commit()
+        conn.close()
+        return {
+            "id": key_id,
+            "user_wallet": user_wallet,
+            "chain_type": detected_chain,
+            "public_key": clean_pub,
+            "agent_wallet_address": clean_account,
+            "label": final_label,
+            "wallet_type": "imported",
+            "assigned_agents": [],
+            "status": "active"
+        }
+
     count = conn.execute("SELECT COUNT(*) as cnt FROM core_agent_wallets WHERE wallet_address = ?", (user_wallet,)).fetchone()["cnt"]
     if count >= 4:
         conn.close()
-        raise ValueError("Maximum 4 agent wallets allowed per user.")
-
-    detected_chain = (chain_type or ("evm" if (agent_account_id.startswith("0x") or public_key.startswith("0x")) else "near")).lower()
-    enc = get_encryption()
-    encrypted_priv = enc.encrypt_field(user_wallet, "agent_priv_key", private_key) if private_key else ""
-    final_label = label.strip() if label else f"Agent Wallet #{count + 1}"
+        raise ValueError("Maximum 4 agent wallets allowed per user. Please delete an unneeded wallet first.")
 
     cursor = conn.execute("""
         INSERT INTO core_agent_wallets (
-            wallet_address, chain_type, public_key, encrypted_private_key,
-            agent_account_id, label, assigned_agents_json, scope, status
-        ) VALUES (?, ?, ?, ?, ?, ?, '[]', 'function_call', 'active')
-    """, (user_wallet, detected_chain, public_key, encrypted_priv, agent_account_id, final_label))
+            wallet_address, chain_type, public_key, encrypted_private_key, encrypted_seed_phrase,
+            agent_account_id, label, wallet_type, assigned_agents_json, scope, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'imported', '[]', 'function_call', 'active')
+    """, (user_wallet, detected_chain, clean_pub, encrypted_priv, encrypted_seed, clean_account, final_label))
     key_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -1123,9 +1255,10 @@ def import_agent_wallet(user_wallet: str, public_key: str, agent_account_id: str
         "id": key_id,
         "user_wallet": user_wallet,
         "chain_type": detected_chain,
-        "public_key": public_key,
-        "agent_wallet_address": agent_account_id,
+        "public_key": clean_pub,
+        "agent_wallet_address": clean_account,
         "label": final_label,
+        "wallet_type": "imported",
         "assigned_agents": [],
         "status": "active"
     }
@@ -1272,12 +1405,25 @@ def export_agent_wallet_key(user_wallet: str, key_id: int) -> Dict[str, Any]:
         decrypted_priv = decrypt_private_key(encrypted_priv, wallet_address=user_wallet)
 
     account_addr = row["agent_account_id"] or row["public_key"]
+
+    decrypted_seed = None
+    if "encrypted_seed_phrase" in row.keys() and row["encrypted_seed_phrase"]:
+        try:
+            decrypted_seed = enc.decrypt_field(user_wallet, "agent_seed_phrase", row["encrypted_seed_phrase"])
+        except Exception:
+            try:
+                from key_manager import decrypt_private_key
+                decrypted_seed = decrypt_private_key(row["encrypted_seed_phrase"], wallet_address=user_wallet)
+            except Exception:
+                pass
+
     return {
         "id": row["id"],
         "user_wallet": row["wallet_address"],
         "chain_type": row["chain_type"],
         "public_key": row["public_key"],
         "private_key": decrypted_priv,
+        "seed_phrase": decrypted_seed,
         "agent_wallet_address": account_addr,
         "label": row["label"] or "Agent Wallet",
         "wallet_type": row["wallet_type"]
@@ -1304,9 +1450,10 @@ def create_active_trade(
     execution_wallet: str = "",
     is_cross_chain: int = 0,
     drop_reason: str = "",
-    target_chain: str = "near"
+    target_chain: str = "near",
+    status: str = "OPEN"
 ) -> int:
-    """Record a newly opened trade with its TP/SL & confidence metrics."""
+    """Record a newly opened trade or pending limit order with its TP/SL & confidence metrics."""
     user = get_user(user_wallet) or {}
     config_snapshot = {
         "timeframe": user.get("trader_timeframe", "1h"),
@@ -1330,18 +1477,44 @@ def create_active_trade(
             confidence_score, expected_roi_pct, position_size_usd, execution_wallet,
             target_chain, is_cross_chain, status, drop_reason, tx_hash,
             user_config_snapshot_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         user_wallet, trade_uuid, symbol.upper(), action.upper(), direction,
         float(entry_price), float(current_price), float(tp_price), float(sl_price),
         int(confidence_score), float(expected_roi_pct), float(amount_usd),
         execution_wallet, target_chain.lower(), 1 if is_cross_chain else 0,
-        drop_reason, tx_hash, json.dumps(config_snapshot)
+        status.upper(), drop_reason, tx_hash, json.dumps(config_snapshot)
     ))
     trade_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return trade_id
+
+
+def get_pending_trades(user_wallet: str = None) -> List[Dict[str, Any]]:
+    """Get all currently PENDING_ENTRY limit trades."""
+    conn = get_connection()
+    if user_wallet:
+        rows = conn.execute(
+            "SELECT * FROM trader_active_trades WHERE wallet_address = ? AND status = 'PENDING_ENTRY' ORDER BY created_at DESC",
+            (user_wallet,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM trader_active_trades WHERE status = 'PENDING_ENTRY' ORDER BY created_at DESC"
+        ).fetchall()
+    conn.close()
+    res = []
+    for r in rows:
+        d = dict(r)
+        d["user_wallet"] = d["wallet_address"]
+        d["amount_usd"] = d["position_size_usd"]
+        d["entry_price"] = d["entry_price_usd"]
+        d["current_price"] = d["current_price_usd"]
+        d["tp_price"] = d["take_profit_usd"]
+        d["sl_price"] = d["stop_loss_usd"]
+        res.append(d)
+    return res
 
 
 def validate_agent_execution_wallet(

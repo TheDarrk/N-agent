@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS core_agent_wallets (
     chain_type TEXT NOT NULL DEFAULT 'near',
     public_key TEXT NOT NULL,
     encrypted_private_key TEXT NOT NULL,
+    encrypted_seed_phrase TEXT DEFAULT NULL,
     agent_account_id TEXT NOT NULL,
     label TEXT DEFAULT NULL,
     wallet_type TEXT NOT NULL DEFAULT 'implicit',

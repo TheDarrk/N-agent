@@ -6,12 +6,14 @@ import {
     NearNetwork,
     getNetwork,
     setNetwork as saveNetwork,
+    syncNetworkFromBackend,
     isTestnet as checkIsTestnet,
     validateNetworkAccount,
     assertNetworkContract,
     NETWORK_CHANGE_EVENT,
 } from "@/lib/near/network";
 import TestnetWalletModal from "@/components/testnet-wallet-modal";
+import localManifest from "@/lib/near/manifest.json";
 
 // ─── Types ───────────────────────────────────────────────
 type WalletState = {
@@ -26,7 +28,7 @@ type WalletContextValue = WalletState & {
     network: NearNetwork;
     setNetwork: (net: NearNetwork) => void;
     isTestnet: boolean;
-    connectWallet: (chainType?: number, walletId?: string) => void;
+    connectWallet: (chainType?: number, walletId?: string) => Promise<void> | void;
     openTestnetModal?: () => void;
     disconnect: () => Promise<void>;
     signAndSendTransaction: (payload: Record<string, unknown> | Record<string, unknown>[]) => Promise<{ hash: string }>;
@@ -68,18 +70,26 @@ function walletTypeToChain(type: string | number): string {
 
     // EVM Chain IDs
     if (t === 1) return "eth";         // Ethereum Mainnet
+    if (t === 11155111) return "eth";  // Ethereum Sepolia Testnet
     if (t === 56) return "bnb";        // BNB Chain
     if (t === 97) return "bnb";        // BNB Testnet
     if (t === 137) return "pol";       // Polygon
-    if (t === 42161) return "arb";     // Arbitrum
+    if (t === 80002) return "pol";     // Polygon Amoy Testnet
+    if (t === 42161) return "arb";     // Arbitrum One
+    if (t === 421614) return "arb";    // Arbitrum Sepolia Testnet
+    if (t === 8453) return "base";     // Base Mainnet
+    if (t === 84532) return "base";    // Base Sepolia Testnet
+    if (t === 10) return "op";         // Optimism Mainnet
+    if (t === 11155420) return "op";   // Optimism Sepolia Testnet
+    if (t === 534352) return "scroll"; // Scroll Mainnet
+    if (t === 534351) return "scroll"; // Scroll Sepolia Testnet
     if (t === 1313161554) return "aurora"; // Aurora
+    if (t === 1313161555) return "aurora"; // Aurora Testnet
     if (t === 43114) return "avax";    // Avalanche
+    if (t === 43113) return "avax";    // Avalanche Fuji Testnet
     if (t === 59144) return "linea";   // Linea
     if (t === 196) return "xlayer";    // Xlayer
-    if (t === 8453) return "base";     // Base
     if (t === 204) return "opbnb";     // opBNB
-    if (t === 10) return "op";         // Optimism
-    if (t === 534352) return "scroll"; // Scroll
     if (t === 98881) return "ebi";     // EbiChain
     if (t === 1329) return "sei";      // Sei
     if (t === 81457) return "blast";   // Blast
@@ -118,6 +128,15 @@ function walletTypeToChain(type: string | number): string {
     return String(type);
 }
 
+const EVM_CHAIN_KEYS = new Set([
+    "eth", "bnb", "pol", "polygon", "arb", "arbitrum", "base", "op", "optimism",
+    "scroll", "aurora", "avax", "avalanche", "linea", "xlayer", "opbnb", "ebi", "sei",
+    "blast", "taiko", "mantle", "manta", "kava", "zksync", "monad", "metis", "gnosis",
+    "fantom", "cronos", "chiliz", "moonbeam", "ronin", "lisk", "sonic", "zora", "mode",
+    "bera", "berachain", "unichain", "soneium", "ink", "ape", "apechain", "adi",
+    "sepolia", "amoy", "fuji"
+]);
+
 function formatBalanceManual(balance: string | bigint | number, decimals: number): string {
     const val = BigInt(balance);
     if (val === BigInt(0)) return "0";
@@ -145,12 +164,21 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hotKitRef = useRef<any>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nearConnectorRef = useRef<any>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const activeWalletRef = useRef<any>(null);
     const unsubscribersRef = useRef<(() => void)[]>([]);
 
-    // Initialize network from localStorage on mount
+    // Initialize network from backend SSOT on mount
     useEffect(() => {
         const current = getNetwork();
         setNetworkState(current);
+
+        // Authoritative sync from backend /api/network
+        syncNetworkFromBackend().then((cfg) => {
+            setNetworkState(cfg.network);
+        });
 
         const handleNetworkChanged = (e: Event) => {
             const customEvent = e as CustomEvent<NearNetwork>;
@@ -239,10 +267,21 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             if (!walletList || !Array.isArray(walletList) || walletList.length === 0) return;
 
             const addresses: Record<string, string> = {};
+            const multiBalances: Record<string, string> = {};
             for (const wallet of walletList) {
                 const chain = walletTypeToChain(wallet.type);
                 const addr = wallet.address || wallet.omniAddress || wallet.publicKey;
                 if (addr) addresses[chain] = addr;
+
+                if (wallet.balance !== undefined && wallet.balance !== null && wallet.balance !== "") {
+                    const sym = chain.toUpperCase();
+                    const dec = (chain === "near" ? 24 : (["eth", "arb", "bnb", "pol", "base", "op", "linea", "scroll", "aurora", "avax"].includes(chain)) ? 18 : (chain === "solana" ? 9 : (chain === "btc" || chain === "doge" ? 8 : 18)));
+                    try {
+                        multiBalances[`[${sym}] ${sym}`] = formatBalanceManual(wallet.balance, dec);
+                    } catch {
+                        multiBalances[`[${sym}] ${sym}`] = String(wallet.balance);
+                    }
+                }
             }
 
             if (Object.keys(addresses).length === 0) return;
@@ -250,8 +289,18 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             const chains = Object.keys(addresses);
             const primaryId = addresses.near || addresses.eth || Object.values(addresses)[0] || "Unknown";
 
+            // Auto-detect network from primary account if needed
+            let targetNet = network;
+            if (primaryId.endsWith(".near") && network !== "mainnet") {
+                targetNet = "mainnet";
+                setNetwork("mainnet");
+            } else if (primaryId.endsWith(".testnet") && network !== "testnet") {
+                targetNet = "testnet";
+                setNetwork("testnet");
+            }
+
             // Hard check: Validate primary account against network
-            const validation = validateNetworkAccount(primaryId, network);
+            const validation = validateNetworkAccount(primaryId, targetNet);
             if (!validation.valid) {
                 console.warn("[Wallet] HOT Kit returned account conflicting with active network:", primaryId);
                 return;
@@ -262,6 +311,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                 accountId: primaryId,
                 walletAddresses: addresses,
                 connectedChains: chains,
+                balances: { ...prev.balances, ...multiBalances },
                 isConnecting: false,
             }));
 
@@ -290,193 +340,155 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         return () => clearInterval(interval);
     }, [state.accountId, state.walletAddresses.near, fetchNearBalances]);
 
-    // ── Handle Successful Testnet Account Connection ───────
-    const handleTestnetConnect = useCallback((testnetAccountId: string) => {
-        // Hard assertion check
-        const validation = validateNetworkAccount(testnetAccountId, "testnet");
+    // ── Handle Successful Direct Account Connection ───────
+    const handleDirectConnect = useCallback((directAccountId: string) => {
+        // Auto-detect network from account domain if needed
+        let targetNet = network;
+        if (directAccountId.endsWith(".near") && network !== "mainnet") {
+            targetNet = "mainnet";
+            setNetwork("mainnet");
+        } else if (directAccountId.endsWith(".testnet") && network !== "testnet") {
+            targetNet = "testnet";
+            setNetwork("testnet");
+        }
+
+        // Hard assertion check against target network
+        const validation = validateNetworkAccount(directAccountId, targetNet);
         if (!validation.valid) {
-            console.error("[Wallet] Attempted to connect non-testnet account in testnet mode:", testnetAccountId);
+            console.error(`[Wallet] Attempted to connect incompatible account for ${targetNet}:`, directAccountId);
             return;
         }
 
-        console.log("[Wallet] Connected to NEAR Testnet:", testnetAccountId);
+        console.log(`[Wallet] Connected to NEAR ${targetNet}:`, directAccountId);
         setState({
-            accountId: testnetAccountId,
-            walletAddresses: { near: testnetAccountId },
+            accountId: directAccountId,
+            walletAddresses: { near: directAccountId },
             connectedChains: ["near"],
             balances: {},
             isConnecting: false,
         });
 
         // Trigger balance fetch immediately
-        fetchNearBalances(testnetAccountId);
-    }, [fetchNearBalances]);
+        fetchNearBalances(directAccountId);
+    }, [network, setNetwork, fetchNearBalances]);
 
-    // ── Connect Wallet Entrypoint (Powered by HOT Kit + Multi-Wallet Selector) ─
-    const connectWallet = useCallback((chainType?: number, walletId?: string) => {
-        // If not connected yet and called without specific parameters, open the Testnet Wallet Modal
-        if (!state.accountId && chainType === undefined && !walletId) {
-            setIsTestnetModalOpen(true);
-            return;
-        }
+    // ── Connect Wallet Entrypoint (Direct HOT Wallet Connector Modal) ─
+    const connectWallet = useCallback(async (chainType?: number | unknown, walletId?: string): Promise<void> => {
+        const validChainType = typeof chainType === "number" ? chainType : undefined;
+        const validWalletId = typeof walletId === "string" ? walletId : undefined;
 
-        console.log(`[Wallet] Connecting via HOT Kit (${network} mode, chainType=${chainType || "auto"}, walletId=${walletId || "none"})...`);
-        (async () => {
-            setState((s) => ({ ...s, isConnecting: true }));
-            try {
+        console.log(`[Wallet] Connecting via HOT Connector (${network} mode, chainType=${validChainType || "auto"}, walletId=${validWalletId || "none"})...`);
+        setState((s) => ({ ...s, isConnecting: true }));
+        try {
+            const targetNet = network === "testnet" ? "testnet" : "mainnet";
+
+            // If non-NEAR multi-chain type is explicitly requested (e.g. EVM, Solana), use HOT Kit
+            if (validChainType && validChainType !== 1010) {
                 let HotKitClass: any;
-                let defaultConnectors: any;
                 try {
                     const kitModule = await import("@hot-labs/kit");
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     HotKitClass = kitModule.HotConnector || kitModule.HotKit || (kitModule as any).default;
-                    const defaultsModule = await import("@hot-labs/kit/defaults");
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    defaultConnectors = defaultsModule.defaultConnectors || (defaultsModule as any).default;
                 } catch (importErr) {
-                    console.warn("[Wallet] HOT Kit module not available, falling back to testnet modal:", importErr);
-                    if (network === "testnet") {
-                        setIsTestnetModalOpen(true);
-                    }
-                    setState((s) => ({ ...s, isConnecting: false }));
-                    return;
+                    console.warn("[Wallet] HOT Kit module dynamic load notice:", importErr);
                 }
 
-                if (!hotKitRef.current) {
-                    const safeConnectors = (Array.isArray(defaultConnectors) ? defaultConnectors : [])
-                        .filter((c: any) => !!c);
+                if (HotKitClass) {
+                    if (!hotKitRef.current) {
+                        const rawApiKey = process.env.NEXT_PUBLIC_HOT_API_KEY || process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+                        const effectiveProjectId = (rawApiKey && rawApiKey.trim() !== "" && rawApiKey !== "neptune-ai-dev")
+                            ? rawApiKey
+                            : "3a8170812b534d0ff9d794f19a901d64";
 
-                    console.log(`[Wallet] Initializing HOT Kit with connectors:`, safeConnectors);
-
-                    const rawApiKey = process.env.NEXT_PUBLIC_HOT_API_KEY || process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
-                    const effectiveProjectId = (rawApiKey && rawApiKey.trim() !== "" && rawApiKey !== "neptune-ai-dev")
-                        ? rawApiKey
-                        : "3a8170812b534d0ff9d794f19a901d64";
-
-                    const kitOptions: any = {
-                        projectId: effectiveProjectId,
-                        apiKey: effectiveProjectId,
-                        connectors: safeConnectors,
-                        walletConnect: {
+                        const kit = new HotKitClass({
                             projectId: effectiveProjectId,
-                            metadata: {
-                                name: "Neptune AI",
-                                description: "Autonomous AI Agents on NEAR Protocol",
-                                url: typeof window !== "undefined" ? window.location.origin : "https://neptune.ai",
-                                icons: ["https://storage.herewallet.app/upload/73a44e583769f11112b0eff1f2dd2a560c05eed5f6d92f0c03484fa047c31668.png"],
+                            apiKey: effectiveProjectId,
+                            walletConnect: {
+                                projectId: effectiveProjectId,
+                                metadata: {
+                                    name: "Neptune AI",
+                                    description: "Autonomous AI Agents on NEAR Protocol",
+                                    url: typeof window !== "undefined" ? window.location.origin : "https://neptune.ai",
+                                    icons: ["https://storage.herewallet.app/upload/73a44e583769f11112b0eff1f2dd2a560c05eed5f6d92f0c03484fa047c31668.png"],
+                                },
                             },
-                        },
-                    };
-
-                    let kit: any;
-                    try {
-                        kit = new HotKitClass(kitOptions);
+                        });
                         hotKitRef.current = kit;
-                    } catch (kitErr) {
-                        console.warn("[HOT Kit] Exception initializing HotKitClass:", kitErr);
-                        setIsTestnetModalOpen(true);
-                        setState((s) => ({ ...s, isConnecting: false }));
+                        const unsubConnect = kit.onConnect?.(() => {
+                            syncWallets(kit);
+                            setIsTestnetModalOpen(false);
+                        });
+                        if (unsubConnect) unsubscribersRef.current.push(unsubConnect);
+                    }
+                    const kit = hotKitRef.current;
+                    if (kit.connect) {
+                        await kit.connect(validChainType);
+                        syncWallets(kit);
+                        setIsTestnetModalOpen(false);
                         return;
                     }
-
-                    const unsubConnect = kit.onConnect?.((payload: any) => {
-                        console.log("[HOT Kit] Wallet connected:", payload?.wallet?.address);
-                        syncWallets(kit);
-                    });
-
-                    const unsubDisconnect = kit.onDisconnect?.((payload: any) => {
-                        console.log("[HOT Kit] Wallet disconnected:", payload?.wallet?.address);
-                        syncWallets(kit);
-                    });
-
-                    if (unsubConnect) unsubscribersRef.current.push(unsubConnect);
-                    if (unsubDisconnect) unsubscribersRef.current.push(unsubDisconnect);
-
-                    syncWallets(kit);
                 }
-
-                const kit = hotKitRef.current;
-
-                // Wait for connectors to finish resolving asynchronously
-                let retries = 0;
-                while ((!kit?.connectors || kit.connectors.length === 0) && retries < 30) {
-                    await new Promise((r) => setTimeout(r, 40));
-                    retries++;
-                }
-
-                // Configure NEAR connector network and patch manifest so ALL wallets support Testnet
-                const targetNet = network === "testnet" ? "testnet" : "mainnet";
-                const nearConn = kit?.connectors?.find((c: any) => c.id === "near");
-                if (nearConn?.connector) {
-                    nearConn.connector.network = targetNet;
-                    try {
-                        await nearConn.connector.whenManifestLoaded;
-                        if (nearConn.connector.manifest?.wallets) {
-                            nearConn.connector.manifest.wallets.forEach((w: any) => {
-                                w.features = { ...(w.features || {}), testnet: true };
-                                if (w.id === "mynearwallet") {
-                                    w.permissions = {
-                                        ...(w.permissions || {}),
-                                        allowsOpen: [
-                                            ...(w.permissions?.allowsOpen || []),
-                                            "https://testnet.mynearwallet.com",
-                                            "https://app.mynearwallet.com"
-                                        ]
-                                    };
-                                }
-                            });
-                            if (Array.isArray(nearConn.connector.availableWallets)) {
-                                nearConn.options = nearConn.connector.availableWallets.map((w: any) => ({
-                                    type: "external",
-                                    download: w.manifest.website,
-                                    name: w.manifest.name,
-                                    icon: w.manifest.icon,
-                                    id: w.manifest.id,
-                                }));
-                            }
-                        }
-                    } catch (manifestErr) {
-                        console.warn("[Wallet] Testnet manifest patch notice:", manifestErr);
-                    }
-                }
-
-                // Direct Wallet Connect (e.g., 'hot-wallet', 'mynearwallet', 'meteor-wallet', 'nightly-wallet')
-                if (walletId && nearConn?.connector) {
-                    console.log(`[Wallet] Connecting directly to ${walletId}...`);
-                    await nearConn.connector.connect(walletId);
-                    syncWallets(kit);
-                    return;
-                }
-
-                if (kit.connect) {
-                    if (chainType) {
-                        await kit.connect(chainType);
-                    } else if (state.accountId) {
-                        // User already has a primary connected wallet, open multi-chain picker (EVM, Solana, TON...)
-                        await kit.connect();
-                    } else {
-                        // Initial connection: open NEAR Testnet selector with all wallets
-                        await kit.connect(1010);
-                    }
-                } else if (kit.openProfile) {
-                    kit.openProfile();
-                }
-
-                syncWallets(kit);
-            } catch (err) {
-                console.warn("[Wallet] HOT Kit connection dialog closed or unavailable:", err);
-                if (network === "testnet" && !state.accountId) {
-                    setIsTestnetModalOpen(true);
-                }
-            } finally {
-                setState((s) => ({ ...s, isConnecting: false }));
             }
-        })();
-    }, [network, state.accountId, syncWallets]);
+
+            // PRIMARY FLOW: Launch the official HOT Wallet modal directly via @hot-labs/near-connect
+            const { NearConnector } = await import("@hot-labs/near-connect");
+            const nc = new NearConnector({
+                network: targetNet,
+                manifest: localManifest as any,
+            });
+            nearConnectorRef.current = nc;
+
+            await nc.whenManifestLoaded.catch(() => {});
+
+            // Ensure testnet features are enabled for all sandbox wallets so Meteor, HOT, MyNearWallet all appear on testnet!
+            if (nc.manifest?.wallets) {
+                nc.manifest.wallets.forEach((w: any) => {
+                    w.features = { ...(w.features || {}), testnet: true, mainnet: true };
+                });
+            }
+            if (Array.isArray(nc.wallets)) {
+                nc.wallets.forEach((w: any) => {
+                    if (w.manifest) {
+                        w.manifest.features = { ...(w.manifest.features || {}), testnet: true, mainnet: true };
+                    }
+                });
+            }
+
+            // If a specific walletId was passed (e.g. 'meteor-wallet' or 'hot-wallet'), connect directly to it.
+            // If walletId is undefined, nc.connect() automatically creates & opens NearWalletsPopup (the official HOT Wallet modal)!
+            const wallet = await nc.connect(validWalletId);
+            activeWalletRef.current = wallet;
+
+            const accounts = await wallet.getAccounts();
+            if (accounts && accounts.length > 0) {
+                const primaryAccount = accounts[0].accountId;
+                handleDirectConnect(primaryAccount);
+                setIsTestnetModalOpen(false);
+            }
+        } catch (err: any) {
+            if (err?.message?.includes("rejected") || err?.message?.includes("User rejected")) {
+                console.log("[Wallet] User dismissed wallet modal.");
+                return;
+            }
+            console.warn("[Wallet] HOT Wallet connection notice:", err);
+        } finally {
+            setState((s) => ({ ...s, isConnecting: false }));
+        }
+    }, [network, handleDirectConnect, syncWallets]);
 
     // ── Disconnect ────────────────────────────────────────
     const disconnect = useCallback(async () => {
         try {
+            if (activeWalletRef.current) {
+                try {
+                    await activeWalletRef.current.signOut({ network });
+                } catch {}
+                activeWalletRef.current = null;
+            }
+            if (nearConnectorRef.current) {
+                try {
+                    await nearConnectorRef.current.disconnect();
+                } catch {}
+            }
             const kit = hotKitRef.current;
             if (kit) {
                 const wallets = kit.wallets;
@@ -504,7 +516,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             balances: {},
             isConnecting: false,
         });
-    }, []);
+    }, [network]);
 
     // ── Sign NEAR Transaction ─────────────────────────────
     const signAndSendTransaction = useCallback(
@@ -529,7 +541,32 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
             console.log("[Wallet] Network-verified transaction payload:", preparedPayload);
 
-            // 1. If connected via HOT Kit wallet instance
+            // 1. If connected via active NearConnector wallet (Meteor Wallet, HOT Wallet, MyNearWallet)
+            if (activeWalletRef.current) {
+                const w = activeWalletRef.current;
+                try {
+                    if (Array.isArray(preparedPayload) && w.signAndSendTransactions) {
+                        const txs = preparedPayload.map((tx: any) => ({
+                            receiverId: tx.receiverId || tx.receiver_id,
+                            actions: tx.actions || [],
+                        }));
+                        const res = await w.signAndSendTransactions({ transactions: txs, network });
+                        const lastHash = Array.isArray(res) ? (res[res.length - 1]?.transaction?.hash || res[res.length - 1]?.hash) : "batch-tx";
+                        return { hash: lastHash || "batch-tx" };
+                    } else if (w.signAndSendTransaction) {
+                        const tx = Array.isArray(preparedPayload) ? preparedPayload[0] : preparedPayload;
+                        const res = await w.signAndSendTransaction({
+                            receiverId: tx.receiverId || tx.receiver_id,
+                            actions: tx.actions || [],
+                            network,
+                        });
+                        return { hash: res?.transaction?.hash || res?.transaction_outcome?.id || res?.hash || "tx-success" };
+                    }
+                } catch (signErr) {
+                    console.warn("[Wallet] Active NearConnector sign notice:", signErr);
+                    throw signErr;
+                }
+            }
             const kit = hotKitRef.current;
             if (kit && Array.isArray(kit.wallets)) {
                 const nearWallet = (kit as any).near || kit.wallets.find(
@@ -592,16 +629,34 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             const kit = hotKitRef.current;
             if (!kit) throw new Error("EVM transactions require HOT Kit connection.");
 
-            const evmWallet = Array.isArray(kit.wallets)
-                ? kit.wallets.find((w: any) => w.type === 1 || w.type === "evm")
-                : null;
+            const wallets = Array.isArray(kit.wallets) ? kit.wallets : [];
+            const reqChainId = payload.chainId ? Number(payload.chainId) : undefined;
 
+            let evmWallet = null;
+            if (reqChainId) {
+                evmWallet = wallets.find((w: any) => Number(w.type) === reqChainId || Number(w.chainId) === reqChainId);
+            }
             if (!evmWallet) {
-                throw new Error("No EVM wallet connected.");
+                // Find any EVM-compatible wallet (type matches EVM or 0x address)
+                evmWallet = wallets.find((w: any) => {
+                    const chain = walletTypeToChain(w.type);
+                    const addr = w.address || w.omniAddress || w.publicKey;
+                    return EVM_CHAIN_KEYS.has(chain) || (typeof addr === "string" && addr.startsWith("0x"));
+                });
             }
 
-            const hash = await evmWallet.sendTransaction(payload);
-            return { hash: hash || "unknown" };
+            if (!evmWallet) {
+                throw new Error("No EVM wallet connected. Please connect an EVM wallet in HOT Kit.");
+            }
+
+            const sendFn = evmWallet.sendTransaction || evmWallet.signAndSendTransaction;
+            if (!sendFn) {
+                throw new Error("Connected EVM wallet does not support sending transactions directly.");
+            }
+
+            const res = await sendFn.call(evmWallet, payload);
+            const hash = typeof res === "string" ? res : (res?.hash || res?.transaction?.hash || "unknown");
+            return { hash };
         },
         []
     );
@@ -613,16 +668,39 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             if (!kit) throw new Error("Chain transactions require HOT Kit connection.");
 
             const chain = (payload.chain as string || "").toLowerCase();
-            const wallet = Array.isArray(kit.wallets)
-                ? kit.wallets.find((w: any) => walletTypeToChain(w.type) === chain)
-                : null;
+            const wallets = Array.isArray(kit.wallets) ? kit.wallets : [];
 
+            let wallet = wallets.find((w: any) => walletTypeToChain(w.type) === chain);
             if (!wallet) {
-                throw new Error(`No ${chain.toUpperCase()} wallet connected.`);
+                if (chain === "solana" || chain === "sol") {
+                    wallet = wallets.find((w: any) => w.type === 1001 || walletTypeToChain(w.type) === "solana");
+                } else if (chain === "ton") {
+                    wallet = wallets.find((w: any) => w.type === 1111 || walletTypeToChain(w.type) === "ton");
+                } else if (chain === "btc" || chain === "bitcoin") {
+                    wallet = wallets.find((w: any) => w.type === -6 || walletTypeToChain(w.type) === "btc");
+                } else if (chain === "tron" || chain === "trx") {
+                    wallet = wallets.find((w: any) => w.type === 333 || walletTypeToChain(w.type) === "tron");
+                } else if (chain === "stellar" || chain === "xlm") {
+                    wallet = wallets.find((w: any) => w.type === 1100 || walletTypeToChain(w.type) === "stellar");
+                } else if (chain === "cosmos" || chain === "atom") {
+                    wallet = wallets.find((w: any) => w.type === 4444118 || walletTypeToChain(w.type) === "cosmos");
+                } else if (chain === "doge") {
+                    wallet = wallets.find((w: any) => w.type === -8 || walletTypeToChain(w.type) === "doge");
+                }
             }
 
-            const hash = await wallet.sendTransaction(payload);
-            return { hash: hash || "unknown" };
+            if (!wallet) {
+                throw new Error(`No ${chain.toUpperCase()} wallet connected in HOT Kit. Please connect your ${chain.toUpperCase()} wallet.`);
+            }
+
+            const sendFn = wallet.sendTransaction || wallet.signAndSendTransaction;
+            if (!sendFn) {
+                throw new Error(`Connected ${chain.toUpperCase()} wallet does not support sending transactions directly.`);
+            }
+
+            const res = await sendFn.call(wallet, payload);
+            const hash = typeof res === "string" ? res : (res?.hash || res?.transaction?.hash || "unknown");
+            return { hash };
         },
         []
     );
@@ -646,8 +724,9 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             <TestnetWalletModal
                 isOpen={isTestnetModalOpen}
                 onClose={() => setIsTestnetModalOpen(false)}
-                onConnectSuccess={handleTestnetConnect}
-                onLaunchHotKit={() => connectWallet(1010)}
+                network={network}
+                onConnectSuccess={handleDirectConnect}
+                onLaunchHotKit={() => connectWallet(network === "testnet" ? 1010 : undefined)}
                 onConnectSpecificWallet={(walletId: string) => connectWallet(1010, walletId)}
             />
         </WalletContext.Provider>

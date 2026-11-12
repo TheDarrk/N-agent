@@ -63,24 +63,40 @@ def decrypt_private_key(encrypted: str, wallet_address: Optional[str] = None) ->
 
 def generate_near_keypair() -> Dict[str, str]:
     """
-    Generate an ed25519 keypair for NEAR Protocol.
-    Returns: {"public_key": "ed25519:...", "private_key": "ed25519:...", "public_key_raw": "..."}
+    Generate a 12-word BIP-39 mnemonic passphrase and derived ed25519 keypair for NEAR Protocol.
+    Compatible with Meteor Wallet, Sender, HERE Wallet, Nightly, and standard NEAR seed phrases (m/44'/397'/0').
+    Returns: {"public_key": "ed25519:...", "private_key": "ed25519:...", "public_key_raw": "...", "seed_phrase": "..."}
     """
-    from nacl.signing import SigningKey
-    
-    signing_key = SigningKey.generate()
-    verify_key = signing_key.verify_key
-    
-    # NEAR format: ed25519:<base58_encoded_key>
     import base58
-    pub_b58 = base58.b58encode(bytes(verify_key)).decode()
-    priv_b58 = base58.b58encode(bytes(signing_key) + bytes(verify_key)).decode()
-    
-    return {
-        "public_key": f"ed25519:{pub_b58}",
-        "private_key": f"ed25519:{priv_b58}",
-        "public_key_raw": pub_b58,
-    }
+    try:
+        from bip_utils import Bip39MnemonicGenerator, Bip39SeedGenerator, Bip44, Bip44Coins
+        mnemonic = str(Bip39MnemonicGenerator().FromWordsNumber(12))
+        seed_bytes = Bip39SeedGenerator(mnemonic).Generate()
+        # Standard NEAR derivation path: m/44'/397'/0'
+        ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.NEAR_PROTOCOL).Purpose().Coin().Account(0)
+        priv_bytes = ctx.PrivateKey().Raw().ToBytes()
+        pub_bytes = ctx.PublicKey().RawCompressed().ToBytes()[1:]
+        pub_b58 = base58.b58encode(pub_bytes).decode()
+        priv_b58 = base58.b58encode(priv_bytes + pub_bytes).decode()
+        return {
+            "public_key": f"ed25519:{pub_b58}",
+            "private_key": f"ed25519:{priv_b58}",
+            "public_key_raw": pub_b58,
+            "seed_phrase": mnemonic,
+        }
+    except Exception:
+        # Fallback to direct nacl keypair if bip_utils fails
+        from nacl.signing import SigningKey
+        signing_key = SigningKey.generate()
+        verify_key = signing_key.verify_key
+        pub_b58 = base58.b58encode(bytes(verify_key)).decode()
+        priv_b58 = base58.b58encode(bytes(signing_key) + bytes(verify_key)).decode()
+        return {
+            "public_key": f"ed25519:{pub_b58}",
+            "private_key": f"ed25519:{priv_b58}",
+            "public_key_raw": pub_b58,
+            "seed_phrase": None,
+        }
 
 
 #   EVM Keypair (secp256k1)  

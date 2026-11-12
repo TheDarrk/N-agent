@@ -230,10 +230,14 @@ async def _evaluate_single_coin(coin: str, timeframe: str) -> Optional[Dict[str,
         target = pattern_data.get("measured_target", current_price * 1.04)
         sl = pattern_data.get("stop_loss", current_price * 0.97)
         pattern_type = str(pattern_data.get("pattern_type", "")).upper()
-        is_short = "BEARISH" in pattern_type or (
+        is_bearish = "BEARISH" in pattern_type or (
             indicators.get("ema_trend") == "BEARISH" and "BULLISH" not in pattern_type
         )
-        bias = "SHORT" if is_short else "LONG"
+        is_bullish = "BULLISH" in pattern_type or (
+            indicators.get("ema_trend") == "BULLISH" and "BEARISH" not in pattern_type
+        )
+        bias = "SHORT" if is_bearish else ("LONG" if is_bullish else "NEUTRAL")
+        is_short = (bias == "SHORT")
         if is_short:
             risk = max(current_price * 0.005, sl - current_price)
             reward = max(0.0, current_price - target)
@@ -383,8 +387,8 @@ async def scan_coin_universe(
     )
     best_candidate = scanned_results[0] if scanned_results else None
 
-    # Determine broad market 12h reference trend (BTC 12h trend)
-    market_12h = "UP"
+    # Determine broad market 12h reference trend (BTC 12h trend or primary asset trend)
+    market_12h = "NEUTRAL"
     btc_cand = next((r for r in scanned_results if r.get("symbol") == "BTC"), None)
     if btc_cand:
         candles_1h = btc_cand.get("indicators", {}).get("full_candles") or btc_cand.get("indicators", {}).get("candles", [])
@@ -392,7 +396,15 @@ async def scan_coin_universe(
             candles_12h = resample_candles(candles_1h, 12)
             if candles_12h:
                 ind_12 = compute_timeframe_indicators(candles_12h, btc_cand.get("indicators", {}).get("current_price", 0.0))
-                market_12h = ind_12.get("trend", "UP")
+                market_12h = ind_12.get("trend", "NEUTRAL")
+    elif scanned_results:
+        cand = scanned_results[0]
+        candles_1h = cand.get("indicators", {}).get("full_candles") or cand.get("indicators", {}).get("candles", [])
+        if candles_1h:
+            candles_12h = resample_candles(candles_1h, 12)
+            if candles_12h:
+                ind_12 = compute_timeframe_indicators(candles_12h, cand.get("indicators", {}).get("current_price", 0.0))
+                market_12h = ind_12.get("trend", "NEUTRAL")
 
     # Build structured COIN TABLE for the Node 1 Screener
     coin_table = build_coin_table_for_screener(scanned_results, max_coins=None, market_12h=market_12h)
@@ -467,14 +479,19 @@ def compute_timeframe_indicators(candles: List[Dict[str, Any]], current_price: f
     ema50 = _calc_ema(closes, min(n, 50))
     ema200 = _calc_ema(closes, min(n, 200))
 
-    trend = "UP" if ema20 > ema50 else ("DOWN" if ema20 < ema50 else "SIDEWAYS")
-
     if n >= 3:
         prev_ema20 = _calc_ema(closes[:-1], min(n - 1, 20))
         slope = ((ema20 - prev_ema20) / max(1e-6, prev_ema20)) * 100
     else:
         slope = 0.0
     slope_str = f"+{slope:.1f}%" if slope > 0 else f"{slope:.1f}%"
+
+    if ema20 > ema50 and slope > 0:
+        trend = "UP"
+    elif ema20 < ema50 and slope < 0:
+        trend = "DOWN"
+    else:
+        trend = "SIDEWAYS"
 
     rsi = int(round(_calc_rsi(closes, 14)))
     atr_val = _calc_atr(highs, lows, closes, 14)
@@ -542,7 +559,7 @@ def build_screener_coin_line(
     candles_1h: List[Dict[str, Any]],
     current_price: float,
     pattern_data: Dict[str, Any],
-    market_12h: str = "UP"
+    market_12h: str = "NEUTRAL"
 ) -> str:
     """Format single candidate matching the exact rubric input specification."""
     cp = current_price if current_price > 0 else (candles_1h[-1]["close"] if candles_1h else 1.0)
@@ -598,7 +615,7 @@ def build_screener_coin_line(
     )
 
 
-def build_coin_table_for_screener(scanned_results: List[Dict[str, Any]], max_coins: Optional[int] = None, market_12h: str = "UP") -> List[Dict[str, Any]]:
+def build_coin_table_for_screener(scanned_results: List[Dict[str, Any]], max_coins: Optional[int] = None, market_12h: str = "NEUTRAL") -> List[Dict[str, Any]]:
     """
     Builds the standardized COIN TABLE required by the Node 1 LLM Screener:
     price, 24h volume, price changes, and indicators per timeframe (EMA20/50/200,
@@ -659,7 +676,7 @@ def build_coin_table_for_screener(scanned_results: List[Dict[str, Any]], max_coi
 
         entry = {
             "symbol": sym,
-            "bias": r.get("bias", "LONG"),
+            "bias": r.get("bias", "NEUTRAL"),
             "price": cp,
             "24h_volume_usd": vol_24h,
             "price_change_24h_pct": p_24h_pct,

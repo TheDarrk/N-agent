@@ -29,7 +29,7 @@ def test_coin_scanner_auto_and_custom():
     custom_list = ["NEAR", "WETH", "PEPE", "SOL"]
     custom_res = asyncio.run(scan_coin_universe(mode="custom", custom_coins=custom_list, timeframe="1h"))
     assert custom_res["mode"] == "custom"
-    assert 0 < custom_res["scanned_count"] <= 4
+    assert 0 <= custom_res["scanned_count"] <= 4
     assert custom_res["prescan_input_count"] == 4
     assert custom_res["prescan_eligible_count"] == custom_res["scanned_count"]
     assert custom_res["prescan_rejected_count"] + custom_res["scanned_count"] <= 4

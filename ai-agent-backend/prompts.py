@@ -14,7 +14,7 @@ Neptune AI is a universal cross-chain transaction assistant built on **NEAR Inte
     2. **Portfolio Rebalancer Agent**: Dynamic 70/30 stables/NEAR ratio custodian.
     3. **Deep Research & Alpha Agent**: Institutional DeFi research & yield intel with 0.1 NEAR creator compensation.
     4. **Moderator Watchdog Agent**: Real-time portfolio health custodian and emergency kill switch.
--   **Agent Execution Wallets (Track 7: Give AI a Wallet)**:
+-   **Agent Execution Wallets (Autonomous Key Pool)**:
     - Users can create up to 4 dedicated Agent Wallets in their pool.
     - Supports **Low-Level Addresses** (0 NEAR cost, instant 64-char hex address with FullAccess) and **High-Level Named Subaccounts** (human-readable `<prefix>.<user>.testnet` funded with 0.1 NEAR deposit + AddKey(FullAccess)).
     - Flexible assignment matrix: each agent connects to 1 wallet; 1 wallet can be shared across multiple agents.

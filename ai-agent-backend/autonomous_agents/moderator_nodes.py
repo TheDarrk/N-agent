@@ -260,25 +260,59 @@ async def call_judge_llm(
         "response_format": {"type": "json_object"}
     }
 
-    timeout_config = httpx.Timeout(120.0, connect=20.0)
-    async with httpx.AsyncClient(timeout=timeout_config) as client:
-        resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-        if resp.status_code != 200:
-            raise RuntimeError(f"Judge LLM returned HTTP {resp.status_code}: {resp.text[:300]}")
-        
-        data = resp.json()
-        choices = data.get("choices", [])
-        if not choices:
-            raise RuntimeError("Judge LLM returned empty choices")
-        
-        content = choices[0].get("message", {}).get("content", "").strip()
-        
-        # Clean markdown code block wraps
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?\s*", "", content)
-            content = re.sub(r"\s*```$", "", content)
-        
-        return json.loads(content)
+    # 1. Try Primary: NEAR AI with 15s timeout
+    try:
+        timeout_config = httpx.Timeout(15.0, connect=5.0)
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
+            resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    content = choices[0].get("message", {}).get("content", "").strip()
+                    if content:
+                        if content.startswith("```"):
+                            content = re.sub(r"^```(?:json)?\s*", "", content)
+                            content = re.sub(r"\s*```$", "", content)
+                        return json.loads(content)
+    except Exception as near_e:
+        print(f"[JUDGE LLM] Primary endpoint error ({near_e}), falling back to Google Gemini...")
+
+    # 2. Try Fallback: Google Gemini
+    google_key = os.getenv("GOOGLE_API_KEY")
+    if google_key:
+        try:
+            gem_payload = {
+                "model": "gemini-2.5-flash-lite",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "response_format": {"type": "json_object"}
+            }
+            gem_headers = {
+                "Authorization": f"Bearer {google_key}",
+                "Content-Type": "application/json"
+            }
+            timeout_config = httpx.Timeout(20.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout_config) as client:
+                resp = await client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "").strip()
+                        if content:
+                            if content.startswith("```"):
+                                content = re.sub(r"^```(?:json)?\s*", "", content)
+                                content = re.sub(r"\s*```$", "", content)
+                            return json.loads(content)
+        except Exception as gem_e:
+            print(f"[JUDGE LLM] Gemini fallback error: {gem_e}")
+
+    raise RuntimeError("All Judge LLM endpoints failed.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

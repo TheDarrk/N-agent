@@ -31,6 +31,9 @@ SYSTEM_MESSAGE = MASTER_SYSTEM_PROMPT + """
 - get_swap_quote_tool -> Get a live swap quote (for new swap requests only)
 - confirm_swap_tool -> Confirm and prepare transaction (after user says "yes" to a quote)
 - hot_pay_coming_soon_tool -> Handle ANY request about payment links, invoices, or checking payments
+- agent_suite_mcp_tool -> Model Context Protocol (MCP) tool to inspect status, fetch history, configure, or activate/deactivate Trader, Rebalancer, Researcher, or Watchdog agents
+- configure_agent_tool -> Toggle agent active/inactive state and update risk or rebalance parameters
+- fetch_agent_history_tool -> Fetch trade records, pending limit orders, rebalance logs, or research reports
 
 REMEMBER: If user asks about a SPECIFIC token -> get_token_chains_tool. If user wants ALL tokens -> get_available_tokens_tool.
 If user asks about payment links or tracking -> use hot_pay_coming_soon_tool.

@@ -1,0 +1,11 @@
+{
+  "test_trade_id": 4,
+  "symbol": "NEAR",
+  "cid": "bafy0cf3226007aa5e2abffb7dee55bd60717b6f21c34ca3",
+  "stored_at": "2026-11-11 21:30:02 UTC",
+  "stored_at_iso": "2026-11-11T21:30:02.769673+00:00",
+  "date_utc": "2026-11-11",
+  "time_utc": "21:30:02 UTC",
+  "timestamp_utc": "2026-11-11 21:30:02 UTC",
+  "created_at_utc": "2026-11-11T21:30:02.769673+00:00"
+}

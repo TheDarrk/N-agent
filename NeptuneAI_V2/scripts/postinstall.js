@@ -46,6 +46,14 @@ try {
             );
             modified = true;
         }
+        if (code.includes('if (this.network === "testnet" && !wallet.manifest.features?.testnet)')) {
+            code = code.replace(
+                'if (this.network === "testnet" && !wallet.manifest.features?.testnet)',
+                'if (this.network === "testnet" && wallet.manifest.features?.testnet === false)'
+            );
+            modified = true;
+            console.log("✅ Patched @hot-labs/near-connect: include Meteor and all compatible wallets on testnet");
+        }
         if (modified) {
             fs.writeFileSync(nearConnectPath, code, "utf-8");
         }
@@ -84,4 +92,11 @@ try {
     }
 } catch (err) {
     console.warn("⚠️  Could not patch kit connector.js:", err.message);
+}
+
+// 4. Run fix_kit_imports to ensure all ESM imports in @hot-labs/kit resolve correctly
+try {
+    require("./fix_kit_imports.js");
+} catch (err) {
+    console.warn("⚠️  Could not run fix_kit_imports:", err.message);
 }

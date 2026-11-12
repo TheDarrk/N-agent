@@ -660,19 +660,55 @@ class ResearchAgent:
             payload["response_format"] = {"type": "json_object"}
 
         def _request():
-            timeout_config = httpx.Timeout(timeout, connect=30.0, read=timeout, write=60.0, pool=timeout)
-            with httpx.Client(timeout=timeout_config, verify=False) as client:
-                resp = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
-                if resp.status_code != 200:
-                    if resp.status_code in (401, 403):
+            # 1. Try NEAR AI with 15s timeout
+            try:
+                timeout_config = httpx.Timeout(15.0, connect=5.0)
+                with httpx.Client(timeout=timeout_config, verify=False) as client:
+                    resp = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        msg = data["choices"][0].get("message", {})
+                        content = msg.get("content") or ""
+                        reasoning = msg.get("reasoning_content") or ""
+                        ResearchAgent._API_KEY_VALID = True
+                        res = content.strip() or reasoning.strip()
+                        if res:
+                            return res
+                    elif resp.status_code in (401, 403):
                         ResearchAgent._API_KEY_VALID = False
-                    raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
-                data = resp.json()
-                msg = data["choices"][0].get("message", {})
-                content = msg.get("content") or ""
-                reasoning = msg.get("reasoning_content") or ""
-                ResearchAgent._API_KEY_VALID = True
-                return content.strip() or reasoning.strip()
+            except Exception as near_e:
+                print(f"[RESEARCH LLM CALL] NEAR AI error ({near_e}), falling back to Google Gemini...")
+
+            # 2. Try Fallback: Google Gemini
+            google_key = os.getenv("GOOGLE_API_KEY")
+            if google_key:
+                try:
+                    gem_payload = {
+                        "model": "gemini-2.5-flash-lite",
+                        "messages": messages,
+                        "temperature": 0.2,
+                    }
+                    if response_json:
+                        gem_payload["response_format"] = {"type": "json_object"}
+                    gem_headers = {
+                        "Authorization": f"Bearer {google_key}",
+                        "Content-Type": "application/json"
+                    }
+                    timeout_config = httpx.Timeout(20.0, connect=5.0)
+                    with httpx.Client(timeout=timeout_config, verify=False) as client:
+                        resp = client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            msg = data["choices"][0].get("message", {})
+                            content = msg.get("content") or ""
+                            reasoning = msg.get("reasoning_content") or ""
+                            res = content.strip() or reasoning.strip()
+                            if res:
+                                return res
+                except Exception as gem_e:
+                    print(f"[RESEARCH LLM CALL] Gemini fallback error: {gem_e}")
+
+            raise Exception("All Research LLM endpoints failed.")
 
         for attempt in range(2):
             try:
@@ -1468,6 +1504,27 @@ class ResearchAgent:
             cid_reference=cid,
             status="completed"
         )
+
+        # Dispatch email notification if user configured notification_email
+        try:
+            from notification_agent import send_agent_action_email
+            asyncio.create_task(send_agent_action_email(
+                user_wallet=requester,
+                agent_name="researcher",
+                action_type="RESEARCH_REPORT",
+                title=f"Research: {report.title}",
+                summary=report.summary[:200] if report.summary else "Intelligence report generated and stored on IPFS.",
+                metrics={
+                    "Topic": topic,
+                    "Regime": report.regime or "ACCUMULATION",
+                    "Actionable Signal": str(actionable_compat),
+                    "Decentralized CID": cid
+                },
+                reasoning=llm_output.reasoning if llm_output.reasoning else "Synthesized via multi-node deep research and citations retrieval.",
+                cid_reference=cid
+            ))
+        except Exception as notify_err:
+            print(f"[RESEARCH: NOTIFY ERROR] Failed to dispatch research email: {notify_err}")
 
         return report
 

@@ -148,6 +148,24 @@ multi-timeframes, volume absorption, relative strength against Bitcoin, and cros
     - If a proposed trade thesis fails to materialize within the user's rebalance cadence (e.g., 7 days), prune or rotate the asset.
 
 --- USER STRATEGY MANDATE & DYNAMIC CAPITAL PRESERVATION ---
+- SPOT ONLY & LONG-BIASED ASSET ALLOCATION MANDATE:
+    * The Rebalancer Agent operates EXCLUSIVELY in SPOT decentralized asset markets.
+    * All token allocations represent real SPOT holdings (LONG asset exposure, 0.0% to 100.0%).
+    * There is NO shorting, no leverage, and no borrowing.
+    * When an asset's multi-timeframe structure is bullish, accumulating, or oversold with strong fundamentals: overweight its spot allocation.
+    * When an asset's structure is bearish, breaking down, or overbought: DO NOT attempt to short; instead, protect capital by REDUCING its spot allocation and ROTATING the capital into stablecoins (USDT/USDC).
+    * This ensures the portfolio never suffers drawdowns from margin liquidations while maintaining pure spot upside.
+
+- PROBABILISTIC TECHNICAL INDICATOR GUIDANCE:
+    * In each token's chart data, indicators such as `structure_hint`, `ema_trend`, `slope20`, `adx`, and `bollinger_bands` are mathematically calculated probabilistic references.
+    * These provide an objective structural baseline (e.g. FULL_BULLISH_EXPANSION, BULLISH_TREND, BEARISH_TREND, BULLISH_PULLBACK_SUPPORT, SIDEWAYS_CONSOLIDATION).
+    * You are free and expected to evaluate all raw price levels, candle ranges, swing highs/lows, and multi-timeframe confluence independently to formulate your final allocation thesis.
+
+- ORDER EXECUTION & LIMIT REBALANCING:
+    * The Rebalancer executes spot portfolio adjustments.
+    * Immediate Market Rebalancing: Swaps trigger automatically when portfolio drift exceeds the user's drift_threshold_pct (e.g. 5%).
+    * Conditional TP/SL Orders: Set realistic `tp_price_usd` and `sl_price_usd`. If prices touch TP, the agent trims excess gains into stablecoins. If prices breach SL, capital is immediately protected into stablecoins with zero liquidation risk.
+
 - You MUST strictly prioritize and adhere to the user's strategic expectations prompt (e.g. "aggressive growth", "accumulate ETH", "protect capital with 40% USDT", "trim memecoins").
 - DYNAMIC STABLECOIN THRESHOLD EXPANSION:
     * The user's `min_stablecoin_floor_pct` is strictly a MINIMUM BASELINE FLOOR, NOT a ceiling or fixed allocation.
@@ -292,26 +310,57 @@ class AutonomousRebalancerAgent:
             "response_format": resp_format
         }
 
-        timeout_config = httpx.Timeout(180.0, connect=20.0)
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload
-            )
-            if resp.status_code != 200:
-                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        # 1. Try Primary (NEAR AI) with 15s timeout
+        try:
+            timeout_config = httpx.Timeout(15.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout_config) as client:
+                resp = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    if choices:
+                        msg = choices[0].get("message", {})
+                        content = msg.get("content") or msg.get("reasoning_content") or ""
+                        if content.strip():
+                            return content.strip()
+        except Exception as near_e:
+            print(f"[REBALANCER LLM] Primary endpoint error ({near_e}), falling back to Google Gemini...")
 
-            data = resp.json()
-            choices = data.get("choices", [])
-            if not choices:
-                raise RuntimeError("No choices returned from LLM")
-            msg = choices[0].get("message", {})
-            content = msg.get("content") or ""
-            if not content.strip() and msg.get("reasoning_content"):
-                content = msg.get("reasoning_content")
+        # 2. Try Fallback: Google Gemini
+        google_key = os.getenv("GOOGLE_API_KEY")
+        if google_key:
+            try:
+                gem_payload = {
+                    "model": "gemini-2.5-flash-lite",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"}
+                }
+                gem_headers = {
+                    "Authorization": f"Bearer {google_key}",
+                    "Content-Type": "application/json"
+                }
+                timeout_config = httpx.Timeout(20.0, connect=5.0)
+                async with httpx.AsyncClient(timeout=timeout_config) as client:
+                    resp = await client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        msg = (data.get("choices") or [{}])[0].get("message", {})
+                        content = msg.get("content") or msg.get("reasoning_content") or ""
+                        if content.strip():
+                            return content.strip()
+            except Exception as gem_e:
+                print(f"[REBALANCER LLM] Gemini fallback error: {gem_e}")
 
-        return content.strip()
+        raise RuntimeError("All Rebalancer LLM endpoints failed.")
 
     def _extract_json(self, raw: str) -> Optional[Dict[str, Any]]:
         raw = raw.strip()
@@ -372,8 +421,14 @@ class AutonomousRebalancerAgent:
                     "ema20": ind.get("ema20"),
                     "ema50": ind.get("ema50"),
                     "ema200": ind.get("ema200"),  # None if len(candles) < 200
+                    "slope20": ind.get("slope20"),
                     "ema_trend": ind.get("ema_trend", "NEUTRAL"),
                     "ema_cross": ind.get("ema_cross", "NEUTRAL"),
+                    "structure_hint": ind.get("structure_hint"),
+                    "structure_hint_note": ind.get("structure_hint_note"),
+                    "macd": ind.get("macd"),
+                    "adx": ind.get("adx"),
+                    "bollinger_bands": ind.get("bollinger_bands"),
                     "rsi14": ind.get("rsi"),
                     "atr14": ind.get("atr"),
                     "atr_pct": ind.get("atr_pct"),
@@ -1030,9 +1085,33 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         }
         drifts = {t: current_pcts.get(t, 0.0) - targets[t] for t in targets.keys()}
         max_drift = max(abs(d) for d in drifts.values()) if drifts else 0.0
-        should_rebalance = max_drift >= drift_threshold_pct
 
-        if not should_rebalance:
+        overweight = max(drifts, key=drifts.get)
+        underweight = min(drifts, key=drifts.get)
+        rebalance_amount_usd = max(0.0, (drifts[overweight] / 100.0) * total_usd)
+
+        # If difference is negligible (< $0.05 dust), portfolio is already at configured target
+        if rebalance_amount_usd < 0.05 or max_drift < 0.1:
+            try:
+                from notification_agent import send_agent_action_email
+                alloc_str = ", ".join([f"{k.upper()}: {round(v, 1)}%" for k, v in current_pcts.items()])
+                asyncio.create_task(send_agent_action_email(
+                    user_wallet=user_wallet,
+                    agent_name="rebalancer",
+                    action_type="PORTFOLIO_AUDIT",
+                    title="Rebalancer: Portfolio Synchronized",
+                    summary=f"Portfolio is aligned with your configured choices. Total portfolio: ${round(total_usd, 2)} USD.",
+                    metrics={
+                        "Portfolio Status": "SYNCHRONIZED (Nominal)",
+                        "Max Drift": f"{round(max_drift, 1)}%",
+                        "Total Value": f"${round(total_usd, 2)} USD",
+                        "Current Allocations": alloc_str
+                    },
+                    reasoning="Holdings match configured strategy allocation weights. Zero rebalance swaps required."
+                ))
+            except Exception:
+                pass
+
             return {
                 "success": True,
                 "state": "COMPLETED",
@@ -1042,13 +1121,9 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "current_allocation": {k.upper(): round(v, 1) for k, v in current_pcts.items()},
                 "target_allocation": {k.upper(): round(v, 1) for k, v in targets.items()},
                 "total_portfolio_usd": round(total_usd, 2),
-                "action_taken": f"Portfolio balanced within acceptable drift ({round(max_drift, 1)}% < {drift_threshold_pct}%)",
+                "action_taken": f"Portfolio matches configured choices (difference < $0.05)",
                 "active_strategy": active_strategy
             }
-
-        overweight = max(drifts, key=drifts.get)
-        underweight = min(drifts, key=drifts.get)
-        rebalance_amount_usd = max(1.0, (drifts[overweight] / 100.0) * total_usd)
         
         # Cross-chain check
         is_cross_chain = any(
@@ -1161,8 +1236,114 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         update_rebalancer_execution_state(execution_id=execution_id, state="APPROVAL")
 
         # -------------------------------------------------------------
-        # STATE 4: EXECUTION (LIVE QUOTE & SIGNATURE PERSISTENCE)
+        # STATE 4: EXECUTION (LIMIT ORDER VS MARKET SWAP)
         # -------------------------------------------------------------
+        # Check if the active strategy specifies a conditional limit target price away from market
+        is_limit_order = False
+        target_limit_price = 0.0
+        if active_strategy and active_strategy.get("tp_sl_rules"):
+            for rule in active_strategy.get("tp_sl_rules", []):
+                sym = (rule.get("symbol") or "").lower()
+                if sym == overweight.lower():
+                    rule_tp = float(rule.get("tp_price_usd") or 0.0)
+                    curr_px = float(prices.get(sym, 1.0))
+                    if rule_tp > curr_px * 1.005:  # Target price >0.5% away
+                        is_limit_order = True
+                        target_limit_price = rule_tp
+                        break
+
+        if is_limit_order and target_limit_price > 0:
+            from tools import create_1click_limit_order
+            overweight_px = float(prices.get(overweight, 1.0))
+            quantity_tokens = round(rebalance_amount_usd / max(0.0001, overweight_px), 4)
+            limit_res = await create_1click_limit_order(
+                account_id=agent_execution_wallet,
+                base_symbol=overweight.upper(),
+                quote_symbol=underweight.upper(),
+                quantity=quantity_tokens,
+                price=target_limit_price,
+                side="SELL"
+            )
+            if limit_res.get("success"):
+                deposit_address = limit_res.get("deposit_address", "")
+                quote_tx_hash = limit_res.get("order_id", f"limit_{execution_id}")
+                if deposit_address:
+                    try:
+                        create_near_intent_transaction(
+                            token_in=overweight.upper(),
+                            token_out=underweight.upper(),
+                            amount=float(quantity_tokens),
+                            min_amount_out=0.0,
+                            deposit_address=deposit_address,
+                            account_id=agent_execution_wallet
+                        )
+                    except Exception as tx_e:
+                        print(f"[REBALANCER LIMIT] Transaction broadcast notice: {tx_e}")
+
+                create_active_trade(
+                    user_wallet=user_wallet,
+                    symbol=f"{overweight.upper()}->{underweight.upper()}",
+                    action="SELL",
+                    entry_price=target_limit_price,
+                    current_price=overweight_px,
+                    confidence_score=90,
+                    expected_roi_pct=round(((target_limit_price - overweight_px) / max(0.001, overweight_px)) * 100, 1),
+                    amount_usd=rebalance_amount_usd,
+                    tx_hash=quote_tx_hash,
+                    agent_id="rebalancer",
+                    execution_wallet=agent_execution_wallet,
+                    is_cross_chain=1 if is_cross_chain else 0,
+                    status="PENDING_ENTRY"
+                )
+
+                log_agent_action(
+                    user_wallet=user_wallet,
+                    agent_name="rebalancer",
+                    trigger_type="portfolio_rebalance_limit",
+                    reasoning_text=f"Placed native limit rebalance order {overweight.upper()} -> {underweight.upper()} at ${target_limit_price:.4f}.",
+                    action_taken=f"LIMIT SELL {overweight.upper()} @ ${target_limit_price:.4f} (${round(rebalance_amount_usd, 2)}) via 1-Click",
+                    tx_hash=quote_tx_hash,
+                    status="pending"
+                )
+
+                try:
+                    from notification_agent import send_agent_action_email
+                    asyncio.create_task(send_agent_action_email(
+                        user_wallet=user_wallet,
+                        agent_name="rebalancer",
+                        action_type="LIMIT_REGISTERED",
+                        title=f"Rebalancer: Limit Order Placed {overweight.upper()} -> {underweight.upper()}",
+                        summary=f"Placed native limit rebalance order to sell {overweight.upper()} at target ${target_limit_price:.4f} into {underweight.upper()}.",
+                        metrics={
+                            "Order Type": "LIMIT ORDER (Confidential)",
+                            "Sold Asset": overweight.upper(),
+                            "Target Limit Price": f"${target_limit_price:.4f}",
+                            "Acquired Asset": underweight.upper(),
+                            "Rebalance Amount": f"${round(rebalance_amount_usd, 2)} USD",
+                            "Current Market Price": f"${overweight_px:.4f}"
+                        },
+                        reasoning=f"Placed resting limit order on Defuse Solver Network. Solvers will fill when target ${target_limit_price:.4f} is reached without server polling.",
+                        tx_hash=quote_tx_hash
+                    ))
+                except Exception as notify_err:
+                    print(f"[REBALANCER: NOTIFY ERROR] {notify_err}")
+
+                return {
+                    "success": True,
+                    "state": "COMPLETED",
+                    "execution_id": execution_id,
+                    "status": "LIMIT_ORDER_PLACED",
+                    "terminal_status": "AWAITING_FILL",
+                    "order_id": quote_tx_hash,
+                    "deposit_address": deposit_address,
+                    "current_allocation": {k.upper(): round(v, 1) for k, v in current_pcts.items()},
+                    "target_allocation": {k.upper(): round(v, 1) for k, v in targets.items()},
+                    "total_portfolio_usd": round(total_usd, 2),
+                    "action_taken": f"Placed Limit Order {overweight.upper()} -> {underweight.upper()} @ ${target_limit_price:.4f} (${round(rebalance_amount_usd, 2)})",
+                    "active_strategy": active_strategy
+                }
+
+        # Market Order Execution
         live_quote = get_swap_quote(
             token_in=overweight.upper(),
             token_out=underweight.upper(),
@@ -1284,6 +1465,29 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             tx_hash=quote_tx_hash,
             status="completed"
         )
+
+        # Dispatch email notification if user configured notification_email
+        try:
+            from notification_agent import send_agent_action_email
+            asyncio.create_task(send_agent_action_email(
+                user_wallet=user_wallet,
+                agent_name="rebalancer",
+                action_type="REBALANCE_SWAP",
+                title=f"Rebalancer: Swapped {overweight.upper()} -> {underweight.upper()}",
+                summary=f"Portfolio drift of {round(max_drift, 1)}% reached. Rebalanced ${round(rebalance_amount_usd, 2)} into {underweight.upper()}",
+                metrics={
+                    "Sold Asset": overweight.upper(),
+                    "Acquired Asset": underweight.upper(),
+                    "Rebalance Amount": f"${round(rebalance_amount_usd, 2)} USD",
+                    "Max Portfolio Drift": f"{round(max_drift, 1)}%",
+                    "Drift Threshold": f"{drift_threshold_pct}%",
+                    "Total Portfolio Value": f"${round(total_usd, 2)} USD"
+                },
+                reasoning=f"Max drift of {round(max_drift, 1)}% exceeded threshold {drift_threshold_pct}%. Executed spot rebalance via Defuse 1-Click solver.",
+                tx_hash=quote_tx_hash
+            ))
+        except Exception as notify_err:
+            print(f"[REBALANCER: NOTIFY ERROR] Failed to dispatch rebalance alert email: {notify_err}")
 
         return {
             "success": True,

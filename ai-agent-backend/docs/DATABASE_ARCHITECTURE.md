@@ -18,6 +18,7 @@ This document specifies the complete database redesign for Neptune AI to solve:
 6. **100% Backward Compatibility**: Provides a clean Data Access Layer (DAL) in `database.py` preserving existing function signatures so existing API endpoints in `main.py` and agents continue working without regression.
 
 ---
+eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwMjUtMDEtMTItdjEifQ.eyJ2IjoxLCJrZXlfdHlwZSI6ImRpc3RyaWJ1dGlvbl9jaGFubmVsIiwicGFydG5lcl9pZCI6Im5lcHR1bmUtYWkiLCJpYXQiOjE3OTQ0MTI1MjUsImV4cCI6MTgyNTk0ODUyNX0.wcJxjlVDhPW4NchvLfMAffwS5XfmyUeiC35hoRXS4gVYVvpqtJb-JB62NmyzKmIyeQZFsnRlAFXVZKZU0i52OaSkfpqTxXwK_TPZSpGYWwAo1KQDffftf_2KH5FXOHaZIEN87aTjxAJnW6zpRNWx0nxs4sjCYuVtFiTKYBMs_HqagJBnvr_K7Y8iLwPmdKyYFVmtnmz2ZhN0bXmbx_fxkI0oTkgU-vynYzZqFEtqDuDVdU_4bpB0n4VY0ZlUNbeIJL9nXc3uYZfVzXKteZ26bvS-suJAdQa5Hhz4aaEXJI8KwnzbfXRuaIiuURs7kEFrdA55qxPPqRFiUa05D9lKxw
 
 ## Table of Contents
 

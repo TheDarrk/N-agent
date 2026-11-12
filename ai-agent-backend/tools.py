@@ -60,6 +60,22 @@ EVM_CHAIN_IDS = {
     "monad": 143,
     "ebichain": 98881,
     "adi": 36900,
+    # EVM Testnets
+    "sepolia": 11155111,
+    "eth_sepolia": 11155111,
+    "arbitrum_sepolia": 421614,
+    "arb_sepolia": 421614,
+    "base_sepolia": 84532,
+    "polygon_amoy": 80002,
+    "amoy": 80002,
+    "optimism_sepolia": 11155420,
+    "op_sepolia": 11155420,
+    "scroll_sepolia": 534351,
+    "aurora_testnet": 1313161555,
+    "fuji": 43113,
+    "avax_fuji": 43113,
+    "bnb_testnet": 97,
+    "bsc_testnet": 97,
 }
 
 # Non-EVM chains supported by HOT Kit + NEAR Intents
@@ -199,6 +215,7 @@ def _fetch_quote_with_retry(url: str, payload: Dict, attempt_num: int = 1, heade
     jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
     if jwt_key:
         req_headers["Authorization"] = f"Bearer {jwt_key}"
+        req_headers["X-API-Key"] = jwt_key
     if headers:
         req_headers.update(headers)
     response = httpx.post(url, json=payload, headers=req_headers, timeout=10.0)
@@ -242,7 +259,12 @@ def get_swap_quote(
     tokens = knowledge_base._token_cache if knowledge_base._token_cache else []
     if not tokens:
         try:
-            res = httpx.get("https://1click.chaindefuser.com/v0/tokens", timeout=5.0)
+            tok_headers = {}
+            jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
+            if jwt_key:
+                tok_headers["Authorization"] = f"Bearer {jwt_key}"
+                tok_headers["X-API-Key"] = jwt_key
+            res = httpx.get("https://1click.chaindefuser.com/v0/tokens", headers=tok_headers, timeout=5.0)
             if res.status_code == 200:
                 data = res.json()
                 loaded = []
@@ -490,7 +512,14 @@ def create_near_intent_transaction(
     print(f"[TOOL]   Deposit address: {deposit_address}")
     print(f"[TOOL]   Account ID: {account_id}")
     
-    contract_id = "intents.near" 
+    # Determine network mode dynamically from account_id, deposit_address, or environment
+    is_testnet = (
+        account_id.endswith(".testnet")
+        or deposit_address.endswith(".testnet")
+        or os.getenv("NEAR_NETWORK", "").lower() == "testnet"
+    )
+    contract_id = "intents.testnet" if is_testnet else "intents.near"
+    wrap_contract = "wrap.testnet" if is_testnet else "wrap.near"
     transactions = []
     
     # Dynamic lookup
@@ -500,7 +529,10 @@ def create_near_intent_transaction(
     token_in_data = get_token_by_symbol(token_in.upper(), tokens)
     token_out_data = get_token_by_symbol(token_out.upper(), tokens)
     
-    decimals_in = token_in_data.get("decimals", 24) if token_in_data else 24
+    if token_in.upper() in ("NEAR", "WNEAR"):
+        decimals_in = 24
+    else:
+        decimals_in = token_in_data.get("decimals", 18) if token_in_data else 18
     amount_int = int(Decimal(str(amount)) * Decimal(10 ** decimals_in))
 
     # -- TX 1: Deposit source token into intents.near --
@@ -511,7 +543,7 @@ def create_near_intent_transaction(
         # near_deposit will deduct 0.00125 NEAR from the deposit amount for storage,
         # causing the ft_transfer_call to fail with "not enough balance".
         transactions.append({
-            "receiverId": "wrap.near",
+            "receiverId": wrap_contract,
             "actions": [
                 # 1. Ensure storage is paid (0.00125 NEAR)
                 {
@@ -561,7 +593,7 @@ def create_near_intent_transaction(
             if defuse_id.startswith("nep141:"):
                 t_in_contract = defuse_id.replace("nep141:", "")
             else:
-                t_in_contract = f"{token_in.lower()}.near"
+                t_in_contract = f"{token_in.lower()}.testnet" if is_testnet else f"{token_in.lower()}.near"
 
         transactions.append({
             "receiverId": t_in_contract,
@@ -586,7 +618,7 @@ def create_near_intent_transaction(
     # This tells 1-Click to start the swap
     token_in_id = token_in_data.get("defuseAssetId") if token_in_data else ""
     if token_in.upper() == "NEAR":
-        token_in_id = "nep141:wrap.near"
+        token_in_id = f"nep141:{wrap_contract}"
         
     transactions.append({
         "receiverId": contract_id,
@@ -1054,9 +1086,15 @@ async def submit_deposit_tx(
     
     print(f"[TOOL] Submitting deposit tx to 1-Click: hash={tx_hash}, addr={deposit_address}")
     
+    dep_headers = {"Content-Type": "application/json"}
+    jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
+    if jwt_key:
+        dep_headers["Authorization"] = f"Bearer {jwt_key}"
+        dep_headers["X-API-Key"] = jwt_key
+
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, timeout=10.0)
+            response = await client.post(url, json=payload, headers=dep_headers, timeout=10.0)
             data = response.json()
             print(f"[TOOL] Deposit submit response: {json.dumps(data, indent=2)}")
             return data
@@ -1082,7 +1120,8 @@ async def get_wallet_portfolio(wallet_address: str, chain: str = "near") -> dict
         
         async with httpx.AsyncClient() as client:
             # 1. Fetch native NEAR balance
-            rpc_url = "https://rpc.mainnet.near.org"
+            is_test = wallet_address.endswith(".testnet") or os.getenv("NEAR_NETWORK", "").lower() == "testnet"
+            rpc_url = "https://test.rpc.fastnear.com" if is_test else "https://rpc.mainnet.near.org"
             resp = await client.post(rpc_url, json={
                 "jsonrpc": "2.0", "id": "1", "method": "query",
                 "params": {"request_type": "view_account", "finality": "final", "account_id": wallet_address}
@@ -1148,6 +1187,7 @@ async def poll_1click_status(
     jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
     if jwt_key:
         headers["Authorization"] = f"Bearer {jwt_key}"
+        headers["X-API-Key"] = jwt_key
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -1176,3 +1216,108 @@ async def poll_1click_status(
             return {"success": False, "status": "HTTP_ERROR", "code": resp.status_code, "text": resp.text[:200]}
     except Exception as e:
         return {"success": False, "status": "NETWORK_ERROR", "error": str(e)}
+
+
+async def create_1click_limit_order(
+    account_id: str,
+    base_symbol: str,
+    quote_symbol: str,
+    quantity: float,
+    price: float,
+    side: str = "SELL",
+    deposit_type: str = "INTENTS",
+    tokens: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
+    """
+    Creates a native Confidential Limit Order on NEAR Intents / Defuse Protocol.
+    Endpoint: POST https://1click.chaindefuser.com/v0/orders
+    Solvers on the decentralized network monitor and fill when price is reached,
+    eliminating the need for any internal polling loops on the server.
+    """
+    import httpx
+    from decimal import Decimal
+    if tokens is None:
+        tokens = load_tokens()
+
+    base_tok = get_token_by_symbol(base_symbol.upper(), tokens)
+    quote_tok = get_token_by_symbol(quote_symbol.upper(), tokens)
+
+    base_asset = base_tok.get("defuseAssetId") if base_tok else (
+        "nep141:wrap.near" if base_symbol.upper() in ("NEAR", "WNEAR") else f"nep141:{base_symbol.lower()}.near"
+    )
+    quote_asset = quote_tok.get("defuseAssetId") if quote_tok else (
+        "nep141:usdt.tether-token.near" if quote_symbol.upper() in ("USDT", "USD") else f"nep141:{quote_symbol.lower()}.near"
+    )
+
+    decimals_base = 24 if base_symbol.upper() in ("NEAR", "WNEAR") else (base_tok.get("decimals", 18) if base_tok else 18)
+    quantity_int = int(Decimal(str(quantity)) * Decimal(10 ** decimals_base))
+
+    jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
+    headers = {"Content-Type": "application/json"}
+    if jwt_key:
+        headers["Authorization"] = f"Bearer {jwt_key}"
+        headers["X-API-Key"] = jwt_key
+
+    payload = {
+        "data": {
+            "type": "orders",
+            "attributes": {
+                "orderType": "LIMIT",
+                "baseAsset": base_asset,
+                "quoteAsset": quote_asset,
+                "quantity": str(quantity_int),
+                "price": str(price),
+                "side": side.upper(),
+                "depositType": deposit_type,
+                "refundTo": account_id,
+                "refundType": deposit_type,
+                "recipient": account_id,
+                "recipientType": "DESTINATION_CHAIN",
+                "confidentiality": "basic"
+            }
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post("https://1click.chaindefuser.com/v0/orders", headers=headers, json=payload)
+            if resp.status_code in (200, 201):
+                data = resp.json().get("data", {})
+                attrs = data.get("attributes", {})
+                return {
+                    "success": True,
+                    "order_id": data.get("id"),
+                    "deposit_address": attrs.get("depositAddress"),
+                    "fill_status": attrs.get("fillStatus", "AWAITING_DEPOSIT"),
+                    "base_asset": base_asset,
+                    "quote_asset": quote_asset,
+                    "quantity": quantity,
+                    "price": price,
+                    "side": side.upper(),
+                    "raw": data
+                }
+            return {
+                "success": False,
+                "error": f"HTTP {resp.status_code}: {resp.text[:300]}"
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+async def cancel_1click_limit_order(order_id: str) -> Dict[str, Any]:
+    """Cancels a resting limit order on NEAR Intents / Defuse."""
+    import httpx
+    jwt_key = os.getenv("ONECLICK_API_KEY") or os.getenv("ONECLICK_JWT")
+    headers = {"Content-Type": "application/json"}
+    if jwt_key:
+        headers["Authorization"] = f"Bearer {jwt_key}"
+        headers["X-API-Key"] = jwt_key
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"https://1click.chaindefuser.com/v0/orders/{order_id}/cancel", headers=headers)
+            if resp.status_code in (200, 201):
+                return {"success": True, "order_id": order_id, "status": "PENDING_CANCEL"}
+            return {"success": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

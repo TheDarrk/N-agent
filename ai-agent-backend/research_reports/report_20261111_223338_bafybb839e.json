@@ -1,0 +1,277 @@
+{
+  "reasoning": "The user is asking for an analysis of NEAR Intents, focusing on market microstructure and order routing, and also wants information on yield options and hackathons. The provided sources extensively cover NEAR Intents, explaining its mechanism of intent creation, solver competition, and execution. They detail how solvers aggregate liquidity across multiple chains and centralized venues, absorb routing and inventory risk, and how pricing is set by competition rather than single venues. The sources also mention the total and recent 30-day volume for NEAR Intents, the speed of settlement, and low network fees. Confidentiality and custody integrations are also discussed. However, there is no information about specific yield options (like staking APYs or DeFi pools) or hackathons in the provided text. The user's request for 'yield options' and 'hackathons' cannot be fulfilled with the given evidence. The analysis will focus on the NEAR Intents mechanism, order routing, and microstructure as described in the sources. The title will reflect the core topic of NEAR Intents and its operational aspects, acknowledging the lack of yield and hackathon information.",
+  "title": "NEAR Intents: Intent-Based Execution, Cross-Chain Liquidity Aggregation, and Order Routing Mechanics",
+  "user_expectations_summary": "The user requested a detailed analysis of NEAR Intents, focusing on market microstructure and order routing, alongside information on yield options and hackathons. The provided evidence details the mechanics of NEAR Intents, including how it aggregates liquidity and routes orders, but does not contain information on yield opportunities or hackathons.",
+  "findings": "NEAR Intents operates as a multichain transaction protocol where users express desired outcomes, which are then fulfilled by a network of competing \"solvers\" [2]. These solvers bid to fill intents at the best price by accessing liquidity across more than 30 chains (EVM and non-EVM) and centralized venues like Binance [3, 10]. This system abstracts away the complexity of cross-chain execution, eliminating the need for bridging or fragmented liquidity [1, 2].\n\n**Mechanism of Operation:**\n1.  **Intent Creation:** Users or AI agents broadcast their desired outcome (e.g., swapping Token A for Token B) to a network of solvers [2].\n2.  **Market Maker Competition:** An off-chain decentralized network of solvers competes to fulfill the request optimally. They present quotes to the user for approval [2].\n3.  **Intent Execution:** Upon acceptance of a quote, a \"Verifier\" smart contract on NEAR Protocol executes and settles the transaction [2].\n\n**Order Routing and Liquidity Aggregation:**\nSolvers absorb routing, inventory risk, and cross-chain mechanics, presenting a single price and fill to the client [3]. Each order is effectively a small auction, with pricing determined by competition for flow rather than by a single connected venue [3]. This allows NEAR Intents to access liquidity across a wide array of chains and centralized exchanges [3, 10]. The system supports fungible tokens and plans to extend to tokenized RWAs and yield-bearing assets [3].\n\n**Microstructure and Confidentiality:**\nNEAR Intents facilitates confidential execution, preventing orders from being broadcast to a public mempool where they could be front-run [3]. This is crucial for institutions moving significant volume, as confidential execution preserves additional margin [3]. The system leverages Chain Signatures, which run inside Trusted Execution Environments (TEEs), to enable verifiable on-chain operations and secure cross-chain transactions without traditional bridges or custodians [4, 5, 6]. The NEAR MPC network, powered by Chain Signatures, has processed over $37 billion in total volume, with more than $4 billion in the past 30 days [3]. Swaps typically settle in under a second with network fees under a cent [3].\n\n**Chain Signatures and MPC:**\nChain Signatures, powered by a decentralized MPC network with 17 independent operators, allows NEAR accounts to sign transactions for any blockchain [4, 7]. This infrastructure is funded by protocol emissions and rewarded based on performance, ensuring sustainability and decentralization [7]. It enables bridgeless DeFi and multi-chain account abstraction [5]. The MPC network uses threshold cryptography, ensuring no single node can create valid signatures alone [9].\n\n**Key Metrics:**\n*   **Total Volume:** Over $37 billion [3].\n*   **Past 30 Days Volume:** Over $4 billion [3].\n*   **Settlement Time:** Typically under a second [3].\n*   **Network Fees:** Under a cent [3].\n*   **Supported Networks:** Over 30 chains [3, 8].",
+  "risk_factors": [
+    "The reliance on a decentralized network of solvers introduces potential risks related to solver availability, performance, and collusion.",
+    "While confidential execution is supported, the underlying smart contract interactions and solver competition mechanisms could still be subject to unforeseen vulnerabilities.",
+    "The system's extensive cross-chain capabilities depend on the security and reliability of the underlying Chain Signatures MPC network, which is still evolving.",
+    "The integration with centralized venues means exposure to the risks associated with those platforms.",
+    "The recency of the data is unknown, as specific dates for volume metrics are not provided beyond 'past 30 days' relative to the article publication date."
+  ],
+  "signals": [
+    {
+      "signal": "Utilize NEAR Intents for efficient, confidential cross-chain transactions and liquidity aggregation.",
+      "direction": "PARTICIPATE",
+      "asset_or_target": "NEAR Intents",
+      "confidence": 45,
+      "timeframe": "Ongoing",
+      "rationale": "NEAR Intents offers a unique mechanism for executing cross-chain transactions by leveraging a competitive solver network to aggregate liquidity from over 30 chains and centralized venues, while also providing confidential execution and fast settlement times with low fees.",
+      "supporting_sources": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        8,
+        10,
+        19
+      ]
+    }
+  ],
+  "primary_signal": {
+    "signal": "Utilize NEAR Intents for efficient, confidential cross-chain transactions and liquidity aggregation.",
+    "direction": "PARTICIPATE",
+    "asset_or_target": "NEAR Intents",
+    "confidence": 5,
+    "timeframe": "Ongoing",
+    "rationale": "NEAR Intents offers a unique mechanism for executing cross-chain transactions by leveraging a competitive solver network to aggregate liquidity from over 30 chains and centralized venues, while also providing confidential execution and fast settlement times with low fees.",
+    "supporting_sources": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      8,
+      10,
+      19
+    ]
+  },
+  "ecosystem_opportunities": [
+    {
+      "title": "NEAR Intents Cross-Chain Execution",
+      "category": "DeFi Execution Layer",
+      "target_asset_or_protocol": "NEAR Intents",
+      "reward_or_yield": "Over $37 billion in total volume processed; Over $4 billion in the past 30 days; Swaps typically settle in under a second; Network fees under a cent.",
+      "timeframe_or_deadlines": "Ongoing",
+      "how_to_participate": "Users or AI agents express a desired outcome (e.g., token swap) and broadcast it to the network of solvers. Solvers compete to fulfill the request, presenting a quote for approval. Upon acceptance, the intent is executed via a Verifier smart contract on NEAR Protocol.",
+      "supporting_sources": [
+        1,
+        2,
+        3,
+        10
+      ]
+    },
+    {
+      "title": "Confidential Cross-Chain Swaps via NEAR Intents",
+      "category": "DeFi Execution Layer",
+      "target_asset_or_protocol": "NEAR Intents",
+      "reward_or_yield": "Confidential execution, preserving margin for large trades.",
+      "timeframe_or_deadlines": "Ongoing",
+      "how_to_participate": "Utilize NEAR Intents for transactions where privacy is critical. Orders are not broadcast to a public mempool, allowing for execution without exposing sensitive information to front-running.",
+      "supporting_sources": [
+        3,
+        11,
+        18,
+        19
+      ]
+    },
+    {
+      "title": "Liquidity Aggregation Across 30+ Chains and CEXs",
+      "category": "DeFi Execution Layer",
+      "target_asset_or_protocol": "NEAR Intents",
+      "reward_or_yield": "Access to liquidity across EVM and non-EVM chains, plus centralized venues like Binance.",
+      "timeframe_or_deadlines": "Ongoing",
+      "how_to_participate": "By creating an intent on NEAR, users automatically benefit from the solver network's ability to source liquidity from a vast number of chains and exchanges, absorbing routing and inventory risk.",
+      "supporting_sources": [
+        3,
+        10
+      ]
+    }
+  ],
+  "sources_cited": [
+    {
+      "index": 1,
+      "url": "https://near.org/intents",
+      "title": "NEAR Intents | Simplifying Web3 Interactions",
+      "date": "unknown",
+      "distance": 0.45,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/intents",
+        "retrieved_at": "2026-11-11T22:32:41.362905+00:00"
+      }
+    },
+    {
+      "index": 2,
+      "url": "https://docs.near.org/chain-abstraction/intents/overview",
+      "title": "NEAR Intents - NEAR Docs",
+      "date": "unknown",
+      "distance": 0.455,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://docs.near.org/chain-abstraction/intents/overview",
+        "retrieved_at": "2026-11-11T22:32:41.362980+00:00"
+      }
+    },
+    {
+      "index": 3,
+      "url": "https://near.org/blog/near-intents-live-in-talos-oems",
+      "title": "NEAR Intents Is Live in Talos OEMS | NEAR",
+      "date": "2026-11-09",
+      "distance": 0.522,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/near-intents-live-in-talos-oems",
+        "retrieved_at": "2026-11-11T22:32:41.363033+00:00"
+      }
+    },
+    {
+      "index": 4,
+      "url": "https://near.org/blog/chain-signatures-tee",
+      "title": "Chain Signatures Now Run Inside TEEs | NEAR",
+      "date": "2026-10-23",
+      "distance": 0.24,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/chain-signatures-tee",
+        "retrieved_at": "2026-11-11T22:33:13.910812+00:00"
+      }
+    },
+    {
+      "index": 5,
+      "url": "https://near.org/blog/chain-signatures-tee",
+      "title": "Chain Signatures Now Run Inside TEEs | NEAR",
+      "date": "2026-10-23",
+      "distance": 0.297,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/chain-signatures-tee",
+        "retrieved_at": "2026-11-11T22:33:13.910864+00:00"
+      }
+    },
+    {
+      "index": 8,
+      "url": "https://near.org/blog/chain-signatures-tee",
+      "title": "Chain Signatures Now Run Inside TEEs | NEAR",
+      "date": "2026-10-23",
+      "distance": 0.336,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/chain-signatures-tee",
+        "retrieved_at": "2026-11-11T22:33:13.910980+00:00"
+      }
+    },
+    {
+      "index": 10,
+      "url": "https://near.org/blog/near-intents-live-in-talos-oems",
+      "title": "NEAR Intents Is Live in Talos OEMS | NEAR",
+      "date": "2026-11-09",
+      "distance": 0.546,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/near-intents-live-in-talos-oems",
+        "retrieved_at": "2026-11-11T22:32:41.363075+00:00"
+      }
+    },
+    {
+      "index": 11,
+      "url": "https://near.org/blog/trade-pearl-on-near-com",
+      "title": "Trade PEARL Confidentially on near.com | NEAR",
+      "date": "2026-11-03",
+      "distance": 0.556,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/trade-pearl-on-near-com",
+        "retrieved_at": "2026-11-11T22:32:41.363117+00:00"
+      }
+    },
+    {
+      "index": 18,
+      "url": "https://near.org/blog/trade-pearl-on-near-com",
+      "title": "Trade PEARL Confidentially on near.com | NEAR",
+      "date": "2026-11-03",
+      "distance": 0.58,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/blog/trade-pearl-on-near-com",
+        "retrieved_at": "2026-11-11T22:32:41.363165+00:00"
+      }
+    },
+    {
+      "index": 19,
+      "url": "https://near.org/roadmap-history",
+      "title": "NEAR Protocol History: Ten Years Building for the Agent Economy",
+      "date": "unknown",
+      "distance": 0.583,
+      "source_type": "document",
+      "provenance": {
+        "source_type": "document",
+        "url": "https://near.org/roadmap-history",
+        "retrieved_at": "2026-11-11T22:32:41.363223+00:00"
+      }
+    }
+  ],
+  "coverage_gaps": [
+    "Defuse protocol-specific RFQ quote aggregation and order routing mechanics",
+    "Named solver network roster and market share/competition metrics",
+    "Cross-chain settlement contract/settlement flow details",
+    "Past-month quantitative performance: volume, fill rates, spreads, liquidity depth",
+    "Liquidity aggregation depth numbers across the 30+ chains and CEX venues"
+  ],
+  "tool_calls_used": 3,
+  "cid": "bafybb839ea197274020a13dc81a485301f8a8f25783c4f3",
+  "fee_paid_near": 0.1,
+  "requester": "flame1.near",
+  "created_at": "2026-11-11T22:33:38.106701+00:00",
+  "cot_step_cards": [],
+  "summary": "NEAR Intents operates as a multichain transaction protocol where users express desired outcomes, which are then fulfilled by a network of competing \"solvers\" [2]. These solvers bid to fill intents at the best price by accessing liquidity across more than 30 chains (EVM and non-EVM) and centralized v...",
+  "regime": "ACCUMULATION",
+  "staking_and_yield_matrix": [
+    {
+      "protocol": "NEAR Intents Cross-Chain Execution",
+      "asset": "NEAR Intents",
+      "estimated_apy": "Over $37 billion in total volume processed; Over $4 billion in the past 30 days; Swaps typically settle in under a second; Network fees under a cent.",
+      "liquidity_type": "DeFi Execution Layer",
+      "notes": "Ongoing. Users or AI agents express a desired outcome (e.g., token swap) and broadcast it to the network of solvers. Solvers compete to fulfill the request, presenting a quote for approval. Upon acceptance, the intent is executed via a Verifier smart contract on NEAR Protocol."
+    },
+    {
+      "protocol": "Confidential Cross-Chain Swaps via NEAR Intents",
+      "asset": "NEAR Intents",
+      "estimated_apy": "Confidential execution, preserving margin for large trades.",
+      "liquidity_type": "DeFi Execution Layer",
+      "notes": "Ongoing. Utilize NEAR Intents for transactions where privacy is critical. Orders are not broadcast to a public mempool, allowing for execution without exposing sensitive information to front-running."
+    },
+    {
+      "protocol": "Liquidity Aggregation Across 30+ Chains and CEXs",
+      "asset": "NEAR Intents",
+      "estimated_apy": "Access to liquidity across EVM and non-EVM chains, plus centralized venues like Binance.",
+      "liquidity_type": "DeFi Execution Layer",
+      "notes": "Ongoing. By creating an intent on NEAR, users automatically benefit from the solver network's ability to source liquidity from a vast number of chains and exchanges, absorbing routing and inventory risk."
+    }
+  ],
+  "hackathons_and_opportunities": [],
+  "actionable_signal": {
+    "action": "PARTICIPATE",
+    "target_asset": "NEAR Intents",
+    "confidence": 5,
+    "recommended_timeframe": "Ongoing",
+    "key_levels_or_actions": "NEAR Intents offers a unique mechanism for executing cross-chain transactions by leveraging a competitive solver network to aggregate liquidity from over 30 chains and centralized venues, while also providing confidential execution and fast settlement times with low fees."
+  },
+  "stored_at": "2026-11-11 22:33:38 UTC",
+  "stored_at_iso": "2026-11-11T22:33:38.108151+00:00",
+  "date_utc": "2026-11-11",
+  "time_utc": "22:33:38 UTC",
+  "timestamp_utc": "2026-11-11 22:33:38 UTC",
+  "created_at_utc": "2026-11-11T22:33:38.108151+00:00"
+}

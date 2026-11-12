@@ -32,7 +32,7 @@ function uid() {
 const SUGGESTIONS = [
   { icon: TrendingUp, label: "What is my Trader Agent doing right now?", desc: "Check active trades & TP/SL" },
   { icon: Sparkles, label: "Scan NEAR market for high confidence setups", desc: "4-node LLM Judge pipeline" },
-  { icon: Coins, label: "Have my Trader hire Research Agent for 0.1 NEAR", desc: "Track 7 Agent-to-Agent demo" },
+  { icon: Coins, label: "Have my Trader hire Research Agent for 0.1 NEAR", desc: "Autonomous Agent-to-Agent Rental" },
   { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator Watchdog status" },
 ];
 
@@ -107,6 +107,8 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
     signAndSendTransaction,
     signAndSendEvmTransaction,
     signAndSendGenericTransaction,
+    network,
+    setNetwork,
   } = useWallet();
 
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -162,7 +164,6 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
   }, []);
   const [agentSuiteSubView, setAgentSuiteSubView] = useState<string | null>(null);
   const [isFleetModalOpen, setIsFleetModalOpen] = useState(false);
-  const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState("");

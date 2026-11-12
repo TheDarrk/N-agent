@@ -85,12 +85,13 @@ export const TESTNET_CONFIG: NetworkConfig = {
 
 export const MAINNET_CONFIG: NetworkConfig = {
     networkId: "mainnet",
-    nodeUrl: "https://rpc.mainnet.near.org",
+    nodeUrl: "https://near.drpc.org",
     rpcEndpoints: [
-        "https://rpc.mainnet.near.org",
-        "https://mainnet.hello.pizza/api/v1/rpc",
+        "https://near.drpc.org",
+        "https://rpc.shitzuapes.xyz",
+        "https://rpc.intea.rs",
+        "https://archival-rpc.mainnet.near.org",
         "https://free.rpc.fastnear.com",
-        "https://near-mainnet.rpc.fastnear.com",
     ],
     walletUrl: "https://app.mynearwallet.com",
     explorerUrl: "https://nearblocks.io",
@@ -143,31 +144,82 @@ export const MAINNET_CONFIG: NetworkConfig = {
 };
 
 const STORAGE_KEY = "neptune_near_network";
+const ALLOWED_STORAGE_KEY = "neptune_mainnet_allowed";
+const DEFAULT_NET_KEY = "neptune_default_network";
 export const NETWORK_CHANGE_EVENT = "neptune_network_changed";
 
+// Cached status from the single source of truth (backend)
+let cachedBackendStatus: {
+    network: NearNetwork;
+    mainnet_allowed: boolean;
+    rpc?: string;
+} | null = null;
+
 /**
- * Check if Mainnet is allowed via environment variable NEXT_PUBLIC_ENABLE_MAINNET.
- * Defaults to false (prohibited).
+ * Fetch and sync active network & capabilities directly from the backend (Single Source of Truth).
+ * The backend .env is the only configuration needed!
  */
-export function isMainnetAllowed(): boolean {
-    const envVal = process.env.NEXT_PUBLIC_ENABLE_MAINNET;
-    if (envVal === undefined || envVal === null) return false;
-    return envVal === "true" || envVal === "1";
+export async function syncNetworkFromBackend(): Promise<{
+    network: NearNetwork;
+    mainnet_allowed: boolean;
+}> {
+    if (typeof window === "undefined") {
+        return { network: "mainnet", mainnet_allowed: true };
+    }
+
+    try {
+        const res = await fetch("/api/network");
+        if (res.ok) {
+            const data = await res.json();
+            const allowed = Boolean(data.mainnet_allowed);
+            const backendNet: NearNetwork = data.network === "mainnet" ? "mainnet" : "testnet";
+
+            cachedBackendStatus = {
+                network: backendNet,
+                mainnet_allowed: allowed,
+                rpc: data.rpc,
+            };
+
+            localStorage.setItem(ALLOWED_STORAGE_KEY, allowed ? "true" : "false");
+            localStorage.setItem(DEFAULT_NET_KEY, backendNet);
+
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (!saved || (!allowed && saved === "mainnet")) {
+                localStorage.setItem(STORAGE_KEY, backendNet);
+                window.dispatchEvent(new CustomEvent(NETWORK_CHANGE_EVENT, { detail: backendNet }));
+            }
+
+            return { network: backendNet, mainnet_allowed: allowed };
+        }
+    } catch (e) {
+        console.warn("[Network] Could not reach backend /api/network, using cached values:", e);
+    }
+
+    return {
+        network: getNetwork(),
+        mainnet_allowed: isMainnetAllowed(),
+    };
 }
 
 /**
- * Get active NEAR network (defaults to "testnet", forces "testnet" if mainnet prohibited)
+ * Check if Mainnet is allowed (User has full authority to choose network).
+ */
+export function isMainnetAllowed(): boolean {
+    return true;
+}
+
+/**
+ * Get active NEAR network (defaults to backend's active network or localStorage)
  */
 export function getNetwork(): NearNetwork {
-    if (!isMainnetAllowed()) {
-        return "testnet";
+    if (typeof window === "undefined") {
+        return cachedBackendStatus?.network || "mainnet";
     }
-    if (typeof window === "undefined") return "testnet";
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "mainnet" || saved === "testnet") {
         return saved;
     }
-    return "testnet";
+    return cachedBackendStatus?.network || (localStorage.getItem(DEFAULT_NET_KEY) as NearNetwork) || "mainnet";
 }
 
 /**
@@ -230,13 +282,6 @@ export function validateNetworkAccount(
     const net = network || getNetwork();
     if (!accountId) return { valid: false, error: "No account provided" };
 
-    if (!isMainnetAllowed() && net === "mainnet") {
-        return {
-            valid: false,
-            error: "Mainnet is prohibited by configuration (NEXT_PUBLIC_ENABLE_MAINNET=false). Only NEAR Testnet is available.",
-        };
-    }
-
     if (net === "testnet") {
         if (accountId.endsWith(".near")) {
             return {
@@ -264,11 +309,6 @@ export function validateNetworkAccount(
  * Set active network and synchronize everywhere (localStorage, window event, backend)
  */
 export async function setNetwork(network: NearNetwork, userWallet?: string | null): Promise<void> {
-    if (network === "mainnet" && !isMainnetAllowed()) {
-        console.warn("[Network] Mainnet is prohibited by environment configuration. Staying on Testnet.");
-        return;
-    }
-
     if (typeof window !== "undefined") {
         localStorage.setItem(STORAGE_KEY, network);
         window.dispatchEvent(new CustomEvent(NETWORK_CHANGE_EVENT, { detail: network }));

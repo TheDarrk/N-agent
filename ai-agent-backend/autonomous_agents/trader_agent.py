@@ -86,9 +86,26 @@ class TraderAgent:
             else bool(user.get("trader_enable_researcher", 0))
         )
 
-        # Parse custom coins from user DB if stored as string
-        if custom_coins is None and user.get("trader_custom_coins"):
-            custom_coins = [c.strip().upper() for c in user.get("trader_custom_coins", "").split(",") if c.strip()]
+        # Parse custom coins from user DB if stored as string, JSON, or list
+        db_coins = user.get("trader_custom_coins")
+        parsed_db_coins = []
+        if db_coins:
+            s = str(db_coins).strip()
+            if s and s not in ("[]", "[ ]", "null", "None"):
+                if s.startswith("[") and s.endswith("]"):
+                    try:
+                        import json
+                        parsed_list = json.loads(s)
+                        if isinstance(parsed_list, list):
+                            parsed_db_coins = [str(c).strip().upper() for c in parsed_list if str(c).strip() and str(c).strip() not in ("[]", "[", "]")]
+                    except Exception:
+                        pass
+                if not parsed_db_coins:
+                    cleaned = s.replace("[", "").replace("]", "").replace('"', "").replace("'", "")
+                    parsed_db_coins = [c.strip().upper() for c in cleaned.split(",") if c.strip() and c.strip() not in ("[]", "[", "]")]
+
+        if custom_coins is None and parsed_db_coins:
+            custom_coins = parsed_db_coins
         elif custom_coins is None and symbol:
             custom_coins = [symbol.strip().upper()]
 
@@ -337,9 +354,7 @@ class TraderAgent:
         # In auto mode: scans full ~208 token universe, filters stablecoins, test tokens,
         # applies tradeability gate, and outputs standardized COIN TABLE (~39-50 qualifying tokens).
         if active_coin_mode == "custom":
-            watch_coins = custom_coins or [
-                c.strip().upper() for c in user.get("trader_custom_coins", "").split(",") if c.strip()
-            ]
+            watch_coins = [c for c in (custom_coins or ([symbol.strip().upper()] if symbol else [])) if c and c not in ("[]", "[", "]")]
             if not watch_coins:
                 print("[PRE-SCANNER] Custom Watchlist mode active, but no coins are configured in watchlist. Standing aside.")
                 return {
@@ -376,10 +391,37 @@ class TraderAgent:
         coin_table = scan_res.get("coin_table") or []
         if not coin_table:
             print("[PRE-SCANNER] No qualifying candidates passed tradeability gate. Standing aside.")
+            target_coin = (watch_coins[0] if (active_coin_mode == "custom" and watch_coins) else (symbol or "MARKET"))
+            trace = {
+                "agent": "trader",
+                "user_wallet": user_wallet,
+                "symbol": target_coin,
+                "timeframe": effective_timeframe,
+                "verdict": "STAND_ASIDE",
+                "stage": "NO_QUALIFYING_CANDIDATES",
+                "confidence_score": 0,
+                "min_required": min_confidence,
+                "expected_roi_pct": 0.0,
+                "reasoning": "No qualifying tokens met pre-scanner tradeability criteria. Standing aside to protect capital."
+            }
+            cid = await upload_trade_trace(trace)
             return {
                 "success": False,
                 "status": "NO_CANDIDATES",
-                "message": "No qualifying tokens met pre-scanner tradeability criteria. Standing aside to protect capital."
+                "verdict": "STAND_ASIDE",
+                "symbol": target_coin,
+                "timeframe": effective_timeframe,
+                "confidence_score": 0,
+                "min_confidence": min_confidence,
+                "expected_roi_pct": 0.0,
+                "reasoning": "No qualifying tokens met pre-scanner tradeability criteria. Standing aside to protect capital.",
+                "message": "No qualifying tokens met pre-scanner tradeability criteria. Standing aside to protect capital.",
+                "cid": cid,
+                "pipeline": None,
+                "binary_evidence_checks": {},
+                "chart_image": None,
+                "ascii_chart": "",
+                "twitter_sentiment": {},
             }
 
         print(f"[PRE-SCANNER -> SCREENER] Passing all {len(coin_table)} qualifying tokens into Stage 1 Screener (Threshold: {min_confidence})...")
@@ -566,6 +608,28 @@ class TraderAgent:
             "pipeline": pipeline_res
         }
         cid = await upload_trade_trace(trace)
+
+        # Dispatch scan report email notification
+        try:
+            from notification_agent import send_agent_action_email
+            asyncio.create_task(send_agent_action_email(
+                user_wallet=user_wallet,
+                agent_name="trader",
+                action_type="SCAN_REPORT",
+                title=f"Trader Agent: Market Scan & Capital Preservation ({chosen_sym})",
+                summary=f"Screener evaluated qualifying DEX universe assets. Verdict: STAND_ASIDE (Confidence: {conf_val}% vs {min_confidence}% required). Capital 100% preserved.",
+                metrics={
+                    "Evaluated Asset": chosen_sym,
+                    "Pipeline Verdict": "STAND_ASIDE (Capital Preserved)",
+                    "Confidence Score": f"{conf_val}% (Threshold: {min_confidence}%)",
+                    "Capital Status": "100% Liquid in Wallet",
+                    "Decentralized Trace": cid
+                },
+                reasoning=stand_aside_reason,
+                cid_reference=cid
+            ))
+        except Exception as notify_err:
+            print(f"[TRADER: NOTIFY ERROR] Failed to dispatch scan report email: {notify_err}")
 
         return {
             "success": False,
@@ -1874,6 +1938,35 @@ class TraderAgent:
 
         print(f"[NEAR INTENTS: QUOTE SUCCESS] Quote ID: {quote_tx_hash} | Deposit Address: {deposit_addr}")
 
+        current_market_price = float(indicators.get("current_price") or entry_price)
+        # Determine if this order should execute as a limit order vs immediate market swap:
+        # If entry price is significantly better than current price (> 0.5% away):
+        # - LONG: entry_price < current_market_price * 0.995 (waiting for pullback/dip to support)
+        # - SHORT: entry_price > current_market_price * 1.005 (waiting for bounce/retest of resistance)
+        is_limit_order = False
+        if verdict == "ENTER_LONG" and entry_price < (current_market_price * 0.995):
+            is_limit_order = True
+        elif verdict == "ENTER_SHORT" and entry_price > (current_market_price * 1.005):
+            is_limit_order = True
+
+        trade_status = "PENDING_ENTRY" if is_limit_order else "OPEN"
+        if is_limit_order and not hl_executed:
+            from tools import create_1click_limit_order
+            source_price = get_1click_token_price(source_token) or current_market_price
+            amount_in_source = round(min(amount_usd / float(source_price), max(0.005, wallet_balance - 0.05)), 4)
+            limit_res = await create_1click_limit_order(
+                account_id=agent_execution_wallet,
+                base_symbol=source_token,
+                quote_symbol=symbol.upper(),
+                quantity=amount_in_source,
+                price=entry_price,
+                side="SELL" if verdict == "ENTER_SHORT" else "BUY"
+            )
+            if limit_res.get("success"):
+                deposit_addr = limit_res.get("deposit_address", "")
+                quote_tx_hash = limit_res.get("order_id", quote_tx_hash)
+                print(f"[TRADER: LIMIT ORDER PLACED] Confidential Limit Order {quote_tx_hash} resting on Defuse Solvers at target ${entry_price:.4f}.")
+
         if deposit_addr:
             try:
                 active_token_in = source_token
@@ -1932,9 +2025,10 @@ class TraderAgent:
             agent_id="trader",
             execution_wallet=agent_execution_wallet,
             is_cross_chain=1 if is_cross_chain else 0,
-            target_chain=target_chain
+            target_chain=target_chain,
+            status=trade_status
         )
-        print(f"[DATABASE: PERSIST] Registered active trade #{trade_id} ({verdict} {symbol} @ ${entry_price}) in SQLite for 60s TP/SL poller.")
+        print(f"[DATABASE: PERSIST] Registered active trade #{trade_id} ({trade_status} {verdict} {symbol} @ ${entry_price}) in SQLite.")
 
         # ─── PERSISTENCE: Upload Audit Trace to Decentralized Storage (recent 10) ─
         trace = {
@@ -1971,16 +2065,55 @@ class TraderAgent:
         print(f"[STORAGE] Trade execution trace saved: {cid} (recent 10 preserved)")
 
         # Log action to general agent log
+        action_prefix = "PENDING_LIMIT" if is_limit_order else "OPEN"
         log_agent_action(
             user_wallet=user_wallet,
             agent_name="trader",
-            trigger_type="trade_execution",
+            trigger_type="limit_order_registered" if is_limit_order else "trade_execution",
             reasoning_text=f"LLM Judge Verdict {verdict} | Confidence {confidence_score}% | Expected ROI +{expected_roi_pct}% | Pattern: {pattern}",
-            action_taken=f"OPEN {verdict} {symbol} @ ${entry_price} (TP: ${tp_price}, SL: ${sl_price})",
+            action_taken=f"{action_prefix} {verdict} {symbol} @ ${entry_price} (TP: ${tp_price}, SL: ${sl_price})",
             tx_hash=quote_tx_hash,
             cid_reference=cid,
-            status="active"
+            status="pending" if is_limit_order else "active"
         )
+
+        # Dispatch email notification if user configured notification_email
+        try:
+            from notification_agent import send_agent_action_email
+            email_title = (
+                f"Trader Agent: Registered Limit Order {verdict} {symbol} @ ${entry_price:.4f}"
+                if is_limit_order
+                else f"Trader Agent: {verdict.replace('_', ' ')} {symbol}"
+            )
+            email_summary = (
+                f"Registered conditional limit order on {symbol} at ${entry_price:.4f} (current price: ${current_market_price:.4f}). Solvers will execute when filled on NEAR Intents."
+                if is_limit_order
+                else f"Opened {verdict} on {symbol} at ${entry_price:.4f} with target ROI +{expected_roi_pct}%"
+            )
+            asyncio.create_task(send_agent_action_email(
+                user_wallet=user_wallet,
+                agent_name="trader",
+                action_type="LIMIT_REGISTERED" if is_limit_order else "TRADE_EXECUTION",
+                title=email_title,
+                summary=email_summary,
+                metrics={
+                    "Asset": symbol,
+                    "Order Type": "LIMIT ORDER (Solver Network)" if is_limit_order else "MARKET SWAP (Instant)",
+                    "Target Entry": f"${entry_price:.4f}",
+                    "Current Market Price": f"${current_market_price:.4f}",
+                    "Take Profit": f"${tp_price:.4f}",
+                    "Stop Loss": f"${sl_price:.4f}",
+                    "Expected ROI": f"+{expected_roi_pct}%",
+                    "Confidence Score": f"{confidence_score}%",
+                    "Position Size": f"${amount_usd:.2f} USD",
+                    "Pattern Identified": pattern or "Breakout"
+                },
+                reasoning=reasoning,
+                tx_hash=quote_tx_hash if not is_limit_order else None,
+                cid_reference=cid
+            ))
+        except Exception as notify_err:
+            print(f"[TRADER: NOTIFY ERROR] Failed to dispatch trade execution email: {notify_err}")
 
         # ─── MARKETPLACE COPY TRADING: Mirror trade to all hired subscribers ───
         try:

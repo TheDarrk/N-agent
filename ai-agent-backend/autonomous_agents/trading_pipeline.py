@@ -146,7 +146,7 @@ class CoinPlan(BaseModel):
     )
     reasoning: str = Field(default="", description="Synthesis of Technical Analyst and Risk Manager conclusions")
     grounding: str = Field(..., description="2-3 sentences citing numeric values from tool logs")
-    rag_sources: List[Dict[str, str]] = Field(default_factory=list, description="Citations of RAG section and source")
+    rag_sources: List[Dict[str, Any]] = Field(default_factory=list, description="Citations of RAG section and source")
 
 
 class CouncilLLMResponse(BaseModel):
@@ -323,6 +323,9 @@ Job: from the pre-screened candidates, pick the coins worth trading (max 3) and 
 - Context: market_12h (12h trend of the broad-market reference)
 Values are raw, with no averaging. You decide what each value implies. Use your own trading knowledge, plus the reference notes below.
 
+## Probabilistic Indicator Guidance
+All pre-calculated trend indicators, moving average relationships, and structural hints provided in the data (e.g. `trend`, `ema_slope`, `structure_hint`) are purely algorithmic/mathematical possibilities derived from moving averages and historical slopes. They do NOT dictate market truth and are NOT mandatory conclusions. You are completely free and expected to evaluate raw candle closes, price action, swings, and momentum independently to form your own objective market judgment.
+
 ## Reference knowledge (background facts, you decide how to weigh them)
 RSI (Wilder):
 - Traditional levels: above 70 overbought, below 30 oversold. In strong trends RSI can stay in those zones for a long time, so these levels alone are not reversal signals.
@@ -434,16 +437,16 @@ def format_screener_coin_line(symbol: str, data: Any) -> str:
 
     rel_vol = data.get("rel_vol", data.get("volume_vs_avg", 1.0))
 
-    trend_12h = data.get("trend_12h", data.get("bias", "UP"))
+    trend_12h = data.get("trend_12h", data.get("bias", "NEUTRAL"))
     ema_12h = f"{data.get('ema20', 'N/A')}/{data.get('ema50', 'N/A')}/{data.get('ema200', 'N/A')}"
-    slope_12h = data.get("slope20_12h", "+0.2%")
+    slope_12h = data.get("slope20_12h", "0.0%")
     rsi_12h = data.get("rsi_12h", data.get("rsi", 50))
     macd_hist_12h = data.get("macd_hist_12h", f"+{data.get('macd_hist', 0.0)}")
     atr_12h = f"{data.get('atr_pct', 2.0)}%"
 
-    trend_4h = data.get("trend_4h", data.get("bias", "UP"))
+    trend_4h = data.get("trend_4h", data.get("bias", "NEUTRAL"))
     ema_4h = f"{data.get('ema20', 'N/A')}/{data.get('ema50', 'N/A')}/{data.get('ema200', 'N/A')}"
-    slope_4h = data.get("slope20_4h", "+0.2%")
+    slope_4h = data.get("slope20_4h", "0.0%")
     rsi_4h = data.get("rsi_4h", data.get("rsi", 50))
     macd_hist_4h = data.get("macd_hist_4h", f"+{data.get('macd_hist', 0.0)}")
     atr_4h = f"{data.get('atr_pct', 2.0)}%"
@@ -460,9 +463,9 @@ def format_screener_coin_line(symbol: str, data: Any) -> str:
     pattern = data.get("pattern", "none")
     status = data.get("pattern_status", data.get("status", "forming" if pattern != "none" else "none"))
 
-    funding = data.get("funding", "+0.01%")
+    funding = data.get("funding", "+0.00%")
     oi_chg = data.get("oi_chg", "+0%")
-    market_12h = data.get("market_12h", "UP")
+    market_12h = data.get("market_12h", "NEUTRAL")
 
     return (
         f"{symbol}: price={price} chg_24h={chg_24h} rel_vol={rel_vol} | "
@@ -472,6 +475,86 @@ def format_screener_coin_line(symbol: str, data: Any) -> str:
         f"last_6_closes_4h={last_6} last_candle={last_candle} | "
         f"pattern={pattern} status={status} | funding={funding} oi_chg={oi_chg} | market_12h={market_12h}"
     )
+
+
+async def call_pipeline_llm(
+    base_url: str,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 8192,
+    response_schema_cls: Optional[Any] = None,
+    schema_name: str = "Output"
+) -> str:
+    """Execute LLM call with primary endpoint and instant Google Gemini fallback."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    response_format = (
+        make_structured_response_format(response_schema_cls, schema_name)
+        if response_schema_cls is not None
+        else {"type": "json_object"}
+    )
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.4,
+        "max_tokens": max_tokens,
+        "response_format": response_format,
+    }
+
+    # 1. Try Primary (NEAR AI) with 15s timeout
+    try:
+        timeout_config = httpx.Timeout(15.0, connect=5.0)
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
+            resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                msg = (data.get("choices") or [{}])[0].get("message", {})
+                content = msg.get("content") or msg.get("reasoning_content") or ""
+                if content:
+                    return content.strip()
+    except Exception as e:
+        safe_print(f"[PIPELINE LLM] Primary endpoint error ({e}), attempting Google Gemini fallback...")
+
+    # 2. Try Fallback: Google Gemini
+    google_key = os.getenv("GOOGLE_API_KEY")
+    if google_key:
+        try:
+            gem_payload = {
+                "model": "gemini-2.5-flash-lite",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.4,
+                "max_tokens": max_tokens,
+                "response_format": {"type": "json_object"}
+            }
+            gem_headers = {
+                "Authorization": f"Bearer {google_key}",
+                "Content-Type": "application/json"
+            }
+            timeout_config = httpx.Timeout(20.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout_config) as client:
+                resp = await client.post("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", headers=gem_headers, json=gem_payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    msg = (data.get("choices") or [{}])[0].get("message", {})
+                    content = msg.get("content") or msg.get("reasoning_content") or ""
+                    if content:
+                        return content.strip()
+                else:
+                    safe_print(f"[PIPELINE LLM] Gemini returned HTTP {resp.status_code}: {resp.text[:300]}")
+        except Exception as gem_e:
+            safe_print(f"[PIPELINE LLM] Gemini fallback error: {gem_e}")
+
+    raise RuntimeError(f"All LLM endpoints failed for {schema_name}.")
 
 
 class ScreenerAgent:
@@ -494,77 +577,17 @@ class ScreenerAgent:
         response_schema_cls: Optional[Any] = None,
         schema_name: str = "ScreenerOutput"
     ) -> str:
-        """Call LLM with provider-side JSON schema enforcement, reasoning_effort='low', and streaming."""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        response_format = (
-            make_structured_response_format(response_schema_cls, schema_name)
-            if response_schema_cls is not None
-            else {"type": "json_object"}
+        """Call LLM with resilient primary and fallback routing."""
+        return await call_pipeline_llm(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            model=self.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+            response_schema_cls=response_schema_cls,
+            schema_name=schema_name
         )
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.4,
-            "max_tokens": max_tokens,
-            "chat_template_kwargs": {"enable_thinking": False},
-            "response_format": response_format,
-            "stream": True
-        }
-
-        # No read timeout cutoff - allow LLM streaming to complete naturally
-        timeout_config = httpx.Timeout(None, connect=30.0)
-        content_chunks = []
-        finish_reason = None
-
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
-            req = client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload)
-            resp = await req.__aenter__()
-
-            if resp.status_code == 400 and response_format.get("type") == "json_schema":
-                await req.__aexit__(None, None, None)
-                payload["response_format"] = {"type": "json_object"}
-                req = client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload)
-                resp = await req.__aenter__()
-
-            if resp.status_code != 200:
-                body = await resp.aread()
-                await req.__aexit__(None, None, None)
-                raise RuntimeError(f"HTTP {resp.status_code}: {body.decode('utf-8', errors='ignore')[:200]}")
-
-            try:
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    line_str = line.strip()
-                    if line_str == "data: [DONE]":
-                        break
-                    if line_str.startswith("data: "):
-                        raw = line_str[6:].strip()
-                        try:
-                            chunk = json.loads(raw)
-                            choices = chunk.get("choices", [{}])
-                            if choices:
-                                f_reason = choices[0].get("finish_reason")
-                                if f_reason:
-                                    finish_reason = f_reason
-                                delta = choices[0].get("delta", {})
-                                if delta.get("content"):
-                                    content_chunks.append(delta["content"])
-                        except Exception:
-                            pass
-            finally:
-                await req.__aexit__(None, None, None)
-
-        full_text = "".join(content_chunks).strip()
-        if not full_text:
-            raise RuntimeError("Screener LLM failed to emit content output (empty completion).")
-        return full_text
 
     NON_COIN_WORDS = {
         "LONG", "SHORT", "UP", "DOWN", "FLAT", "SCORE", "COIN", "TREND", "MARKET",
@@ -781,6 +804,9 @@ Self-check before finalizing each plan:
   If yes -> strike that reasoning and re-anchor strictly to chart geometry and tool indicators.
 Reasoning chains must ONLY reference: price levels, indicator values, pattern names, RAG rules. Any other reference is invalid.
 
+## Probabilistic Indicator Guidance
+Pre-calculated trend fields (e.g. `trend_12h`, `structure_hint`, `ema_slope`) are purely mechanical mathematical approximations. They are provided as references, not dogmatic directives. You are fully empowered to assess raw price action, swing structure, and candle patterns independently to arrive at the true market condition.
+
 ## Risk Level Determination (Risk Manager)
 Assign risk_level based on these objective checks:
 
@@ -813,6 +839,10 @@ MODERATE risk: anything between HIGH and LOW.
 - 4h is the primary execution timeframe: entry, TP, and SL are derived from 4h geometry, support/resistance, and ATR.
 - 12h is the macro trend filter: its EMA stack and slope confirm whether the move has higher-timeframe momentum.
 - Screener passed {coin, direction}. Your job is to construct the plan for that direction.
+
+## Order Execution Mode: Market vs Limit Order
+- Market Execution (Instant): Set `entry = current_price` when a technical breakout is active and momentum demands immediate execution.
+- Limit Order (Retracement / Support Retest): Set `entry` at a structural level (e.g. `recent_support`, `ema20`, or pullback level). When entry is placed >0.5% away from current market price, the system automatically registers a pending Limit Order. Capital remains 100% liquid and safe in the user's wallet until price reaches the limit. If price breaches Stop Loss before filling, the pending order cancels with zero loss.
 
 ## Direction Alignment Definition (Objective)
 direction_alignment = "counter" if ANY of:
@@ -1154,77 +1184,17 @@ class CouncilAgent:
         response_schema_cls: Optional[Any] = None,
         schema_name: str = "CouncilLLMResponse"
     ) -> str:
-        """Call GLM 5.3 Flash with provider-side schema enforcement, streaming, and no timeout cutoff."""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        response_format = (
-            make_structured_response_format(response_schema_cls, schema_name)
-            if response_schema_cls is not None
-            else {"type": "json_object"}
+        """Call LLM with resilient primary and fallback routing."""
+        return await call_pipeline_llm(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            model=self.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+            response_schema_cls=response_schema_cls,
+            schema_name=schema_name
         )
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.4,
-            "max_tokens": max_tokens,
-            "chat_template_kwargs": {"enable_thinking": False},
-            "response_format": response_format,
-            "stream": True
-        }
-
-        # No read timeout cutoff
-        timeout_config = httpx.Timeout(None, connect=30.0)
-        content_chunks = []
-        finish_reason = None
-
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
-            req = client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload)
-            resp = await req.__aenter__()
-
-            if resp.status_code == 400 and response_format.get("type") == "json_schema":
-                await req.__aexit__(None, None, None)
-                payload["response_format"] = {"type": "json_object"}
-                req = client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload)
-                resp = await req.__aenter__()
-
-            if resp.status_code != 200:
-                body = await resp.aread()
-                await req.__aexit__(None, None, None)
-                raise RuntimeError(f"HTTP {resp.status_code}: {body.decode('utf-8', errors='ignore')[:200]}")
-
-            try:
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    line_str = line.strip()
-                    if line_str == "data: [DONE]":
-                        break
-                    if line_str.startswith("data: "):
-                        raw = line_str[6:].strip()
-                        try:
-                            chunk = json.loads(raw)
-                            choices = chunk.get("choices", [{}])
-                            if choices:
-                                f_reason = choices[0].get("finish_reason")
-                                if f_reason:
-                                    finish_reason = f_reason
-                                delta = choices[0].get("delta", {})
-                                if delta.get("content"):
-                                    content_chunks.append(delta["content"])
-                        except Exception:
-                            pass
-            finally:
-                await req.__aexit__(None, None, None)
-
-        full_text = "".join(content_chunks).strip()
-        if not full_text:
-            raise RuntimeError("Council model failed to emit content output (empty completion).")
-        return full_text
 
     def _extract_json(self, text: str) -> Optional[Dict]:
         """Extract JSON safely from text, normalizing alternative key names."""
@@ -1537,6 +1507,9 @@ Self-check before finalizing each audit:
   "Did I reason about what this coin IS (technology, sector, history, market cap, narrative)?"
   If yes -> strike that reasoning and re-anchor strictly to chart geometry and tool indicators.
 Reasoning chains must ONLY reference: price levels, indicator values, pattern names, RAG rules. Any other reference is invalid.
+
+## Probabilistic Indicator Guidance
+Computed indicators and trend hints are mathematically calculated possibilities based on historical moving averages and slopes. Grounding checks require verifying that cited price levels exist in the tool logs, but directional and structural interpretations are expected to be reasoned independently from raw market levels.
 
 ## Token Symbol Protocol
 Use the EXACT coin symbol passed in Council's plans and Tool Logs (e.g. DASH, ZEC, SPX, NEAR).
@@ -1874,77 +1847,17 @@ class JudgeAgent:
         response_schema_cls: Optional[Any] = None,
         schema_name: str = "JudgeOutput"
     ) -> str:
-        """Call GLM 5.3 Flash with provider-side schema enforcement, streaming, and no timeout cutoff."""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        response_format = (
-            make_structured_response_format(response_schema_cls, schema_name)
-            if response_schema_cls is not None
-            else {"type": "json_object"}
+        """Call LLM with resilient primary and fallback routing."""
+        return await call_pipeline_llm(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            model=self.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+            response_schema_cls=response_schema_cls,
+            schema_name=schema_name
         )
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.4,
-            "max_tokens": max_tokens,
-            "chat_template_kwargs": {"enable_thinking": False},
-            "response_format": response_format,
-            "stream": True
-        }
-
-        # No read timeout cutoff
-        timeout_config = httpx.Timeout(None, connect=30.0)
-        content_chunks = []
-        finish_reason = None
-
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
-            req = client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload)
-            resp = await req.__aenter__()
-
-            if resp.status_code == 400 and response_format.get("type") == "json_schema":
-                await req.__aexit__(None, None, None)
-                payload["response_format"] = {"type": "json_object"}
-                req = client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload)
-                resp = await req.__aenter__()
-
-            if resp.status_code != 200:
-                body = await resp.aread()
-                await req.__aexit__(None, None, None)
-                raise RuntimeError(f"HTTP {resp.status_code}: {body.decode('utf-8', errors='ignore')[:200]}")
-
-            try:
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    line_str = line.strip()
-                    if line_str == "data: [DONE]":
-                        break
-                    if line_str.startswith("data: "):
-                        raw = line_str[6:].strip()
-                        try:
-                            chunk = json.loads(raw)
-                            choices = chunk.get("choices", [{}])
-                            if choices:
-                                f_reason = choices[0].get("finish_reason")
-                                if f_reason:
-                                    finish_reason = f_reason
-                                delta = choices[0].get("delta", {})
-                                if delta.get("content"):
-                                    content_chunks.append(delta["content"])
-                        except Exception:
-                            pass
-            finally:
-                await req.__aexit__(None, None, None)
-
-        full_text = "".join(content_chunks).strip()
-        if not full_text:
-            raise RuntimeError("Judge model failed to emit content output (empty completion).")
-        return full_text
 
     def _extract_json(self, text: str) -> Optional[Dict]:
         """Extract JSON safely from text, normalizing alternative key names."""

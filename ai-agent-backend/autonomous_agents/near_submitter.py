@@ -48,7 +48,7 @@ async def submit_near_transaction(tx_payload: list, agent_address: str, private_
             
             if py_near_actions:
                 print(f"[SUBMIT] Sending {len(py_near_actions)} actions to {receiver_id}...")
-                result = await account.sign_and_submit_tx(receiver_id, py_near_actions, included=True)
+                result = await account.sign_and_submit_tx(receiver_id, py_near_actions, included=False)
                 
                 # Check if result is a TransactionResult object with a status dict
                 if hasattr(result, "transaction") and hasattr(result, "status"):
@@ -57,10 +57,14 @@ async def submit_near_transaction(tx_payload: list, agent_address: str, private_
                         error_msg = str(result.status["Failure"])
                         print(f"[SUBMIT]   Transaction FAILED! Hash: {tx_hash} | Error: {error_msg}")
                         raise RuntimeError(f"NEAR Transaction Failed: {error_msg}")
+                elif isinstance(result, str):
+                    tx_hash = result
                 else:
                     tx_hash = getattr(result, "transaction", result).hash if hasattr(result, "transaction") else str(result)
                     
                 print(f"[SUBMIT]   Transaction successful! Hash: {tx_hash}")
+                if len(tx_payload) > 1:
+                    await asyncio.sleep(2.0)
 
     finally:
         pass

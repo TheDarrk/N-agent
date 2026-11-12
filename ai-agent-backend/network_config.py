@@ -16,6 +16,14 @@ TESTNET_RPC_ENDPOINTS = [
     "https://testnet.neardata.xyz/v1/node"
 ]
 MAINNET_RPC = os.getenv("NEAR_MAINNET_RPC", "https://rpc.mainnet.near.org")
+MAINNET_RPC_ENDPOINTS = [
+    "https://rpc.mainnet.near.org",
+    "https://free.rpc.fastnear.com",
+    "https://rpc.shitzuapes.xyz",
+    "https://rpc.intea.rs",
+    "https://near.drpc.org",
+    "https://archival-rpc.mainnet.near.org",
+]
 
 # Contracts
 TESTNET_INTENTS_CONTRACT = "intents.testnet"
@@ -47,23 +55,17 @@ MAINNET_TOKEN_MAP = {
 
 def is_mainnet_allowed() -> bool:
     """
-    Returns True only if ENABLE_MAINNET env var is explicitly set to 'true' or '1'.
-    Mainnet is prohibited when False.
+    Mainnet is allowed by default; the user decides network mode.
     """
-    val = os.getenv("ENABLE_MAINNET", "false").lower().strip()
-    return val in ("true", "1")
+    return True
 
 
 def get_network(user_wallet: str = None) -> str:
     """
     Get active NEAR network ('testnet' or 'mainnet').
-    If Mainnet is prohibited via env, ALWAYS forces 'testnet'.
-    Otherwise prioritizes wallet domain (.testnet -> testnet, .near -> mainnet),
+    Prioritizes wallet domain (.testnet -> testnet, .near -> mainnet),
     falling back to os.environ['NEAR_NETWORK'].
     """
-    if not is_mainnet_allowed():
-        return "testnet"
-
     if user_wallet and isinstance(user_wallet, str):
         wallet_lower = user_wallet.lower().strip()
         if wallet_lower.endswith(".testnet"):
@@ -71,7 +73,7 @@ def get_network(user_wallet: str = None) -> str:
         if wallet_lower.endswith(".near"):
             return "mainnet"
 
-    env_val = os.getenv("NEAR_NETWORK", "testnet").lower().strip()
+    env_val = os.getenv("NEAR_NETWORK", "mainnet").lower().strip()
     return "mainnet" if env_val == "mainnet" else "testnet"
 
 
@@ -88,6 +90,11 @@ def is_mainnet(user_wallet: str = None) -> bool:
 def get_near_rpc(user_wallet: str = None) -> str:
     """Returns the strict RPC endpoint for the active network."""
     return TESTNET_RPC if is_testnet(user_wallet) else MAINNET_RPC
+
+
+def get_near_rpc_endpoints(user_wallet: str = None) -> list:
+    """Returns prioritized list of RPC endpoints for active network."""
+    return TESTNET_RPC_ENDPOINTS if is_testnet(user_wallet) else MAINNET_RPC_ENDPOINTS
 
 
 def get_intents_contract(user_wallet: str = None) -> str:
@@ -126,9 +133,6 @@ def validate_account_network(user_wallet: str, expected_network: str = None) -> 
 
     net = expected_network or get_network(user_wallet)
     wallet_lower = user_wallet.lower().strip()
-
-    if not is_mainnet_allowed() and net == "mainnet":
-        return False, "Mainnet is prohibited by environment configuration (ENABLE_MAINNET=false)."
 
     if net == "testnet":
         if wallet_lower.endswith(".near"):

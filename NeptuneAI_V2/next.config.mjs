@@ -16,6 +16,10 @@ const nextConfig = {
     root: __dirname,
   },
   serverExternalPackages: ["near-api-js"],
+  transpilePackages: ["@hot-labs/kit", "@hot-labs/near-connect"],
+  compiler: {
+    styledComponents: true,
+  },
   logging: {
     fetches: {
       fullUrl: false

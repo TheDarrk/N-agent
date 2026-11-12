@@ -68,7 +68,14 @@ export default function AgentWalletManagerModal({
   accountId,
   onConnectWallet
 }: Props) {
-  const { signAndSendTransaction } = useWallet();
+  const { signAndSendTransaction, network } = useWallet();
+
+  const effectiveNetwork = accountId?.endsWith(".near")
+    ? "mainnet"
+    : accountId?.endsWith(".testnet")
+    ? "testnet"
+    : network || "mainnet";
+  const isMain = effectiveNetwork === "mainnet";
 
   const [wallets, setWallets] = useState<AgentWallet[]>([]);
   const [balances, setBalances] = useState<Record<string, { formatted: string; exists: boolean }>>({});
@@ -90,7 +97,7 @@ export default function AgentWalletManagerModal({
   const [isImportingView, setIsImportingView] = useState(false);
 
   // Creation wizard state
-  const [creationMethod, setCreationMethod] = useState<"transfer_to_create" | "named_subaccount" | "evm_wallet">("transfer_to_create");
+  const [creationMethod, setCreationMethod] = useState<"named_subaccount" | "implicit" | "evm_wallet">("named_subaccount");
   const [subaccountPrefix, setSubaccountPrefix] = useState("trader");
   const [subaccountLabel, setSubaccountLabel] = useState("");
   const [assignedAgentChoice, setAssignedAgentChoice] = useState("trader");
@@ -104,9 +111,13 @@ export default function AgentWalletManagerModal({
   const [topupAmount, setTopupAmount] = useState("0.5");
   const [isTopupBusy, setIsTopupBusy] = useState(false);
 
+  // Withdraw funds state
+  const [withdrawTargetWallet, setWithdrawTargetWallet] = useState<AgentWallet | null>(null);
+  const [isWithdrawBusy, setIsWithdrawBusy] = useState(false);
+
   // Import form state
   const [importAccountId, setImportAccountId] = useState("");
-  const [importPublicKey, setImportPublicKey] = useState("");
+  const [importSecret, setImportSecret] = useState("");
   const [importLabel, setImportLabel] = useState("");
   const [isImporting, setIsImporting] = useState(false);
 
@@ -121,6 +132,7 @@ export default function AgentWalletManagerModal({
     privateKey: string;
     chain: string;
     label?: string;
+    seedPhrase?: string | null;
   } | null>(null);
   const [isExportLoading, setIsExportLoading] = useState<number | null>(null);
   const [showPrivateKey, setShowPrivateKey] = useState<boolean>(false);
@@ -212,7 +224,8 @@ export default function AgentWalletManagerModal({
         publicKey: data.credentials.public_key,
         privateKey: data.credentials.private_key,
         chain: data.credentials.chain_type || "near",
-        label: data.credentials.label
+        label: data.credentials.label,
+        seedPhrase: data.credentials.seed_phrase || null
       });
       setShowPrivateKey(false);
     } catch (err: any) {
@@ -245,10 +258,8 @@ export default function AgentWalletManagerModal({
   // Preview subaccount name
   const computedSubaccountPreview = () => {
     const clean = subaccountPrefix.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "") || "agent";
-    if (!accountId) return `${clean}.user.testnet`;
-    if (accountId.endsWith(".testnet")) {
-      return `${clean}.${accountId}`;
-    } else if (accountId.includes(".")) {
+    if (!accountId) return `${clean}.user.${isMain ? "near" : "testnet"}`;
+    if (accountId.endsWith(".testnet") || accountId.endsWith(".near") || accountId.includes(".")) {
       return `${clean}.${accountId}`;
     }
     // If accountId is an implicit 64-char address, subaccount exceeds 64 chars -> NEAR protocol transfer-to-create implicit address
@@ -329,7 +340,7 @@ export default function AgentWalletManagerModal({
       const walletType = creationMethod === "named_subaccount" ? "subaccount" : "implicit";
 
       // 1. Propose keypair in backend -> generates autonomous keypair & sign payload
-      // For 'implicit', payload is pure Transfer (100% compatible with Meteor without FullAccess blocks)
+      // For 'implicit', payload is pure Transfer to derived implicit address
       const res = await fetch("/api/agent-wallet/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -354,20 +365,24 @@ export default function AgentWalletManagerModal({
       if (signPayload) {
         // [WALLET GUARD] Strict validation before sending payload to user wallet
         const receiver = (signPayload.receiverId || (signPayload as any).receiver_id || "").trim().toLowerCase();
-        if (creationMethod === "transfer_to_create") {
+        if (creationMethod === "named_subaccount") {
+          if (!receiver.endsWith(".testnet") && !receiver.endsWith(".near")) {
+            throw new Error(`[Wallet Guard Block] Security Violation: Subaccount address must end with .near or .testnet. Detected: "${receiver}".`);
+          }
+        } else if (creationMethod === "implicit") {
           const isHex64 = /^[0-9a-f]{64}$/.test(receiver);
           if (!isHex64) {
-            throw new Error(`[Wallet Guard Block] Security Violation: Transfer-to-Create requires a 64-character implicit hex address. Detected: "${receiver}". Transaction aborted to prevent wrong fund transfer.`);
+            throw new Error(`[Wallet Guard Block] Security Violation: Implicit address requires a 64-character hex address. Detected: "${receiver}". Transaction aborted.`);
           }
           if (!Array.isArray(signPayload.actions) || signPayload.actions.some((a: any) => a.type !== "Transfer")) {
-            throw new Error(`[Wallet Guard Block] Dangerous action detected: Transfer-to-Create must contain ONLY a Transfer action. Aborted.`);
+            throw new Error(`[Wallet Guard Block] Dangerous action detected: Implicit account transfer must contain ONLY a Transfer action. Aborted.`);
           }
         }
         try {
           const txResult = await signAndSendTransaction(signPayload);
           txHash = txResult?.hash || "";
         } catch (txErr: any) {
-          throw new Error(`Wallet signing cancelled or blocked: ${txErr?.message || txErr}`);
+          throw new Error(`Wallet signing cancelled or failed: ${txErr?.message || txErr}`);
         }
       }
 
@@ -393,7 +408,8 @@ export default function AgentWalletManagerModal({
           publicKey: createdWallet.public_key,
           privateKey: createdWallet.private_key,
           chain: createdWallet.chain_type || "near",
-          label: createdWallet.label
+          label: createdWallet.label,
+          seedPhrase: createdWallet.seed_phrase || null
         });
         setShowPrivateKey(false);
       }
@@ -460,11 +476,41 @@ export default function AgentWalletManagerModal({
     }
   };
 
-  // ── IMPORT EXISTING WALLET ──
+  // ── WITHDRAW FUNDS BACK TO USER WALLET ──
+  const handleWithdrawFunds = async (wallet: AgentWallet) => {
+    if (!accountId) return;
+    setIsWithdrawBusy(true);
+    setErrorToast(null);
+    try {
+      const res = await fetch("/api/agent-wallet/withdraw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_wallet: accountId,
+          key_id: wallet.id,
+          amount_near: null
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Withdrawal failed");
+
+      setSuccessToast(`Withdrew ${data.transferred_near?.toFixed(4)} NEAR to ${accountId}! TX: ${data.tx_hash?.slice(0, 10)}...`);
+      setTimeout(() => setSuccessToast(null), 5000);
+      setWithdrawTargetWallet(null);
+      await fetchConfig();
+    } catch (e: any) {
+      setErrorToast(e?.message || "Failed to withdraw funds");
+      setTimeout(() => setErrorToast(null), 5000);
+    } finally {
+      setIsWithdrawBusy(false);
+    }
+  };
+
+  // ── IMPORT / HAND OVER EXISTING WALLET ──
   const handleImportWallet = async () => {
     if (!accountId) return;
-    if (!importPublicKey || !importAccountId) {
-      setErrorToast("Please enter Account ID and Public Key");
+    if (!importSecret.trim()) {
+      setErrorToast("Please paste your Private Key or 12-Word Passphrase");
       setTimeout(() => setErrorToast(null), 3000);
       return;
     }
@@ -472,29 +518,40 @@ export default function AgentWalletManagerModal({
     setIsImporting(true);
     setErrorToast(null);
     try {
+      const trimmedSecret = importSecret.trim();
+      const isWords = trimmedSecret.split(/\s+/).length >= 12;
       const res = await fetch("/api/agent-wallet/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_wallet: accountId,
-          public_key: importPublicKey.trim(),
           agent_account_id: importAccountId.trim(),
-          label: importLabel.trim() || `Imported Wallet #${wallets.length + 1}`
+          private_key: isWords ? "" : trimmedSecret,
+          seed_phrase: isWords ? trimmedSecret : "",
+          label: importLabel.trim()
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to import wallet");
+      if (!res.ok) {
+        const errorDetail = typeof data.detail === "string"
+          ? data.detail
+          : Array.isArray(data.detail)
+          ? data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(", ")
+          : (typeof data.detail === "object" ? JSON.stringify(data.detail) : "Failed to import wallet");
+        throw new Error(errorDetail);
+      }
 
-      setSuccessToast("Agent Wallet imported successfully!");
-      setTimeout(() => setSuccessToast(null), 3500);
+      const assignedAddr = data.wallet?.agent_wallet_address || "wallet";
+      setSuccessToast(`Connected ${assignedAddr} directly to agent!`);
+      setTimeout(() => setSuccessToast(null), 4000);
       setIsImportingView(false);
       setImportAccountId("");
-      setImportPublicKey("");
+      setImportSecret("");
       setImportLabel("");
       await fetchConfig();
     } catch (e: any) {
       setErrorToast(e?.message || "Import error");
-      setTimeout(() => setErrorToast(null), 3500);
+      setTimeout(() => setErrorToast(null), 4000);
     } finally {
       setIsImporting(false);
     }
@@ -576,7 +633,7 @@ export default function AgentWalletManagerModal({
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-foreground text-base tracking-tight">Agent Execution Wallets</h3>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/15 text-primary border border-primary/25">
-                  Track 7: Give AI a Wallet
+                  Autonomous Agent Key Pool
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -597,13 +654,17 @@ export default function AgentWalletManagerModal({
           {/* Active Network / Connected Wallet Banner */}
           <div className="flex items-center justify-between p-3 rounded-xl bg-secondary/30 border border-border text-xs">
             <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <div className={`w-2.5 h-2.5 rounded-full ${isMain ? "bg-cyan-400" : "bg-emerald-400"} animate-pulse`} />
               <span className="text-muted-foreground">Connected Funding Wallet:</span>
               <span className="font-mono font-bold text-foreground">{accountId || "No wallet connected"}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                NEAR TESTNET
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                isMain
+                  ? "bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
+                  : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+              }`}>
+                {isMain ? "NEAR MAINNET" : "NEAR TESTNET"}
               </span>
               <button
                 onClick={() => setShowArchitectureGuide(!showArchitectureGuide)}
@@ -744,35 +805,12 @@ export default function AgentWalletManagerModal({
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-primary/20 text-primary">
-                    Track 7: Give AI a Wallet
+                    Autonomous Execution
                   </span>
                 </div>
 
                 {/* Creation Method Tabs */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCreationMethod("transfer_to_create")}
-                    className={`p-2.5 rounded-xl border text-left transition-all ${
-                      creationMethod === "transfer_to_create"
-                        ? "border-emerald-500/50 bg-emerald-500/10 shadow-sm"
-                        : "border-border bg-background/50 hover:bg-secondary/40 text-muted-foreground"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                        <CheckCircle2 size={13} className="text-emerald-400" />
-                        Transfer-to-Create
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400">
-                        METEOR SAFE
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
-                      Standard NEAR transfer. Protocol automatically provisions FullAccess to agent. <strong>Zero Meteor blocks!</strong>
-                    </p>
-                  </button>
-
                   <button
                     type="button"
                     onClick={() => setCreationMethod("named_subaccount")}
@@ -788,11 +826,34 @@ export default function AgentWalletManagerModal({
                         Named Subaccount
                       </span>
                       <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-primary/20 text-primary">
-                        .TESTNET
+                        .{isMain ? "NEAR" : "TESTNET"}
                       </span>
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
-                      Creates <code>&lt;prefix&gt;.&lt;user&gt;.testnet</code>. <em>(Note: Meteor blocks AddKey on subaccounts)</em>.
+                      Creates <code>&lt;prefix&gt;.{accountId || `user.${isMain ? "near" : "testnet"}`}</code> on-chain.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCreationMethod("implicit")}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      creationMethod === "implicit"
+                        ? "border-emerald-500/50 bg-emerald-500/10 shadow-sm"
+                        : "border-border bg-background/50 hover:bg-secondary/40 text-muted-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                        <CheckCircle2 size={13} className="text-emerald-400" />
+                        Implicit Account
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400">
+                        HEX ID
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+                      64-character autonomous NEAR account created via direct protocol transfer.
                     </p>
                   </button>
 
@@ -819,33 +880,6 @@ export default function AgentWalletManagerModal({
                     </p>
                   </button>
                 </div>
-
-                {/* Meteor Block Notice & Transfer-to-Create Explanation */}
-                {creationMethod === "transfer_to_create" && (
-                  <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-start gap-2.5 text-xs text-emerald-300">
-                    <Shield size={16} className="shrink-0 mt-0.5 text-emerald-400" />
-                    <div className="space-y-1">
-                      <p className="font-bold text-emerald-200">Protocol Transfer-to-Create (Meteor Safe):</p>
-                      <p className="text-[11px] text-emerald-300/90 leading-relaxed">
-                        Sends a standard token transfer to a newly generated 64-character implicit hex address. 
-                        Because this transaction contains <strong>NO AddKey action</strong>, <strong>Meteor Wallet will NEVER block it</strong>!
-                        The NEAR blockchain runtime itself automatically creates the account on-chain and delegates <strong>FullAccess</strong> to your autonomous agent.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {creationMethod === "named_subaccount" && (
-                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-300">
-                    <AlertCircle size={15} className="shrink-0 mt-0.5 text-amber-400" />
-                    <div>
-                      <p className="font-bold text-amber-200">Meteor Wallet Security Policy Notice:</p>
-                      <p className="text-[11px] text-amber-300/90 mt-0.5 leading-relaxed">
-                        Meteor Wallet blocks dApps from requesting <code>AddKey(FullAccess)</code> to protect users from malicious dApps. If your wallet blocked the request, switch to <strong>&quot;Transfer-to-Create&quot;</strong> above! It sends a standard, safe 0.5 NEAR transfer with zero blocks, and the NEAR Protocol itself provisions the agent key with FullAccess on-chain.
-                      </p>
-                    </div>
-                  </div>
-                )}
 
                 {/* EVM Wallet Creation Form */}
                 {creationMethod === "evm_wallet" ? (
@@ -888,38 +922,17 @@ export default function AgentWalletManagerModal({
                   </div>
                 ) : (
                   <>
-                    {/* Step 1: Prefix & Presets */}
+                    {/* Step 1: Subaccount Prefix / Wallet Identifier */}
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold text-muted-foreground uppercase">
-                          {creationMethod === "named_subaccount" ? "Subaccount Prefix" : "Wallet Label / Identifier"}
-                        </label>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-muted-foreground">Presets:</span>
-                          {["trader", "rebalancer"].map((preset) => (
-                            <button
-                              key={preset}
-                              onClick={() => {
-                                setSubaccountPrefix(preset);
-                                setAssignedAgentChoice(preset === "alpha" ? "research" : preset);
-                              }}
-                              className={`px-1.5 py-0.5 text-[10px] rounded border transition-all ${
-                                subaccountPrefix === preset
-                                  ? "bg-primary text-primary-foreground border-primary font-bold"
-                                  : "bg-background border-border text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              {preset}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                        {creationMethod === "named_subaccount" ? "Subaccount Prefix" : "Wallet Label / Identifier"}
+                      </label>
                       <div className="flex items-center rounded-lg bg-background border border-border px-3 py-1.5 text-xs">
                         <input
                           type="text"
                           value={subaccountPrefix}
                           onChange={(e) => setSubaccountPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
-                          placeholder="e.g. trader or rebalance"
+                          placeholder={creationMethod === "named_subaccount" ? "Enter custom prefix (e.g. trader, alpha, rebalancer)" : "e.g. trading-pool-1"}
                           className="w-full bg-transparent text-foreground focus:outline-none font-mono"
                         />
                       </div>
@@ -995,20 +1008,20 @@ export default function AgentWalletManagerModal({
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-muted-foreground">Creation Mechanism:</span>
                         <span className="font-mono font-bold text-emerald-400">
-                          {creationMethod === "transfer_to_create" ? "Protocol Transfer-to-Create (Safe)" : "Named Subaccount (On-Chain)"}
+                          {creationMethod === "named_subaccount" ? "Named Subaccount (On-Chain)" : "Implicit NEAR Account"}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-muted-foreground">Target Recipient Address:</span>
                         <span className="font-mono font-bold text-foreground text-[10px]">
-                          {creationMethod === "transfer_to_create" ? "64-Character Implicit Hex Address" : computedSubaccountPreview()}
+                          {creationMethod === "named_subaccount" ? computedSubaccountPreview() : "64-Character Implicit Hex Address"}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-muted-foreground">Wallet Guard:</span>
+                        <span className="text-[11px] text-muted-foreground">Security Guard:</span>
                         <span className="font-mono font-bold text-emerald-400 text-[10px] flex items-center gap-1">
                           <Shield size={11} />
-                          ACTIVE (Strict 64-Hex Verification)
+                          Active (On-Chain Key Isolation)
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1036,7 +1049,7 @@ export default function AgentWalletManagerModal({
                       {creationStep === "signing" && (
                         <>
                           <Flame size={13} className="animate-bounce" />
-                          <span>Please approve 0.5 NEAR transfer in your wallet ({accountId})...</span>
+                          <span>Please approve {fundingAmountNear} NEAR in your wallet ({accountId})...</span>
                         </>
                       )}
                       {creationStep === "verifying" && (
@@ -1060,46 +1073,62 @@ export default function AgentWalletManagerModal({
             {/* Import Form */}
             {isImportingView && (
               <div className="p-4 mb-3 rounded-xl bg-secondary/30 border border-primary/20 space-y-3 animate-in fade-in-0">
-                <h4 className="text-xs font-bold text-foreground">Import Existing Agent Keypair or Subaccount</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-foreground">Hand Over an Existing Wallet to Agent</h4>
+                  <span className="text-[10px] text-muted-foreground">No Subaccount Friction</span>
+                </div>
+                <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-300 leading-relaxed">
+                  💡 <strong>How this works:</strong> You can create a normal named account directly inside <strong>Meteor Wallet</strong> (or HERE/Sender), fund it with NEAR, and export its Private Key (<em>Settings ➡️ Security &amp; Recovery ➡️ Export Private Key</em>). Paste it here to delegate it to your agent!
+                </div>
+                <div className="space-y-2.5">
                   <div>
-                    <label className="text-[10px] font-bold text-muted-foreground uppercase">Agent Account ID / Address</label>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase flex items-center justify-between">
+                      <span>Private Key or 12-Word Passphrase (Required)</span>
+                      <span className="text-[9px] text-emerald-400 font-normal">Supports NEAR (ed25519) &amp; EVM (0x...)</span>
+                    </label>
                     <input
                       type="text"
-                      value={importAccountId}
-                      onChange={(e) => setImportAccountId(e.target.value)}
-                      placeholder="e.g. trader_sub.testnet or 64-char address"
-                      className="w-full mt-1 px-3 py-1.5 text-xs font-mono bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                      value={importSecret}
+                      onChange={(e) => setImportSecret(e.target.value)}
+                      placeholder="e.g. ed25519:... or 0x... or 12-word seed phrase"
+                      className="w-full mt-1 px-3 py-2 text-xs font-mono bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
                     />
                   </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-muted-foreground uppercase">Public Key (ed25519:...)</label>
-                    <input
-                      type="text"
-                      value={importPublicKey}
-                      onChange={(e) => setImportPublicKey(e.target.value)}
-                      placeholder="ed25519:3Ab..."
-                      className="w-full mt-1 px-3 py-1.5 text-xs font-mono bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                        Account ID (Optional — auto-detected)
+                      </label>
+                      <input
+                        type="text"
+                        value={importAccountId}
+                        onChange={(e) => setImportAccountId(e.target.value)}
+                        placeholder="Auto-detected from key if empty"
+                        className="w-full mt-1 px-3 py-1.5 text-xs font-mono bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase">Label (Optional)</label>
+                      <input
+                        type="text"
+                        value={importLabel}
+                        onChange={(e) => setImportLabel(e.target.value)}
+                        placeholder="Optional (defaults to account name)"
+                        className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
+                      />
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold text-muted-foreground uppercase">Label (Optional)</label>
-                  <input
-                    type="text"
-                    value={importLabel}
-                    onChange={(e) => setImportLabel(e.target.value)}
-                    placeholder="e.g. Rebalance Vault Wallet"
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-background border border-border rounded-lg text-foreground focus:outline-none focus:border-primary/50"
-                  />
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-muted-foreground">Public key will be derived automatically from the private key.</span>
+                  <button
+                    onClick={handleImportWallet}
+                    disabled={isImporting}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-all shadow-sm"
+                  >
+                    {isImporting ? "Importing & Verifying..." : "Confirm Hand Over"}
+                  </button>
                 </div>
-                <button
-                  onClick={handleImportWallet}
-                  disabled={isImporting}
-                  className="px-4 py-1.5 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  {isImporting ? "Importing..." : "Confirm Import"}
-                </button>
               </div>
             )}
 
@@ -1136,6 +1165,14 @@ export default function AgentWalletManagerModal({
                           <span className="text-xs font-bold text-foreground">{w.label}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
+                          {balInfo.exists === false && (
+                            <span
+                              className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                              title="This account was never registered on-chain because the creation transaction was blocked by Meteor or cancelled."
+                            >
+                              NOT ON-CHAIN
+                            </span>
+                          )}
                           <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${
                             isSubaccount
                               ? "bg-purple-500/15 text-purple-400 border-purple-500/30"
@@ -1221,6 +1258,20 @@ export default function AgentWalletManagerModal({
                             <span>Export Key</span>
                           </button>
 
+                          {numNear > 0 && w.chain_type === "near" && (
+                            <button
+                              onClick={() => {
+                                setWithdrawTargetWallet(w);
+                                setTopupTargetWallet(null);
+                              }}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all"
+                              title="Withdraw funds back to your primary wallet"
+                            >
+                              <ArrowUpRight size={10} />
+                              <span>Withdraw</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={() => setTopupTargetWallet(w)}
                             className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-primary/15 text-primary border border-primary/25 hover:bg-primary/25 transition-all"
@@ -1290,10 +1341,23 @@ export default function AgentWalletManagerModal({
                   <span>Important Custody & Agent Security Notice</span>
                 </div>
                 <p className="text-muted-foreground text-[10px] leading-relaxed">
-                  You can copy and import these credentials into Meteor Wallet, NEAR CLI, or MetaMask to take direct manual custody of the account.
+                  You can copy and import these credentials into your NEAR wallet, NEAR CLI, or MetaMask to take direct manual custody of the account.
                   <strong className="text-foreground"> The AI Agent fleet never has direct access to this private key.</strong> The agent only invokes guarded backend transaction-signing functions bound strictly to your primary wallet ({accountId}).
                 </p>
               </div>
+
+              {/* On-Chain Existence Warning if Unregistered */}
+              {balances[exportedKeyData.address]?.exists === false && (
+                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 space-y-1">
+                  <div className="text-[11px] font-bold flex items-center gap-1.5">
+                    <AlertCircle size={13} className="text-amber-400 shrink-0" />
+                    <span>Account Does Not Exist On-Chain</span>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-amber-200/80">
+                    <strong>{exportedKeyData.address}</strong> was never created on the NEAR blockchain because the transaction was blocked by Meteor or cancelled. External wallets will report <em>&quot;Cannot find account associated with key&quot;</em> because the account was never deployed on-chain. Zero funds exist in this account.
+                  </p>
+                </div>
+              )}
 
               {/* Credential Fields */}
               <div className="space-y-2 pt-1 font-mono">
@@ -1327,12 +1391,43 @@ export default function AgentWalletManagerModal({
                   </button>
                 </div>
 
-                {/* Private Key */}
+                {/* 12-Word Pass Phrase (Mnemonic) */}
+                {exportedKeyData.seedPhrase && (
+                  <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] text-emerald-400 uppercase tracking-wider font-sans font-bold flex items-center gap-1.5">
+                        <Key size={12} className="text-emerald-400" />
+                        <span>12-Word Secret Pass Phrase (Mnemonic)</span>
+                      </div>
+                      <button
+                        onClick={() => handleCopy(exportedKeyData.seedPhrase!, "export-phrase")}
+                        className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-semibold transition-all"
+                        title="Copy 12-Word Pass Phrase"
+                      >
+                        {copiedKey === "export-phrase" ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                        <span>{copiedKey === "export-phrase" ? "Copied" : "Copy Pass Phrase"}</span>
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 pt-1">
+                      {exportedKeyData.seedPhrase.split(" ").map((word, idx) => (
+                        <div key={idx} className="bg-black/50 border border-emerald-500/25 rounded px-2 py-1 text-center font-mono text-[11px] text-emerald-200">
+                          <span className="text-[9px] text-emerald-500/60 mr-1 select-none">{idx + 1}.</span>
+                          <span className="font-semibold">{word}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-[10px] text-emerald-300/80 pt-1 leading-tight">
+                      ✨ <strong>Universal Wallet Compatibility:</strong> You can import this exact 12-word pass phrase into <strong>Meteor Wallet</strong>, <strong>HERE Wallet</strong>, <strong>Sender</strong>, or <strong>Nightly</strong> via <em>&quot;Import Passphrase / Seed Phrase&quot;</em>.
+                    </div>
+                  </div>
+                )}
+
+                {/* Private Key (Standard) */}
                 <div className="p-2 rounded-lg bg-background/80 border border-amber-500/30 flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="text-[9px] text-amber-400 uppercase tracking-wider font-sans font-semibold flex items-center gap-1">
                       <Lock size={10} />
-                      <span>Private Key (Secret)</span>
+                      <span>Private Key (Standard NEAR Format)</span>
                     </div>
                     <div className="text-[11px] text-foreground break-all">
                       {showPrivateKey
@@ -1351,31 +1446,74 @@ export default function AgentWalletManagerModal({
                     <button
                       onClick={() => handleCopy(exportedKeyData.privateKey, "export-priv")}
                       className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all"
-                      title="Copy Private Key"
+                      title="Copy Standard Private Key"
                     >
                       {copiedKey === "export-priv" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
                     </button>
                   </div>
                 </div>
+
+                {/* Raw Base58 Secret (Without ed25519: prefix) */}
+                {exportedKeyData.privateKey.startsWith("ed25519:") && (
+                  <div className="p-2 rounded-lg bg-background/80 border border-border/70 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[9px] text-muted-foreground uppercase tracking-wider font-sans font-semibold flex items-center gap-1">
+                        <Key size={10} />
+                        <span>Raw Base58 Key (Without ed25519: Prefix)</span>
+                      </div>
+                      <div className="text-[11px] text-foreground break-all">
+                        {showPrivateKey
+                          ? exportedKeyData.privateKey.replace("ed25519:", "")
+                          : "•".repeat(Math.min(exportedKeyData.privateKey.length - 8, 48))}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleCopy(exportedKeyData.privateKey.replace("ed25519:", ""), "export-raw-priv")}
+                      className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all shrink-0"
+                      title="Copy Raw Base58 Key"
+                    >
+                      {copiedKey === "export-raw-priv" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    </button>
+                  </div>
+                )}
+
+                <div className="p-2 rounded-lg bg-secondary/30 text-[10px] text-muted-foreground leading-relaxed">
+                  💡 <strong>Wallet Import Guide:</strong> Make sure your wallet network is set to <strong>{isMain ? "Mainnet" : "Testnet"}</strong>. If your wallet flags <code>ed25519:</code> as invalid format, paste the <strong>Raw Base58 Key</strong> above. For wallets like <strong>Nightly</strong> or <strong>NEAR Mobile</strong>, select <em>&quot;Import Private Key&quot;</em> directly.
+                </div>
               </div>
 
               {/* Actions */}
-              <div className="flex items-center justify-between pt-2">
-                <button
-                  onClick={() => {
-                    const block = `NEPTUNE AGENT WALLET CREDENTIALS\n` +
-                      `Primary User Wallet: ${accountId}\n` +
-                      `Agent Account ID: ${exportedKeyData.address}\n` +
-                      `Chain: ${exportedKeyData.chain}\n` +
-                      `Public Key: ${exportedKeyData.publicKey}\n` +
-                      `Private Key: ${exportedKeyData.privateKey}\n`;
-                    handleCopy(block, "copy-all-creds");
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-secondary hover:bg-secondary/80 text-foreground border border-border transition-all"
-                >
-                  {copiedKey === "copy-all-creds" ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                  <span>{copiedKey === "copy-all-creds" ? "Copied All Credentials!" : "Copy All Credentials"}</span>
-                </button>
+              <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const block = `NEPTUNE AGENT WALLET CREDENTIALS\n` +
+                        `Primary User Wallet: ${accountId}\n` +
+                        `Agent Account ID: ${exportedKeyData.address}\n` +
+                        `Chain: ${exportedKeyData.chain}\n` +
+                        (exportedKeyData.seedPhrase ? `12-Word Pass Phrase: ${exportedKeyData.seedPhrase}\n` : "") +
+                        `Public Key: ${exportedKeyData.publicKey}\n` +
+                        `Private Key: ${exportedKeyData.privateKey}\n`;
+                      handleCopy(block, "copy-all-creds");
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-secondary hover:bg-secondary/80 text-foreground border border-border transition-all"
+                  >
+                    {copiedKey === "copy-all-creds" ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                    <span>{copiedKey === "copy-all-creds" ? "Copied!" : "Copy All Credentials"}</span>
+                  </button>
+
+                  {exportedKeyData.chain === "near" && (
+                    <a
+                      href={`https://${isMain ? "app" : "testnet"}.mynearwallet.com/recover-account?account_id=${exportedKeyData.address}&private_key=${encodeURIComponent(exportedKeyData.privateKey)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 transition-all shadow-sm"
+                    >
+                      <ExternalLink size={12} />
+                      <span>Open in MyNearWallet</span>
+                    </a>
+                  )}
+                </div>
 
                 <button
                   onClick={() => setExportedKeyData(null)}
@@ -1406,7 +1544,7 @@ export default function AgentWalletManagerModal({
               </div>
 
               <p className="text-[11px] text-muted-foreground">
-                Transfer additional testnet NEAR from your connected wallet ({accountId}) to {topupTargetWallet.agent_wallet_address}.
+                Transfer additional {isMain ? "mainnet" : "testnet"} NEAR from your connected wallet ({accountId}) to {topupTargetWallet.agent_wallet_address}.
               </p>
 
               <div className="flex items-center gap-2">
@@ -1450,6 +1588,48 @@ export default function AgentWalletManagerModal({
                   <>
                     <ArrowUpRight size={13} />
                     <span>Transfer +{topupAmount} NEAR into Agent Wallet</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Withdraw Funds Inline Popover */}
+          {withdrawTargetWallet && (
+            <div className="p-4 rounded-xl bg-secondary/40 border border-emerald-500/30 space-y-3 animate-in fade-in-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ArrowUpRight size={14} className="text-emerald-400" />
+                  <span className="text-xs font-bold text-foreground">
+                    Withdraw Funds: {withdrawTargetWallet.label}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setWithdrawTargetWallet(null)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Withdraw all available NEAR from this agent wallet back to your connected wallet (<code className="text-foreground font-bold">{accountId}</code>).
+              </p>
+
+              <button
+                onClick={() => handleWithdrawFunds(withdrawTargetWallet)}
+                disabled={isWithdrawBusy}
+                className="w-full py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+              >
+                {isWithdrawBusy ? (
+                  <>
+                    <RefreshCw size={12} className="animate-spin" />
+                    <span>Signing On-Chain Withdrawal...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowUpRight size={13} />
+                    <span>Withdraw Funds Back to {accountId}</span>
                   </>
                 )}
               </button>

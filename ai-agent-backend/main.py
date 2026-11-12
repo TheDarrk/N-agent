@@ -23,7 +23,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-load_dotenv()
+load_dotenv(override=True)
 
 # Import our Agent logic
 from agents import process_message
@@ -90,21 +90,8 @@ async def lifespan(app):
             coalesce=True,
             replace_existing=True
         )
-        # Register 60-second active trade & TP/SL poller
-        try:
-            from autonomous_agents.trade_poller import poll_active_trades
-            scheduler.add_job(
-                poll_active_trades,
-                'interval',
-                seconds=60,
-                id='trade_poller',
-                misfire_grace_time=3600,
-                coalesce=True,
-                replace_existing=True
-            )
-            print("[STARTUP] Trade TP/SL poller registered (every 60 sec)")
-        except Exception as tp_err:
-            print(f"[STARTUP] TP/SL poller error: {tp_err}")
+        # Active trade poller deactivated: Defuse 1-Click / NEAR Intents trades settle atomically on-chain
+        print("[STARTUP] Trade poller disabled (Defuse 1-Click instant settlement active)")
 
         # Register 5-minute autonomous Moderator Watchdog cadence checker
         try:
@@ -346,6 +333,10 @@ class SettingsRequest(BaseModel):
     agent_wallet: Optional[str] = None
     notification_email: Optional[str] = None
 
+class TestEmailRequest(BaseModel):
+    wallet_address: str
+    notification_email: Optional[str] = None
+
 class StrategyRequest(BaseModel):
     wallet_address: str
     strategy_type: str
@@ -392,6 +383,36 @@ async def update_settings(body: SettingsRequest):
 
     user = upsert_user(body.wallet_address, settings)
     return {"status": "updated", "user": user}
+
+
+@app.post("/api/settings/test-email")
+async def send_test_email(body: TestEmailRequest):
+    """Dispatch a test alert email to verify the user's notification email setup."""
+    from notification_agent import send_agent_action_email
+    target_wallet = body.wallet_address.strip()
+    if body.notification_email:
+        upsert_user(target_wallet, {"notification_email": body.notification_email.strip()})
+
+    user = get_user(target_wallet)
+    email = user.get("notification_email") if user else None
+    if not email:
+        return {"status": "error", "message": "No notification email configured for this wallet."}
+
+    sent = await send_agent_action_email(
+        user_wallet=target_wallet,
+        agent_name="NEPTUNE FLEET",
+        action_type="CONFIG_TEST",
+        title="Email Notifications Connected",
+        summary=f"Neptune AI alert notifications are now successfully connected to {email}. You will receive trade executions, limit order triggers, and watchdog audits here.",
+        metrics={"Target Account": target_wallet, "Notification Status": "Active & Verified", "Delivery Protocol": "SMTP (TLS)"},
+        reasoning="User triggered test email verification from the Neptune AI side navigation bar.",
+        tx_hash=None,
+        cid_reference=None
+    )
+    if sent:
+        return {"status": "sent", "email": email}
+    else:
+        return {"status": "error", "message": "Failed to send email. Verify SMTP settings in backend."}
 
 
 @app.get("/api/strategies/{wallet_address}")
@@ -915,7 +936,7 @@ async def research_stream_endpoint(body: ResearchRequest):
 
 @app.post("/api/research/hire")
 async def research_agent_hire(body: A2AHireRequest):
-    """Demo Track 7 Agent-to-Agent Hire: Trader Agent hires Research Agent."""
+    """Agent-to-Agent Hire: Trader Agent hires Research Agent."""
     from autonomous_agents.research_agent import ResearchAgent
     researcher = ResearchAgent()
     return await researcher.hire_by_trader_agent(
@@ -988,24 +1009,18 @@ async def get_current_network():
     return {
         "network": net,
         "rpc": get_near_rpc(),
-        "mainnet_allowed": is_mainnet_allowed(),
+        "mainnet_allowed": True,
     }
 
 @app.post("/api/network")
 async def set_current_network(body: NetworkToggleRequest):
-    """Set active NEAR network mode (testnet vs mainnet)."""
+    """Set active NEAR network mode (testnet vs mainnet) - user decided."""
     import os
-    from network_config import is_mainnet_allowed
-    if body.network == "mainnet" and not is_mainnet_allowed():
-        return {
-            "status": "prohibited",
-            "message": "Mainnet is prohibited by server configuration (ENABLE_MAINNET=false).",
-            "network": "testnet"
-        }
-    os.environ["NEAR_NETWORK"] = body.network
+    selected_network = "mainnet" if body.network.lower() == "mainnet" else "testnet"
+    os.environ["NEAR_NETWORK"] = selected_network
     if body.user_wallet:
-        upsert_user(body.user_wallet, {"near_network": body.network})
-    return {"status": "updated", "network": body.network}
+        upsert_user(body.user_wallet, {"near_network": selected_network})
+    return {"status": "updated", "network": selected_network}
 
 @app.post("/api/moderator/kill-switch")
 async def moderator_kill_switch_action(body: ModeratorKillSwitchRequest):
@@ -1250,7 +1265,7 @@ async def list_agent_keys(wallet_address: str):
 
 
 # ===================================================================
-# Agent Wallet Manager Endpoints (Track 7: Give AI a Wallet)
+# Agent Wallet Manager Endpoints (Autonomous Key Pool)
 # ===================================================================
 
 class GenerateAgentWalletRequest(BaseModel):
@@ -1263,10 +1278,11 @@ class GenerateAgentWalletRequest(BaseModel):
 
 class ImportAgentWalletRequest(BaseModel):
     user_wallet: str
-    public_key: str
-    agent_account_id: str
-    label: Optional[str] = ""
+    agent_account_id: Optional[str] = ""
     private_key: Optional[str] = ""
+    public_key: Optional[str] = ""
+    label: Optional[str] = ""
+    seed_phrase: Optional[str] = ""
 
 class AssignAgentWalletsRequest(BaseModel):
     user_wallet: str
@@ -1354,10 +1370,11 @@ async def import_agent_wallet_endpoint(body: ImportAgentWalletRequest):
     try:
         imported = import_agent_wallet(
             user_wallet=body.user_wallet,
-            public_key=body.public_key,
             agent_account_id=body.agent_account_id,
+            private_key=body.private_key or "",
+            public_key=body.public_key or "",
             label=body.label or "",
-            private_key=body.private_key or ""
+            seed_phrase=body.seed_phrase or ""
         )
         return {"status": "success", "wallet": imported}
     except ValueError as ve:
@@ -1391,6 +1408,81 @@ async def delete_agent_wallet_endpoint(body: DeleteAgentWalletRequest):
     return {"status": "success" if success else "not_found", "deleted": success}
 
 
+class WithdrawAgentWalletRequest(BaseModel):
+    user_wallet: str
+    key_id: int
+    amount_near: Optional[float] = None
+
+
+@app.post("/api/agent-wallet/withdraw")
+async def withdraw_agent_wallet_endpoint(body: WithdrawAgentWalletRequest):
+    """
+    Withdraw NEAR tokens from an autonomous agent execution wallet back to the user's primary funding wallet.
+    Uses the agent's stored encrypted private key to sign an on-chain transfer.
+    """
+    from database import export_agent_wallet_key
+    from network_config import get_near_rpc, get_near_rpc_endpoints
+    from py_near.account import Account
+    import requests as req
+
+    try:
+        creds = export_agent_wallet_key(body.user_wallet, body.key_id)
+        agent_addr = creds["agent_wallet_address"]
+        priv_key = creds["private_key"]
+        dest_addr = body.user_wallet
+
+        rpc_url = get_near_rpc(agent_addr)
+
+        # 1. Fetch current on-chain balance & storage usage
+        endpoints = get_near_rpc_endpoints(agent_addr)
+        total_yocto = 0
+        storage_bytes = 0
+        for ep in endpoints:
+            try:
+                resp = req.post(ep, json={
+                    "jsonrpc": "2.0", "id": "1", "method": "query",
+                    "params": {"request_type": "view_account", "finality": "final", "account_id": agent_addr}
+                }, timeout=5)
+                data = resp.json().get("result", {})
+                if "amount" in data:
+                    total_yocto = int(data.get("amount", "0"))
+                    storage_bytes = int(data.get("storage_usage", 0))
+                    break
+            except Exception:
+                continue
+
+        storage_cost = storage_bytes * (10**19)
+        gas_buffer = int(0.005 * 1e24)  # 0.005 NEAR buffer for tx gas
+        max_withdrawable_yocto = total_yocto - storage_cost - gas_buffer
+
+        if max_withdrawable_yocto <= 0:
+            raise ValueError(f"Insufficient funds to cover storage staking. Balance: {total_yocto / 1e24:.4f} NEAR, Storage reserve: {storage_cost / 1e24:.4f} NEAR.")
+
+        if body.amount_near and body.amount_near > 0:
+            req_yocto = int(body.amount_near * 1e24)
+            yocto_to_send = min(req_yocto, max_withdrawable_yocto)
+        else:
+            yocto_to_send = max_withdrawable_yocto
+
+        # 2. Execute on-chain transfer
+        acc = Account(agent_addr, private_key=priv_key, rpc_addr=rpc_url)
+        await acc.startup()
+        tx_res = await acc.send_money(dest_addr, yocto_to_send)
+        tx_hash = tx_res.transaction.hash if hasattr(tx_res, "transaction") and hasattr(tx_res.transaction, "hash") else str(tx_res)
+
+        return {
+            "status": "success",
+            "tx_hash": tx_hash,
+            "transferred_near": yocto_to_send / 1e24,
+            "recipient": dest_addr,
+            "sender": agent_addr
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class CrossChainSettingsRequest(BaseModel):
     user_wallet: str
     allow_cross_chain: bool
@@ -1417,22 +1509,24 @@ async def get_agent_wallet_balance(address: str, chain: str = "near"):
     import requests as req
     try:
         if chain == "near":
-            from network_config import get_near_rpc, TESTNET_RPC_ENDPOINTS, is_testnet
-            endpoints = TESTNET_RPC_ENDPOINTS if is_testnet(address) else [get_near_rpc(address)]
+            from network_config import get_near_rpc_endpoints
+            endpoints = get_near_rpc_endpoints(address)
             for rpc_url in endpoints:
                 try:
                     resp = req.post(rpc_url, json={
                         "jsonrpc": "2.0", "id": "1", "method": "query",
                         "params": {"request_type": "view_account", "finality": "final", "account_id": address}
-                    }, timeout=6)
+                    }, timeout=5)
                     data = resp.json()
                     result = data.get("result", {})
-                    if "error" in result:
-                        return {"balance": "0", "formatted": "0 NEAR", "exists": False}
                     if "amount" in result:
                         amount = result.get("amount", "0")
                         near_bal = int(amount) / 1e24
                         return {"balance": amount, "formatted": f"{near_bal:.4f} NEAR", "exists": True}
+                    if "error" in data:
+                        err_str = str(data["error"])
+                        if "UNKNOWN_ACCOUNT" in err_str or "does not exist" in err_str or "AccountDoesNotExist" in err_str:
+                            return {"balance": "0", "formatted": "0 NEAR", "exists": False}
                 except Exception:
                     continue
             return {"balance": "0", "formatted": "0 NEAR", "exists": False}

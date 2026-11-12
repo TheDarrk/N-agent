@@ -15,6 +15,7 @@ import FullScreenHistoryModal from "./fullscreen-history-modal";
 import AgentWalletManagerModal from "./agent-wallet-manager-modal";
 import SidebarAgentFeed from "./sidebar-agent-feed";
 import SidebarFleetBar from "./sidebar-fleet-bar";
+import SidebarEmailSettings from "./sidebar-email-settings";
 import { getTokenLogoUrl, TOKEN_LOGOS } from "@/lib/near/token-logos";
 
 type Props = {
@@ -271,6 +272,11 @@ function WalletPanel({
             className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
           />
         </button>
+      </section>
+
+      {/* Email Notifications */}
+      <section>
+        <SidebarEmailSettings accountId={accountId} />
       </section>
     </div>
   );

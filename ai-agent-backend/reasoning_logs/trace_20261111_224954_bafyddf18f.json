@@ -1,0 +1,19 @@
+{
+  "agent": "trader",
+  "user_wallet": "test_trader_1794437393.near",
+  "symbol": "NEAR",
+  "timeframe": "1h",
+  "verdict": "STAND_ASIDE",
+  "stage": "NO_QUALIFYING_CANDIDATES",
+  "confidence_score": 0,
+  "min_required": 70,
+  "expected_roi_pct": 0.0,
+  "reasoning": "No qualifying tokens met pre-scanner tradeability criteria. Standing aside to protect capital.",
+  "cid": "bafyddf18f341b6e63f04298204182918247042741150bad",
+  "stored_at": "2026-11-11 22:49:54 UTC",
+  "stored_at_iso": "2026-11-11T22:49:54.787529+00:00",
+  "date_utc": "2026-11-11",
+  "time_utc": "22:49:54 UTC",
+  "timestamp_utc": "2026-11-11 22:49:54 UTC",
+  "created_at_utc": "2026-11-11T22:49:54.787529+00:00"
+}

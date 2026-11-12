@@ -698,7 +698,9 @@ def get_autonomy_status_tool(wallet_address: str) -> str:
 
 # -- Tool Lists per Agent (each agent gets ONLY its own tools) ----
 
-# Swap Agent   handles token swaps, quotes, discovery
+from market_agent_tools import AGENT_MARKET_TOOLS, agent_suite_mcp_tool, configure_agent_tool, fetch_agent_history_tool
+
+# Swap Agent   handles token swaps, quotes, discovery, and agent suite MCP controls
 SWAP_TOOL_LIST = [
     get_available_tokens_tool,
     get_token_chains_tool,
@@ -706,9 +708,10 @@ SWAP_TOOL_LIST = [
     get_swap_quote_tool,
     confirm_swap_tool,
     hot_pay_coming_soon_tool,
+    agent_suite_mcp_tool,
+    configure_agent_tool,
+    fetch_agent_history_tool,
 ]
-
-from market_agent_tools import AGENT_MARKET_TOOLS
 
 # Autonomy Agent   handles strategies, settings, guardrails, and all 4 specialized agents
 AUTONOMY_TOOL_LIST = [

@@ -103,7 +103,7 @@ export default function AgentFleetModal({
     {
       id: "research",
       name: "Deep Research & Alpha Agent",
-      role: "On-Chain Alpha, Niche Intel & Track 7 A2A Rentals",
+      role: "On-Chain Alpha, Niche Intel & Agent-to-Agent Rentals",
       avatarBg: "bg-purple-500/20 text-purple-400 border-purple-500/30",
       icon: FileText,
       status: fleetData?.kill_switch_active ? "HALTED" : "ACTIVE",

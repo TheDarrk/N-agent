@@ -142,6 +142,30 @@ class ModeratorAgent:
                     status="completed"
                 )
 
+                # Dispatch Watchdog synthesis email notification
+                try:
+                    from notification_agent import send_agent_action_email
+                    asyncio.create_task(send_agent_action_email(
+                        user_wallet=user_wallet,
+                        agent_name="moderator",
+                        action_type="WATCHDOG_AUDIT",
+                        title=f"Watchdog: Fleet Synthesis Verdict {combined_report.verdict}",
+                        summary=f"Fleet health mean score is {combined_report.total_mean_score}/100. Master verdict: {combined_report.verdict}",
+                        metrics={
+                            "Fleet Mean Score": f"{combined_report.total_mean_score} / 100",
+                            "Master Verdict": combined_report.verdict,
+                            "Trader Agent Score": f"{trader_eval.score} / 100",
+                            "Rebalancer Agent Score": f"{rebalancer_eval.score} / 100",
+                            "Research Agent Score": f"{research_eval.score} / 100",
+                            "Killed / Suspended Agents": killed_str,
+                            "Kill Threshold": str(combined_report.user_kill_threshold)
+                        },
+                        reasoning="Watchdog verified cross-agent alignment, indicator accuracy, and risk parameters.",
+                        cid_reference=combined_report.cid
+                    ))
+                except Exception as notify_err:
+                    print(f"[MODERATOR: NOTIFY ERROR] Failed to dispatch watchdog email: {notify_err}")
+
                 print(f"\n{'='*75}")
                 print(f"[MODERATOR DELIBERATION FINISHED] Verdict: {combined_report.verdict} | Fleet Mean: {combined_report.total_mean_score}/100 | CID: {combined_report.cid}")
                 print(f"{'='*75}\n")

@@ -196,6 +196,27 @@ def analyze_chart_patterns(candles: List[Dict[str, float]], current_price: float
                     "description": f"Left Shoulder at ${round(t_left['price'], 2)}, Head at ${round(t_head['price'], 2)}, Right Shoulder at ${round(t_right['price'], 2)}."
                 })
 
+    # ─── 3B. HEAD & SHOULDERS TOP (BEARISH REVERSAL) ─────────────
+    if len(peaks) >= 3 and len(troughs) >= 2:
+        p_left, p_head, p_right = peaks[-3], peaks[-2], peaks[-1]
+        if p_head["price"] > p_left["price"] and p_head["price"] > p_right["price"]:
+            shoulder_diff = abs(p_left["price"] - p_right["price"]) / p_left["price"]
+            if shoulder_diff <= 0.06:
+                neckline = min(t["price"] for t in troughs[-2:])
+                height_h = p_head["price"] - neckline
+                target = round(neckline - height_h, 4)
+                sl = round(p_right["price"] + (atr * 0.5), 4)
+                patterns_found.append({
+                    "name": "Head and Shoulders",
+                    "type": "BEARISH_REVERSAL",
+                    "confidence": 91,
+                    "neckline": neckline,
+                    "measured_target": target,
+                    "stop_loss": sl,
+                    "risk_reward_ratio": round((current_price - target) / max(0.001, sl - current_price), 2),
+                    "description": f"Left Shoulder at ${round(p_left['price'], 2)}, Head at ${round(p_head['price'], 2)}, Right Shoulder at ${round(p_right['price'], 2)} with breakdown neckline at ${round(neckline, 2)}."
+                })
+
     # ─── 4. BULL FLAG / PENNANT (CONTINUATION) ───────────────────
     # Flagpole impulse in bars -25 to -10, followed by consolidation
     if len(closes) >= 20:
@@ -218,6 +239,27 @@ def analyze_chart_patterns(candles: List[Dict[str, float]], current_price: float
                 "description": f"Impulse flagpole (+{round((flagpole_h/impulse_start)*100, 1)}%) followed by tight consolidation channel."
             })
 
+    # ─── 4B. BEAR FLAG / PENNANT (CONTINUATION) ───────────────────
+    if len(closes) >= 20:
+        impulse_start = closes[-20]
+        impulse_trough = min(closes[-20:-6])
+        flag_low = min(closes[-6:])
+        flag_high = max(closes[-6:])
+        flagpole_h = impulse_start - impulse_trough
+        if flagpole_h > (2.5 * atr) and flag_low >= impulse_trough * 0.98 and flag_high <= impulse_start - (flagpole_h * 0.5):
+            target = round(current_price - flagpole_h, 4)
+            sl = round(flag_high + (atr * 0.8), 4)
+            patterns_found.append({
+                "name": "Bear Flag Continuation",
+                "type": "BEARISH_CONTINUATION",
+                "confidence": 86,
+                "neckline": flag_low,
+                "measured_target": target,
+                "stop_loss": sl,
+                "risk_reward_ratio": round((current_price - target) / max(0.001, sl - current_price), 2),
+                "description": f"Downward impulse flagpole (-{round((flagpole_h/impulse_start)*100, 1)}%) followed by upward consolidation flag."
+            })
+
     # ─── 5. ASCENDING TRIANGLE ───────────────────────────────────
     if len(peaks) >= 2 and len(troughs) >= 2:
         top_diff = abs(peaks[-1]["price"] - peaks[-2]["price"]) / peaks[-1]["price"]
@@ -238,6 +280,26 @@ def analyze_chart_patterns(candles: List[Dict[str, float]], current_price: float
                 "description": f"Horizontal resistance ceiling at ${round(res_ceiling, 2)} with higher lows accumulating demand."
             })
 
+    # ─── 5B. DESCENDING TRIANGLE (BEARISH CONTINUATION) ───────────
+    if len(peaks) >= 2 and len(troughs) >= 2:
+        bottom_diff = abs(troughs[-1]["price"] - troughs[-2]["price"]) / troughs[-1]["price"]
+        falling_highs = peaks[-1]["price"] < peaks[-2]["price"] * 0.992
+        if bottom_diff <= 0.025 and falling_highs:
+            sup_floor = min(troughs[-1]["price"], troughs[-2]["price"])
+            tri_height = peaks[-2]["price"] - sup_floor
+            target = round(sup_floor - tri_height, 4)
+            sl = round(peaks[-1]["price"] + (atr * 0.5), 4)
+            patterns_found.append({
+                "name": "Descending Triangle",
+                "type": "BEARISH_CONTINUATION",
+                "confidence": 84,
+                "neckline": sup_floor,
+                "measured_target": target,
+                "stop_loss": sl,
+                "risk_reward_ratio": round((current_price - target) / max(0.001, sl - current_price), 2),
+                "description": f"Horizontal support floor at ${round(sup_floor, 2)} with lower highs pressing downward."
+            })
+
     # Add candlestick confirmations
     candle_patterns = detect_candlestick_patterns(candles)
 
@@ -245,20 +307,16 @@ def analyze_chart_patterns(candles: List[Dict[str, float]], current_price: float
     if patterns_found:
         dominant = max(patterns_found, key=lambda x: x["confidence"])
     else:
-        # Default trend alignment structure
-        trend_direction = "BULLISH" if closes[-1] >= closes[0] else "BEARISH"
-        measured_move = atr * 2.2
-        target = round(current_price + measured_move if trend_direction == "BULLISH" else current_price - measured_move, 4)
-        sl = round(current_price - (atr * 1.2) if trend_direction == "BULLISH" else current_price + (atr * 1.2), 4)
+        # No geometric chart pattern recognized; leave directional judgment to the LLM
         dominant = {
-            "name": f"Dynamic EMA {trend_direction} Trend Structure",
-            "type": f"{trend_direction}_MOMENTUM",
-            "confidence": 76 if trend_direction == "BULLISH" else 62,
+            "name": "none",
+            "type": "NONE",
+            "confidence": 0,
             "neckline": current_price,
-            "measured_target": target,
-            "stop_loss": sl,
-            "risk_reward_ratio": 1.83,
-            "description": f"Price adhering to multi-period moving average slope with ATR volatility bands."
+            "measured_target": round(current_price, 4),
+            "stop_loss": round(current_price, 4),
+            "risk_reward_ratio": 1.0,
+            "description": "No classical geometric reversal or continuation pattern detected."
         }
 
     return {

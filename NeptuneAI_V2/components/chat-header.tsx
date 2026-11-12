@@ -23,7 +23,6 @@ import AgentFleetModal from "./agent-fleet-modal";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
 import { ThemeToggle } from "./theme-toggle";
 import { useWallet } from "@/providers/wallet-provider";
-import { isMainnetAllowed } from "@/lib/near/network";
 
 type Props = {
   accountId: string | null;
@@ -86,7 +85,7 @@ export default function ChatHeader({
 
   return (
     <>
-      <header className="flex flex-col 2xl:flex-row 2xl:items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border bg-card/60 backdrop-blur-md gap-2 2xl:gap-3 z-30 overflow-hidden select-none">
+      <header className="flex flex-col xl:flex-row xl:items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border bg-card/60 backdrop-blur-md gap-2 xl:gap-3 z-30 overflow-hidden select-none">
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
@@ -115,9 +114,22 @@ export default function ChatHeader({
             </div>
           </div>
 
-          {/* Mobile & Tablet Right */}
-          <div className="flex items-center gap-1.5 sm:gap-2 2xl:hidden shrink-0">
+          {/* Mobile & Tablet Right Controls */}
+          <div className="flex items-center gap-1.5 sm:gap-2 xl:hidden shrink-0">
             <ThemeToggle />
+
+            {/* Small Screen Mainnet/Testnet Switcher Pill */}
+            <button
+              onClick={() => handleToggleNetwork(network === "testnet" ? "mainnet" : "testnet")}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-semibold transition-all shrink-0 bg-secondary/60 border-border text-muted-foreground hover:text-foreground active:scale-95"
+              title="Click to toggle between Testnet and Mainnet"
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${network === "testnet" ? "bg-emerald-400" : "bg-cyan-400"}`} />
+              <span className="uppercase font-mono text-[10px]">
+                {network}
+              </span>
+            </button>
+
             <button
               onClick={() => setIsFleetModalOpen(true)}
               className="hidden sm:inline-flex p-2 rounded-lg bg-secondary text-primary"
@@ -144,18 +156,18 @@ export default function ChatHeader({
               </button>
             ) : (
               <button
-                onClick={onConnect}
+                onClick={() => onConnect()}
                 disabled={isConnecting}
                 className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground whitespace-nowrap disabled:opacity-50"
               >
-                Connect
+                Connect Wallet
               </button>
             )}
           </div>
         </div>
 
         {/* Top Navigation Bar Tabs */}
-        <nav className="flex items-center gap-1.5 py-1 justify-start sm:justify-center overflow-x-auto 2xl:overflow-x-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <nav className="flex items-center gap-1.5 py-1 justify-start sm:justify-center overflow-x-auto xl:overflow-x-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {tabs.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.id;
@@ -177,28 +189,17 @@ export default function ChatHeader({
         </nav>
 
         {/* Wallet Connection & Controls (Desktop) */}
-        <div className="hidden 2xl:flex items-center gap-2.5">
+        <div className="hidden xl:flex items-center gap-2.5">
           <ThemeToggle />
           {/* Network Switcher Pill */}
           <button
-            onClick={() => {
-              if (!isMainnetAllowed()) {
-                alert("Mainnet is prohibited by configuration (NEXT_PUBLIC_ENABLE_MAINNET=false). Testing is restricted to NEAR Testnet.");
-                return;
-              }
-              handleToggleNetwork(network === "testnet" ? "mainnet" : "testnet");
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
-              !isMainnetAllowed()
-                ? "bg-secondary/40 border-border text-muted-foreground/80 cursor-default"
-                : "bg-secondary/60 border-border text-muted-foreground hover:text-foreground"
-            }`}
-            title={!isMainnetAllowed() ? "Mainnet is prohibited (NEXT_PUBLIC_ENABLE_MAINNET=false)" : "Click to switch between Testnet and Mainnet"}
+            onClick={() => handleToggleNetwork(network === "testnet" ? "mainnet" : "testnet")}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all bg-secondary/60 border-border text-muted-foreground hover:text-foreground active:scale-95"
+            title="Click to toggle between Testnet and Mainnet"
           >
-            <span className={`w-2 h-2 rounded-full ${network === "testnet" ? "bg-emerald-400" : "bg-purple-400"}`} />
+            <span className={`w-2 h-2 rounded-full ${network === "testnet" ? "bg-emerald-400" : "bg-cyan-400"}`} />
             <span className="uppercase font-mono text-[10px]">
               {network}
-              {!isMainnetAllowed() && " (TESTNET ONLY)"}
             </span>
           </button>
 
@@ -255,7 +256,7 @@ export default function ChatHeader({
             </div>
           ) : (
             <button
-              onClick={onConnect}
+              onClick={() => onConnect()}
               disabled={isConnecting}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/20 disabled:opacity-50"
             >
@@ -264,7 +265,7 @@ export default function ChatHeader({
               ) : (
                 <Flame size={13} className="text-orange-400 fill-orange-400" />
               )}
-              <span>Connect HOT Wallet</span>
+              <span>Connect Wallet</span>
             </button>
           )}
         </div>

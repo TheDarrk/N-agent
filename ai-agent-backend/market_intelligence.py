@@ -88,6 +88,164 @@ def _calc_atr(highs: List[float], lows: List[float], closes: List[float], period
     return round(atr, 4)
 
 
+def _calc_macd(closes: List[float]) -> Dict[str, float]:
+    """Calculate MACD Line (12, 26), Signal Line (9), and Histogram."""
+    if len(closes) < 26:
+        return {"line": 0.0, "signal": 0.0, "hist": 0.0}
+
+    k12 = 2 / 13
+    k26 = 2 / 27
+    cur_12 = sum(closes[:12]) / 12
+    series_12 = [cur_12]
+    for p in closes[12:]:
+        cur_12 = (p * k12) + (cur_12 * (1 - k12))
+        series_12.append(cur_12)
+
+    cur_26 = sum(closes[:26]) / 26
+    series_26 = [cur_26]
+    for p in closes[26:]:
+        cur_26 = (p * k26) + (cur_26 * (1 - k26))
+        series_26.append(cur_26)
+
+    offset = len(series_12) - len(series_26)
+    macd_series = [series_12[offset + i] - series_26[i] for i in range(len(series_26))]
+
+    if len(macd_series) < 9:
+        line = macd_series[-1] if macd_series else 0.0
+        return {"line": round(line, 4), "signal": round(line, 4), "hist": 0.0}
+
+    k9 = 2 / 10
+    signal = sum(macd_series[:9]) / 9
+    for m in macd_series[9:]:
+        signal = (m * k9) + (signal * (1 - k9))
+
+    line = macd_series[-1]
+    hist = line - signal
+    return {"line": round(line, 4), "signal": round(signal, 4), "hist": round(hist, 4)}
+
+
+def _calc_adx(highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> Dict[str, Any]:
+    """Calculate Wilder's Average Directional Index (ADX) and +DI/-DI."""
+    n = len(closes)
+    if n < period * 2:
+        return {"adx": 20.0, "plus_di": 20.0, "minus_di": 20.0, "trend_strength": "MODERATE"}
+
+    tr_list, dm_plus, dm_minus = [], [], []
+    for i in range(1, n):
+        h, l, c_prev = highs[i], lows[i], closes[i - 1]
+        tr = max(h - l, abs(h - c_prev), abs(l - c_prev))
+        tr_list.append(tr)
+
+        up_move = highs[i] - highs[i - 1]
+        down_move = lows[i - 1] - lows[i]
+
+        dm_plus.append(up_move if (up_move > down_move and up_move > 0) else 0.0)
+        dm_minus.append(down_move if (down_move > up_move and down_move > 0) else 0.0)
+
+    tr_smooth = sum(tr_list[:period])
+    plus_smooth = sum(dm_plus[:period])
+    minus_smooth = sum(dm_minus[:period])
+
+    dx_list = []
+    for i in range(period, len(tr_list)):
+        tr_smooth = tr_smooth - (tr_smooth / period) + tr_list[i]
+        plus_smooth = plus_smooth - (plus_smooth / period) + dm_plus[i]
+        minus_smooth = minus_smooth - (minus_smooth / period) + dm_minus[i]
+
+        plus_di = (plus_smooth / max(1e-6, tr_smooth)) * 100
+        minus_di = (minus_smooth / max(1e-6, tr_smooth)) * 100
+
+        di_sum = plus_di + minus_di
+        dx = (abs(plus_di - minus_di) / max(1e-6, di_sum)) * 100
+        dx_list.append(dx)
+
+    if not dx_list:
+        return {"adx": 20.0, "plus_di": 20.0, "minus_di": 20.0, "trend_strength": "MODERATE"}
+
+    adx = sum(dx_list[-period:]) / min(len(dx_list), period)
+    last_plus_di = round((plus_smooth / max(1e-6, tr_smooth)) * 100, 1)
+    last_minus_di = round((minus_smooth / max(1e-6, tr_smooth)) * 100, 1)
+
+    strength = "STRONG_TREND" if adx >= 25 else ("WEAK_CHOP" if adx < 20 else "DEVELOPING")
+    return {
+        "adx": round(adx, 1),
+        "plus_di": last_plus_di,
+        "minus_di": last_minus_di,
+        "trend_strength": strength
+    }
+
+
+def _calc_bollinger_bands(closes: List[float], period: int = 20, num_std: float = 2.0) -> Dict[str, float]:
+    """Calculate Bollinger Bands (Upper, Lower, Middle, %B, Bandwidth%)."""
+    if len(closes) < period:
+        cp = closes[-1] if closes else 1.0
+        return {"upper": round(cp * 1.05, 4), "lower": round(cp * 0.95, 4), "mid": round(cp, 4), "percent_b": 0.5, "bandwidth_pct": 10.0}
+
+    window = closes[-period:]
+    sma = sum(window) / period
+    variance = sum((p - sma) ** 2 for p in window) / period
+    std = variance ** 0.5
+
+    upper = sma + (num_std * std)
+    lower = sma - (num_std * std)
+    cp = closes[-1]
+
+    band_range = max(1e-6, upper - lower)
+    percent_b = (cp - lower) / band_range
+    bandwidth_pct = (band_range / max(1e-6, sma)) * 100
+
+    return {
+        "upper": round(upper, 4),
+        "lower": round(lower, 4),
+        "mid": round(sma, 4),
+        "percent_b": round(percent_b, 2),
+        "bandwidth_pct": round(bandwidth_pct, 1)
+    }
+
+
+def _determine_structure_hint(
+    current_price: float,
+    ema20: Optional[float],
+    ema50: Optional[float],
+    ema200: Optional[float],
+    slope20: float,
+    rsi: float,
+    adx_info: Dict[str, Any]
+) -> str:
+    """
+    Deterministic rule-based classification hint for LLM context.
+    Evaluates stacked EMAs, slopes, RSI momentum, and ADX strength.
+    """
+    if ema20 is None or ema50 is None:
+        return "INSUFFICIENT_HISTORY"
+
+    adx_val = adx_info.get("adx", 20.0)
+
+    # Full Bullish expansion
+    if current_price > ema20 and ema20 > ema50 and slope20 > 0.05:
+        if ema200 and ema50 > ema200:
+            return "FULL_BULLISH_EXPANSION"
+        return "BULLISH_TREND"
+
+    # Full Bearish expansion
+    if current_price < ema20 and ema20 < ema50 and slope20 < -0.05:
+        if ema200 and ema50 < ema200:
+            return "FULL_BEARISH_EXPANSION"
+        return "BEARISH_TREND"
+
+    # Pullback states
+    if ema20 > ema50 and slope20 >= 0 and current_price <= ema20:
+        return "BULLISH_PULLBACK_SUPPORT"
+
+    if ema20 < ema50 and slope20 <= 0 and current_price >= ema20:
+        return "BEARISH_PULLBACK_RESISTANCE"
+
+    if adx_val < 20 or abs(slope20) < 0.05:
+        return "SIDEWAYS_CONSOLIDATION"
+
+    return "MIXED_TRANSITION"
+
+
 SYMBOL_ALIASES = {
     "WBTC": "BTC",
     "WETH": "ETH",
@@ -353,9 +511,35 @@ async def analyze_token_indicators(
     ema200 = _calc_ema(closes, period=200)  # None if len(closes) < 200
     atr = _calc_atr(highs, lows, closes, period=14)
 
+    # Slope of EMA20
+    if len(closes) >= 3 and ema20 is not None:
+        prev_ema20 = _calc_ema(closes[:-1], min(len(closes) - 1, 20))
+        slope20 = round(((ema20 - prev_ema20) / max(1e-6, prev_ema20)) * 100, 2) if prev_ema20 else 0.0
+    else:
+        slope20 = 0.0
+
+    # Institutional indicators & structure hint
+    macd_data = _calc_macd(closes)
+    adx_data = _calc_adx(highs, lows, closes, period=14)
+    bb_data = _calc_bollinger_bands(closes, period=20, num_std=2.0)
+    structure_hint = _determine_structure_hint(
+        current_price=current_price,
+        ema20=ema20,
+        ema50=ema50,
+        ema200=ema200,
+        slope20=slope20,
+        rsi=rsi,
+        adx_info=adx_data
+    )
+
     # Determine trend & signals (safe when EMAs are None)
     if ema20 is not None and ema50 is not None:
-        ema_trend = "BULLISH" if ema20 > ema50 else "BEARISH"
+        if ema20 > ema50 and slope20 > 0:
+            ema_trend = "BULLISH"
+        elif ema20 < ema50 and slope20 < 0:
+            ema_trend = "BEARISH"
+        else:
+            ema_trend = "SIDEWAYS"
         ema_cross = "GOLDEN" if (ema20 >= ema50 and len(closes) > 2 and closes[-2] <= ema50) else ("DEATH" if ema20 < ema50 else "NEUTRAL")
     else:
         ema_trend = "INSUFFICIENT_HISTORY"
@@ -387,8 +571,14 @@ async def analyze_token_indicators(
         "ema20": ema20,
         "ema50": ema50,
         "ema200": ema200,
+        "slope20": slope20,
         "ema_trend": ema_trend,
         "ema_cross": ema_cross,
+        "structure_hint": structure_hint,
+        "structure_hint_note": "Mathematically calculated reference hint; LLM evaluates all raw levels independently.",
+        "macd": macd_data,
+        "adx": adx_data,
+        "bollinger_bands": bb_data,
         "atr": atr,
         "atr_pct": round(atr_pct, 2),
         "volume_surge": volume_surge,

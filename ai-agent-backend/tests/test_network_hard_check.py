@@ -18,20 +18,18 @@ from network_config import (
 from tools import create_near_intent_transaction
 
 
-def test_mainnet_prohibition_flag(monkeypatch):
-    # By default in .env: ENABLE_MAINNET=false
-    monkeypatch.setenv("ENABLE_MAINNET", "false")
-    assert is_mainnet_allowed() is False
+def test_mainnet_user_allowed():
+    # User decides network: mainnet is allowed
+    assert is_mainnet_allowed() is True
 
-    # When prohibited, even a .near account falls back to testnet
-    assert get_network("user.near") == "testnet"
-    assert is_testnet("user.near") is True
-    assert is_mainnet("user.near") is False
+    # Account with .near routes automatically to mainnet
+    assert get_network("user.near") == "mainnet"
+    assert is_mainnet("user.near") is True
+    assert is_testnet("user.near") is False
 
-    # Attempting to validate mainnet when prohibited must fail
+    # Validating .near account for mainnet must succeed
     valid, msg = validate_account_network("user.near", expected_network="mainnet")
-    assert valid is False
-    assert "Mainnet is prohibited" in msg
+    assert valid is True
 
 
 def test_testnet_routing():
@@ -61,7 +59,7 @@ def test_enabled_mainnet_routing(monkeypatch):
     assert is_mainnet("user.near") is True
     assert is_testnet("user.near") is False
 
-    assert get_near_rpc("user.near") == "https://rpc.mainnet.near.org"
+    assert get_near_rpc("user.near") == "https://near.drpc.org"
     assert get_intents_contract("user.near") == "intents.near"
     assert get_wrap_near_contract("user.near") == "wrap.near"
     assert get_defuse_asset_id("NEAR", "user.near") == "nep141:wrap.near"
