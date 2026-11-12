@@ -26,17 +26,30 @@ STABLECOIN_SYMBOLS = {
 }
 
 
-def is_stablecoin_asset(sym: str, price: float = 0.0) -> bool:
-    """Checks whether an asset is a fiat-pegged stablecoin with no speculative directional upside."""
-    s = sym.upper()
+def is_stablecoin_asset(sym: str, price: float = 0.0, candles: Optional[List[Dict[str, Any]]] = None) -> bool:
+    """
+    Checks whether an asset is a fiat-pegged stablecoin with no speculative directional upside.
+    Uses known stablecoin symbols, fiat tickers, and low-volatility flatline chart confirmation.
+    Does NOT drop tokens solely for trading near $1.00, as real volatile assets can trade near $1.00.
+    """
+    s = sym.upper().strip().lstrip("$")
     if s in STABLECOIN_SYMBOLS:
         return True
     if any(k in s for k in ("USDC", "USDT", "USD0", "DAI", "EUR", "GBP")):
         return True
-    if s.startswith("USD") or s.endswith("USD"):
+    if (s.startswith("USD") or s.endswith("USD")) and len(s) > 3 and not s.startswith("USDT") and s not in ("NEAR", "USN"):
         return True
-    if 0.985 <= price <= 1.015:
-        return True
+    
+    # If historical candles are available, check if the price has virtually zero volatility (< 0.2% range across all candles)
+    if candles and len(candles) >= 10:
+        closes = [float(c.get("close") or 0.0) for c in candles if c.get("close")]
+        if closes and closes[0] > 0:
+            price_variation_pct = (max(closes) - min(closes)) / closes[0] * 100.0
+            avg_close = sum(closes) / len(closes)
+            # Only flatline pegged tokens staying rigidly between $0.98 and $1.02 with < 0.25% variance are pegged stables
+            if price_variation_pct < 0.25 and 0.98 <= avg_close <= 1.02:
+                return True
+
     return False
 
 # Conservative, environment-configurable eligibility gate. These values are
@@ -196,9 +209,10 @@ async def get_1click_filtered_universe() -> List[str]:
     return fallback_coins
 
 
-async def _evaluate_single_coin(coin: str, timeframe: str) -> Optional[Dict[str, Any]]:
-    """Analyzes a single coin and computes its institutional opportunity score."""
+async def _evaluate_single_coin(coin: str, timeframe: str, pro_settings: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """Analyzes a single coin and computes its institutional opportunity score using user pro thresholds if provided."""
     try:
+        pro = pro_settings or {}
         lookback_limit = 168 if timeframe == "1h" else 50
         indicators = await analyze_token_indicators(
             symbol=coin,
@@ -217,7 +231,20 @@ async def _evaluate_single_coin(coin: str, timeframe: str) -> Optional[Dict[str,
 
         # 1. Pattern Recognition & Measured Targets
         pattern_data = analyze_chart_patterns(candles=candles, current_price=current_price, atr=atr)
-        tradeability = check_tradeability(indicators, pattern_data)
+
+        # Apply user pro thresholds or system defaults
+        min_vol = float(pro.get("trader_min_volume_usd") or pro.get("min_volume_usd") or PRESCAN_MIN_VOLUME_USD)
+        min_move = float(pro.get("trader_min_price_move_pct") or pro.get("min_price_move_pct") or PRESCAN_MIN_MOVE_PCT)
+        min_atr = float(pro.get("trader_min_atr_pct") or pro.get("min_atr_pct") or PRESCAN_MIN_ATR_PCT)
+
+        tradeability = check_tradeability(
+            indicators,
+            pattern_data,
+            min_volume_usd=min_vol,
+            min_move_pct=min_move,
+            min_atr_pct=min_atr,
+            min_weekly_volume_usd=min_vol
+        )
         if not tradeability["eligible"]:
             return {
                 "symbol": coin,
@@ -265,25 +292,28 @@ async def _evaluate_single_coin(coin: str, timeframe: str) -> Optional[Dict[str,
         elif vol_ratio < 0.6:
             opp_score -= 20  # Anemic volume penalty
 
-        # RSI Momentum / Continuation Band
+        # RSI Momentum / Continuation Band configured by user
         rsi = indicators.get("rsi", 50.0)
+        rsi_ob = float(pro.get("trader_rsi_overbought") or pro.get("rsi_overbought") or 70.0)
+        rsi_os = float(pro.get("trader_rsi_oversold") or pro.get("rsi_oversold") or 30.0)
+        sweet_min = float(pro.get("trader_rsi_sweet_min") or pro.get("rsi_sweet_min") or 45.0)
+        sweet_max = float(pro.get("trader_rsi_sweet_max") or pro.get("rsi_sweet_max") or 62.0)
+
         if is_short:
-            if 38 <= rsi <= 55:
+            short_sweet_min = max(20.0, sweet_min - 10.0)
+            short_sweet_max = min(80.0, sweet_max - 5.0)
+            if short_sweet_min <= rsi <= short_sweet_max:
                 opp_score += 15
-            elif 32 <= rsi <= 62:
-                opp_score += 5
-            elif rsi < 30:
+            elif rsi < rsi_os:
                 opp_score -= 35
-            elif rsi > 68:
+            elif rsi > rsi_ob:
                 opp_score += 5
         else:
-            if 45 <= rsi <= 62:
+            if sweet_min <= rsi <= sweet_max:
                 opp_score += 15
-            elif 40 <= rsi <= 68:
-                opp_score += 5
-            elif rsi > 70:
+            elif rsi > rsi_ob:
                 opp_score -= 35
-            elif rsi < 32:
+            elif rsi < rsi_os:
                 opp_score += 5
 
         # Chart Pattern Geometry
@@ -292,13 +322,14 @@ async def _evaluate_single_coin(coin: str, timeframe: str) -> Optional[Dict[str,
         if is_directional_pattern and pattern_data.get("confidence_score", 0) >= 70:
             opp_score += 20
 
-        # Mathematical Expectancy (Risk-to-Reward Ratio)
-        if rr >= 2.0:
+        # Mathematical Expectancy (Risk-to-Reward Ratio) configured by user
+        user_min_rr = float(pro.get("trader_min_risk_reward") or pro.get("min_risk_reward") or 1.5)
+        if rr >= user_min_rr * 1.33:
             opp_score += 30  # High-conviction institutional payoff
-        elif rr >= 1.5:
-            opp_score += 15  # Solid positive expectancy
-        elif rr < 1.2:
-            opp_score -= 40  # Heavily penalize poor R:R (< 1.2) e.g. WETH 0.96
+        elif rr >= user_min_rr:
+            opp_score += 15  # Solid positive expectancy matching user criteria
+        else:
+            opp_score -= 40  # Heavily penalize failing user's minimum R:R threshold
 
         return {
             "symbol": coin,
@@ -317,11 +348,13 @@ async def _evaluate_single_coin(coin: str, timeframe: str) -> Optional[Dict[str,
 async def scan_coin_universe(
     mode: str = "auto",
     custom_coins: Optional[List[str]] = None,
-    timeframe: str = "1h"
+    timeframe: str = "1h",
+    pro_settings: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Scans the token universe concurrently and ranks opportunities.
     In Auto Mode, evaluates all filtered tokens fetched from 1-Click / NEAR Intents API.
+    Honors user-defined pro thresholds (volume, ATR, price move, min R:R, RSI bands) when provided.
     Logs pre-scanner filtering decisions, dead pair removals, and final table compilation.
     """
     source_info = "User Configured Watchlist"
@@ -354,7 +387,7 @@ async def scan_coin_universe(
 
     async def _sem_eval(coin_sym: str):
         async with sem:
-            return await _evaluate_single_coin(coin_sym, timeframe)
+            return await _evaluate_single_coin(coin_sym, timeframe, pro_settings=pro_settings)
 
     print(f"[PRE-SCANNER: CANDLE EVAL] Concurrently evaluating {len(coins_to_scan)} coins on {timeframe} timeframe...")
     tasks = [_sem_eval(coin) for coin in coins_to_scan]

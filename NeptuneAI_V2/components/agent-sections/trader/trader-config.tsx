@@ -15,6 +15,9 @@ import {
   CheckCircle2,
   BrainCircuit,
   Globe2,
+  Sliders,
+  Activity,
+  TrendingUp,
 } from "lucide-react";
 import { tilt3d } from "./tilt-3d";
 import AdvancedSection, { AdvancedGroup, SettingBox, SettingGrid } from "../shared/advanced-section";
@@ -49,6 +52,23 @@ type Props = {
   isSaving: boolean;
   isSaved: boolean;
   onSave: () => void;
+  // Pro Trader Mathematical & Screener Filters
+  minVolumeUsd?: number;
+  setMinVolumeUsd?: (v: number) => void;
+  minPriceMovePct?: number;
+  setMinPriceMovePct?: (v: number) => void;
+  minAtrPct?: number;
+  setMinAtrPct?: (v: number) => void;
+  minRiskReward?: number;
+  setMinRiskReward?: (v: number) => void;
+  rsiOverbought?: number;
+  setRsiOverbought?: (v: number) => void;
+  rsiOversold?: number;
+  setRsiOversold?: (v: number) => void;
+  rsiSweetMin?: number;
+  setRsiSweetMin?: (v: number) => void;
+  rsiSweetMax?: number;
+  setRsiSweetMax?: (v: number) => void;
 };
 
 const PRESETS = [
@@ -358,6 +378,162 @@ export default function TraderSetup(p: Props) {
         </AdvancedGroup>
 
         <AdvancedGroup
+          title="Pro Screener & Math Filters"
+          tip="Fine-tune algorithmic tradeability thresholds, minimum move range %, ATR volatility buffer, and minimum Risk:Reward ratio."
+        >
+          <SettingGrid>
+            {/* Min 24h Volume */}
+            <SettingBox>
+              <LabelWithTip htmlFor="pro-min-volume" tip="Exclude tokens whose 24-hour DEX trading volume is below this value. Default: $25,000.">
+                Min 24h Volume ($)
+              </LabelWithTip>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-sm font-bold text-muted-foreground">$</span>
+                <input
+                  id="pro-min-volume"
+                  type="text"
+                  inputMode="numeric"
+                  value={p.minVolumeUsd ?? 25000}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9]/g, "");
+                    if (p.setMinVolumeUsd) p.setMinVolumeUsd(v ? Number(v) : 0);
+                  }}
+                  className="w-full rounded-xl border border-border bg-secondary/40 py-2 pl-7 pr-3 font-mono text-base font-bold text-foreground focus:border-primary/50 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                {[10000, 25000, 50000, 100000].map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => p.setMinVolumeUsd && p.setMinVolumeUsd(v)}
+                    className={`py-1 px-2 text-center font-mono text-xs font-bold ${choice((p.minVolumeUsd ?? 25000) === v)}`}
+                  >
+                    ${v >= 1000 ? `${v / 1000}k` : v}
+                  </button>
+                ))}
+              </div>
+            </SettingBox>
+
+            {/* Min Price Move % & Min ATR % */}
+            <SettingBox>
+              <LabelWithTip htmlFor="pro-min-move" tip="Minimum 24h price movement range % and minimum ATR volatility % to guarantee tradeable volatility.">
+                Min Price Move & Volatility
+              </LabelWithTip>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-[11px] text-muted-foreground block mb-1">Min Move Range</span>
+                  <div className="relative">
+                    <input
+                      id="pro-min-move"
+                      type="number"
+                      step="0.1"
+                      min="0.5"
+                      max="10.0"
+                      value={p.minPriceMovePct ?? 2.0}
+                      onChange={(e) => p.setMinPriceMovePct && p.setMinPriceMovePct(Number(e.target.value))}
+                      className="w-full rounded-xl border border-border bg-secondary/40 py-1.5 pl-3 pr-7 font-mono text-sm font-bold text-foreground focus:border-primary/50 focus:outline-none"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-muted-foreground">%</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[11px] text-muted-foreground block mb-1">Min ATR Band</span>
+                  <div className="relative">
+                    <input
+                      id="pro-min-atr"
+                      type="number"
+                      step="0.05"
+                      min="0.10"
+                      max="5.0"
+                      value={p.minAtrPct ?? 0.30}
+                      onChange={(e) => p.setMinAtrPct && p.setMinAtrPct(Number(e.target.value))}
+                      className="w-full rounded-xl border border-border bg-secondary/40 py-1.5 pl-3 pr-7 font-mono text-sm font-bold text-foreground focus:border-primary/50 focus:outline-none"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-muted-foreground">%</span>
+                  </div>
+                </div>
+              </div>
+            </SettingBox>
+
+            {/* Min Risk-to-Reward Ratio */}
+            <SettingBox>
+              <LabelWithTip tip="Minimum required headline Risk-to-Reward ratio (|TP - Entry| / |Entry - SL|). Setups yielding lower R:R are flagged or rejected.">
+                Min Risk / Reward (R:R)
+              </LabelWithTip>
+              <div className="flex items-center gap-1.5">
+                {[1.2, 1.5, 2.0, 2.5, 3.0].map((rr) => (
+                  <button
+                    key={rr}
+                    type="button"
+                    onClick={() => p.setMinRiskReward && p.setMinRiskReward(rr)}
+                    className={`flex-1 py-1.5 text-center font-mono text-xs font-bold ${choice((p.minRiskReward ?? 1.5) === rr)}`}
+                  >
+                    {rr.toFixed(1)}:1
+                  </button>
+                ))}
+              </div>
+              <span className="text-[11px] text-muted-foreground">
+                Current threshold: <strong className="text-foreground font-mono">{(p.minRiskReward ?? 1.5).toFixed(1)} : 1</strong>
+              </span>
+            </SettingBox>
+
+            {/* RSI Bounds & Sweet Spot */}
+            <SettingBox>
+              <LabelWithTip tip="Configurable RSI overbought/oversold boundaries and momentum sweet spot for continuation setups.">
+                RSI Thresholds & Sweet Spot
+              </LabelWithTip>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-[11px] text-muted-foreground block mb-0.5">Oversold / Overbought</span>
+                  <div className="flex items-center gap-1 font-mono">
+                    <input
+                      type="number"
+                      min="15"
+                      max="40"
+                      value={p.rsiOversold ?? 30}
+                      onChange={(e) => p.setRsiOversold && p.setRsiOversold(Number(e.target.value))}
+                      className="w-12 rounded-lg border border-border bg-secondary/40 py-1 text-center font-bold text-foreground"
+                    />
+                    <span className="text-muted-foreground">/</span>
+                    <input
+                      type="number"
+                      min="60"
+                      max="85"
+                      value={p.rsiOverbought ?? 70}
+                      onChange={(e) => p.setRsiOverbought && p.setRsiOverbought(Number(e.target.value))}
+                      className="w-12 rounded-lg border border-border bg-secondary/40 py-1 text-center font-bold text-foreground"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[11px] text-muted-foreground block mb-0.5">Sweet Spot Range</span>
+                  <div className="flex items-center gap-1 font-mono">
+                    <input
+                      type="number"
+                      min="35"
+                      max="50"
+                      value={p.rsiSweetMin ?? 45}
+                      onChange={(e) => p.setRsiSweetMin && p.setRsiSweetMin(Number(e.target.value))}
+                      className="w-12 rounded-lg border border-border bg-secondary/40 py-1 text-center font-bold text-foreground"
+                    />
+                    <span className="text-muted-foreground">to</span>
+                    <input
+                      type="number"
+                      min="55"
+                      max="75"
+                      value={p.rsiSweetMax ?? 62}
+                      onChange={(e) => p.setRsiSweetMax && p.setRsiSweetMax(Number(e.target.value))}
+                      className="w-12 rounded-lg border border-border bg-secondary/40 py-1 text-center font-bold text-foreground"
+                    />
+                  </div>
+                </div>
+              </div>
+            </SettingBox>
+          </SettingGrid>
+        </AdvancedGroup>
+
+        <AdvancedGroup
           title="Safety limits"
           tip="Hard caps enforced every time. The agent cannot go past them, even when it is very confident."
         >
@@ -441,8 +617,7 @@ export default function TraderSetup(p: Props) {
           </SettingGrid>
         </AdvancedGroup>
 
-        <AdvancedGroup title="Extras">
-          <SettingGrid>
+        <AdvancedGroup title="Extras">          <SettingGrid>
           <Switch
             checked={p.enableResearcher}
             onChange={p.setEnableResearcher}

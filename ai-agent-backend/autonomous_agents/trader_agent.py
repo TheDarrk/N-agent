@@ -378,14 +378,16 @@ class TraderAgent:
             scan_res = await scan_coin_universe(
                 mode="custom",
                 custom_coins=watch_coins,
-                timeframe=effective_timeframe
+                timeframe=effective_timeframe,
+                pro_settings=user
             )
         else:
             print(f"[PRE-SCANNER] Running auto mode on full DEX 1-Click Universe (~208 tokens)...")
             scan_res = await scan_coin_universe(
                 mode="auto",
                 custom_coins=None,
-                timeframe=effective_timeframe
+                timeframe=effective_timeframe,
+                pro_settings=user
             )
 
         coin_table = scan_res.get("coin_table") or []

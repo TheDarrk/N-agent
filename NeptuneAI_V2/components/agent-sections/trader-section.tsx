@@ -41,6 +41,7 @@ import TraderStory from "@/components/agent-sections/trader/trader-story";
 import TraderPnl from "@/components/agent-sections/trader/trader-pnl";
 import TraderSetup from "@/components/agent-sections/trader/trader-config";
 import TraderReady from "@/components/agent-sections/trader/trader-ready";
+import InteractiveChartModal from "@/components/agent-sections/trader/interactive-chart-modal";
 import InfoTip from "@/components/agent-sections/shared/info-tip";
 import { tilt3d } from "@/components/agent-sections/trader/tilt-3d";
 import TraceCard, {
@@ -176,6 +177,17 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   const [tradeLimitCount, setTradeLimitCount] = useState<number>(3);
   const [enableResearcher, setEnableResearcher] = useState(false);
 
+  // Pro Trader Mathematical & Screener Filters
+  const [minVolumeUsd, setMinVolumeUsd] = useState(25000);
+  const [minPriceMovePct, setMinPriceMovePct] = useState(2.0);
+  const [minAtrPct, setMinAtrPct] = useState(0.30);
+  const [minRiskReward, setMinRiskReward] = useState(1.5);
+  const [rsiOverbought, setRsiOverbought] = useState(70);
+  const [rsiOversold, setRsiOversold] = useState(30);
+  const [rsiSweetMin, setRsiSweetMin] = useState(45);
+  const [rsiSweetMax, setRsiSweetMax] = useState(62);
+  const [selectedChartTrace, setSelectedChartTrace] = useState<any>(null);
+
   // Persistence & Save State
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
@@ -207,6 +219,32 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
             if (list.length > 0) setCustomCoins(list);
           }
           if (u.trader_enable_researcher !== undefined) setEnableResearcher(Boolean(u.trader_enable_researcher));
+
+          // Pro Trader filters
+          if (u.trader_min_volume_usd !== undefined && u.trader_min_volume_usd !== null) setMinVolumeUsd(Number(u.trader_min_volume_usd));
+          else if (u.min_volume_usd !== undefined && u.min_volume_usd !== null) setMinVolumeUsd(Number(u.min_volume_usd));
+
+          if (u.trader_min_price_move_pct !== undefined && u.trader_min_price_move_pct !== null) setMinPriceMovePct(Number(u.trader_min_price_move_pct));
+          else if (u.min_price_move_pct !== undefined && u.min_price_move_pct !== null) setMinPriceMovePct(Number(u.min_price_move_pct));
+
+          if (u.trader_min_atr_pct !== undefined && u.trader_min_atr_pct !== null) setMinAtrPct(Number(u.trader_min_atr_pct));
+          else if (u.min_atr_pct !== undefined && u.min_atr_pct !== null) setMinAtrPct(Number(u.min_atr_pct));
+
+          if (u.trader_min_risk_reward !== undefined && u.trader_min_risk_reward !== null) setMinRiskReward(Number(u.trader_min_risk_reward));
+          else if (u.min_risk_reward !== undefined && u.min_risk_reward !== null) setMinRiskReward(Number(u.min_risk_reward));
+
+          if (u.trader_rsi_overbought !== undefined && u.trader_rsi_overbought !== null) setRsiOverbought(Number(u.trader_rsi_overbought));
+          else if (u.rsi_overbought !== undefined && u.rsi_overbought !== null) setRsiOverbought(Number(u.rsi_overbought));
+
+          if (u.trader_rsi_oversold !== undefined && u.trader_rsi_oversold !== null) setRsiOversold(Number(u.trader_rsi_oversold));
+          else if (u.rsi_oversold !== undefined && u.rsi_oversold !== null) setRsiOversold(Number(u.rsi_oversold));
+
+          if (u.trader_rsi_sweet_min !== undefined && u.trader_rsi_sweet_min !== null) setRsiSweetMin(Number(u.trader_rsi_sweet_min));
+          else if (u.rsi_sweet_min !== undefined && u.rsi_sweet_min !== null) setRsiSweetMin(Number(u.rsi_sweet_min));
+
+          if (u.trader_rsi_sweet_max !== undefined && u.trader_rsi_sweet_max !== null) setRsiSweetMax(Number(u.trader_rsi_sweet_max));
+          else if (u.rsi_sweet_max !== undefined && u.rsi_sweet_max !== null) setRsiSweetMax(Number(u.rsi_sweet_max));
+
           hasLoadedSettingsRef.current = accountId;
           if (u.trader_timeframe || u.max_tx_amount !== undefined) setSettingsConfirmed(true);
         }
@@ -353,6 +391,14 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           trader_coin_mode: coinMode,
           trader_custom_coins: customCoins.join(","),
           trader_enable_researcher: enableResearcher ? 1 : 0,
+          trader_min_volume_usd: minVolumeUsd,
+          trader_min_price_move_pct: minPriceMovePct,
+          trader_min_atr_pct: minAtrPct,
+          trader_min_risk_reward: minRiskReward,
+          trader_rsi_overbought: rsiOverbought,
+          trader_rsi_oversold: rsiOversold,
+          trader_rsi_sweet_min: rsiSweetMin,
+          trader_rsi_sweet_max: rsiSweetMax,
         }),
       });
       if (res.ok) {
@@ -495,6 +541,22 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           isSaving={isSavingSettings}
           isSaved={isSaved}
           onSave={handleSaveSettings}
+          minVolumeUsd={minVolumeUsd}
+          setMinVolumeUsd={setMinVolumeUsd}
+          minPriceMovePct={minPriceMovePct}
+          setMinPriceMovePct={setMinPriceMovePct}
+          minAtrPct={minAtrPct}
+          setMinAtrPct={setMinAtrPct}
+          minRiskReward={minRiskReward}
+          setMinRiskReward={setMinRiskReward}
+          rsiOverbought={rsiOverbought}
+          setRsiOverbought={setRsiOverbought}
+          rsiOversold={rsiOversold}
+          setRsiOversold={setRsiOversold}
+          rsiSweetMin={rsiSweetMin}
+          setRsiSweetMin={setRsiSweetMin}
+          rsiSweetMax={rsiSweetMax}
+          setRsiSweetMax={setRsiSweetMax}
         />
 
         {/* Right 2 cols: Live Scan Decision & Active Position Monitor */}
@@ -591,6 +653,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                           onClick={() => {
                             setModalChartUri(activeRun.chart_image.data_uri);
                             setModalChartTitle(`${activeRun.symbol} Technical Analysis & Forecast (${activeRun.pattern})`);
+                            setSelectedChartTrace(activeRun);
                             setIsChartExpanded(true);
                           }}
                           className="key3d text-[11px] px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 flex items-center gap-1"
@@ -615,6 +678,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                       onClick={() => {
                         setModalChartUri(activeRun.chart_image.data_uri);
                         setModalChartTitle(`${activeRun.symbol} Technical Analysis & Forecast (${activeRun.pattern})`);
+                        setSelectedChartTrace(activeRun);
                         setIsChartExpanded(true);
                       }}
                     >
@@ -1086,6 +1150,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                       onOpenChart={(uri, title) => {
                         setModalChartUri(uri);
                         setModalChartTitle(title);
+                        setSelectedChartTrace(tr);
                         setIsChartExpanded(true);
                       }}
                     />
@@ -1239,75 +1304,28 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
             accountId={accountId}
           />
 
-          {/* Global Candlestick Pattern Lightbox Modal */}
-          {isChartExpanded && modalChartUri && (
-            <div
-              className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200"
-              onClick={() => setIsChartExpanded(false)}
-            >
-              <div
-                className="relative max-w-5xl w-full bg-[#0B0F19] rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Modal Header */}
-                <div className="flex items-center justify-between px-4 py-3 bg-secondary/50 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <LineChart size={16} className="text-primary" />
-                    <span className="font-bold text-sm text-foreground">
-                      {modalChartTitle || "High-Resolution Technical Vision Chart"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <a
-                      href={modalChartUri}
-                      download="neptune-analysis-chart.png"
-                      className="text-xs font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded bg-secondary/60 hover:bg-secondary border border-border transition-colors"
-                      title="Download Chart"
-                    >
-                      Save Image
-                    </a>
-                    <button
-                      onClick={() => setIsChartExpanded(false)}
-                      className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                      aria-label="Close Modal"
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Modal Chart Body */}
-                <div className="p-3 sm:p-4 bg-[#07090E] flex items-center justify-center overflow-auto flex-1">
-                  <img
-                    src={modalChartUri}
-                    alt={modalChartTitle || "Candlestick Chart Analysis"}
-                    className="max-h-[76vh] w-auto max-w-full object-contain rounded-lg shadow-inner"
-                  />
-                </div>
-
-                {/* Modal Footer with Legend / Details */}
-                <div className="px-4 py-2 bg-secondary/30 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground flex-wrap gap-2">
-                  <div className="flex items-center gap-3 font-mono">
-                    <span className="flex items-center gap-1 text-emerald-400">
-                      <span className="w-2 h-0.5 bg-emerald-400 inline-block"></span> Take Profit (TP)
-                    </span>
-                    <span className="flex items-center gap-1 text-rose-400">
-                      <span className="w-2 h-0.5 bg-rose-400 inline-block"></span> Stop Loss (SL)
-                    </span>
-                    <span className="flex items-center gap-1 text-amber-400">
-                      <span className="w-2 h-0.5 bg-amber-400 inline-block"></span> Pattern Overlay
-                    </span>
-                    <span className="flex items-center gap-1 text-cyan-400">
-                      <span className="w-2 h-0.5 bg-cyan-400 inline-block"></span> Forecast Trajectory
-                    </span>
-                  </div>
-                  <span className="font-mono text-[10px]">
-                    Press anywhere outside or click Close to dismiss
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Interactive Lightweight Chart & Strategy Reason Modal */}
+          <InteractiveChartModal
+            isOpen={isChartExpanded}
+            onClose={() => setIsChartExpanded(false)}
+            symbol={selectedChartTrace?.symbol || scanResult?.symbol || "MARKET"}
+            timeframe={selectedChartTrace?.timeframe || timeframe || "1h"}
+            verdict={selectedChartTrace?.verdict || scanResult?.verdict}
+            action={selectedChartTrace?.action}
+            stage={selectedChartTrace?.stage}
+            confidenceScore={selectedChartTrace?.confidence_score ?? scanResult?.confidence_score}
+            expectedRoiPct={selectedChartTrace?.expected_roi_pct ?? scanResult?.expected_roi_pct}
+            entryPrice={selectedChartTrace?.entry_price ?? scanResult?.pipeline?.council?.plans?.[0]?.entry}
+            tpPrice={selectedChartTrace?.take_profit_price ?? scanResult?.pipeline?.council?.plans?.[0]?.tp}
+            slPrice={selectedChartTrace?.stop_loss_price ?? scanResult?.pipeline?.council?.plans?.[0]?.sl}
+            riskRewardRatio={selectedChartTrace?.risk_reward_ratio ?? scanResult?.pipeline?.council?.plans?.[0]?.risk_reward}
+            patternDetected={selectedChartTrace?.pattern_detected || scanResult?.pattern}
+            reasoning={selectedChartTrace?.reasoning || scanResult?.reasoning || scanResult?.halt_cause}
+            dropReason={selectedChartTrace?.drop_reason || scanResult?.drop_reason}
+            chartImageUri={modalChartUri}
+            candles={selectedChartTrace?.indicators?.candles || scanResult?.candles}
+            indicators={selectedChartTrace?.indicators || scanResult?.indicators}
+          />
         </div>
       </div>
     </div>

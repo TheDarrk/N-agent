@@ -39,6 +39,26 @@ def init_db(db_path: Optional[str] = None):
     except Exception:
         pass
 
+    # Safe migration: ensure pro trader settings columns exist in trader_config
+    try:
+        t_cols = [c["name"] for c in conn.execute("PRAGMA table_info(trader_config)").fetchall()]
+        pro_cols = {
+            "min_volume_usd": "REAL DEFAULT 25000.0",
+            "min_price_move_pct": "REAL DEFAULT 2.0",
+            "min_atr_pct": "REAL DEFAULT 0.30",
+            "min_risk_reward": "REAL DEFAULT 1.5",
+            "rsi_overbought": "REAL DEFAULT 70.0",
+            "rsi_oversold": "REAL DEFAULT 30.0",
+            "rsi_sweet_min": "REAL DEFAULT 45.0",
+            "rsi_sweet_max": "REAL DEFAULT 62.0",
+            "pro_settings_json": "TEXT DEFAULT '{}'"
+        }
+        for col_name, col_type in pro_cols.items():
+            if col_name not in t_cols:
+                conn.execute(f"ALTER TABLE trader_config ADD COLUMN {col_name} {col_type}")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
     print("[DB] Neptune v2.1 database initialized cleanly with 18 tables.")
@@ -78,6 +98,15 @@ def get_user(wallet_address: str) -> Optional[Dict[str, Any]]:
             tc.coin_mode AS trader_coin_mode,
             tc.custom_coins_json AS trader_custom_coins,
             tc.enable_research_agent AS trader_enable_researcher,
+            tc.min_volume_usd AS trader_min_volume_usd,
+            tc.min_price_move_pct AS trader_min_price_move_pct,
+            tc.min_atr_pct AS trader_min_atr_pct,
+            tc.min_risk_reward AS trader_min_risk_reward,
+            tc.rsi_overbought AS trader_rsi_overbought,
+            tc.rsi_oversold AS trader_rsi_oversold,
+            tc.rsi_sweet_min AS trader_rsi_sweet_min,
+            tc.rsi_sweet_max AS trader_rsi_sweet_max,
+            tc.pro_settings_json AS trader_pro_settings,
             rc.agent_active AS rebalancer_active,
             rc.target_stables_pct AS rebalancer_target_stables,
             rc.target_near_pct AS rebalancer_target_near,
@@ -228,6 +257,34 @@ def upsert_user(wallet_address: str, settings: Dict[str, Any] = None) -> Dict[st
     if "trader_enable_researcher" in settings:
         trader_updates.append("enable_research_agent = ?")
         trader_params.append(1 if settings["trader_enable_researcher"] else 0)
+    if "trader_min_volume_usd" in settings:
+        trader_updates.append("min_volume_usd = ?")
+        trader_params.append(float(settings["trader_min_volume_usd"]))
+    if "trader_min_price_move_pct" in settings:
+        trader_updates.append("min_price_move_pct = ?")
+        trader_params.append(float(settings["trader_min_price_move_pct"]))
+    if "trader_min_atr_pct" in settings:
+        trader_updates.append("min_atr_pct = ?")
+        trader_params.append(float(settings["trader_min_atr_pct"]))
+    if "trader_min_risk_reward" in settings:
+        trader_updates.append("min_risk_reward = ?")
+        trader_params.append(float(settings["trader_min_risk_reward"]))
+    if "trader_rsi_overbought" in settings:
+        trader_updates.append("rsi_overbought = ?")
+        trader_params.append(float(settings["trader_rsi_overbought"]))
+    if "trader_rsi_oversold" in settings:
+        trader_updates.append("rsi_oversold = ?")
+        trader_params.append(float(settings["trader_rsi_oversold"]))
+    if "trader_rsi_sweet_min" in settings:
+        trader_updates.append("rsi_sweet_min = ?")
+        trader_params.append(float(settings["trader_rsi_sweet_min"]))
+    if "trader_rsi_sweet_max" in settings:
+        trader_updates.append("rsi_sweet_max = ?")
+        trader_params.append(float(settings["trader_rsi_sweet_max"]))
+    if "trader_pro_settings" in settings:
+        trader_updates.append("pro_settings_json = ?")
+        p_val = settings["trader_pro_settings"]
+        trader_params.append(json.dumps(p_val) if isinstance(p_val, (dict, list)) else str(p_val))
 
     if trader_updates:
         trader_updates.append("updated_at = CURRENT_TIMESTAMP")

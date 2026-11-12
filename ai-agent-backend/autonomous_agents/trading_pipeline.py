@@ -51,6 +51,36 @@ for p in env_candidates:
     if os.path.isfile(p):
         load_dotenv(p)
 
+# Ensure parent ai-agent-backend directory is on sys.path
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
+try:
+    from trader_mcp import (
+        calculate_fibonacci_confluence,
+        calculate_pivot_points,
+        calculate_dynamic_volatility_levels,
+        estimate_trade_slippage_and_fees,
+        validate_pattern_geometry,
+    )
+    from market_sentiment import (
+        get_crypto_fear_and_greed_index,
+        get_aggregate_market_sentiment,
+    )
+except ImportError:
+    from ..trader_mcp import (
+        calculate_fibonacci_confluence,
+        calculate_pivot_points,
+        calculate_dynamic_volatility_levels,
+        estimate_trade_slippage_and_fees,
+        validate_pattern_geometry,
+    )
+    from ..market_sentiment import (
+        get_crypto_fear_and_greed_index,
+        get_aggregate_market_sentiment,
+    )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PYDANTIC MODELS
@@ -98,14 +128,14 @@ class ScreenerOutput(BaseModel):
 
 class TechnicalAnalystView(BaseModel):
     """Evaluation from Technical Analyst persona (Chart + RAG)."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
     setup_quality: Literal["EXCELLENT", "MODERATE", "POOR"] = "MODERATE"
     structure_analysis: str = Field(..., description="4h/12h trend, EMA confluence, chart pattern, and textbook RAG alignment")
 
 
 class RiskManagerView(BaseModel):
     """Evaluation from Risk Manager persona (Risk level analysis, Stop Loss calibration, Risk factors)."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
     risk_level: Literal["LOW", "MODERATE", "HIGH"] = "MODERATE"
     sl_calibration: str = Field(..., description="How stop loss was calibrated: wider structural buffer for low risk, tighter for high risk")
     risk_factors: List[str] = Field(default_factory=list, description="Downside risks, market regime factors, or fakeout hazards")
@@ -113,7 +143,7 @@ class RiskManagerView(BaseModel):
 
 class CoinPlan(BaseModel):
     """Council output for a single coin, synthesizing Technical Analyst and Risk Manager."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     coin: str
     screener_direction: Literal["LONG", "SHORT"] = "LONG"
@@ -151,7 +181,7 @@ class CoinPlan(BaseModel):
 
 class CouncilLLMResponse(BaseModel):
     """Exact schema enforced on Council LLM output."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     prompt_version: str = "council_v2.2"
     plans: List[CoinPlan] = Field(..., min_length=1, max_length=3)
@@ -160,7 +190,7 @@ class CouncilLLMResponse(BaseModel):
 
 class CouncilOutput(BaseModel):
     """Council output: 1-3 coin plans + combined verdict + local tool log."""
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     prompt_version: str = "council_v2.2"
     plans: List[CoinPlan] = Field(..., min_length=1, max_length=3)
@@ -170,7 +200,7 @@ class CouncilOutput(BaseModel):
 
 class HallucinationFlag(BaseModel):
     """Structured hallucination audit flag."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     coin: str = "UNKNOWN"
     field: str = "general"
@@ -180,7 +210,7 @@ class HallucinationFlag(BaseModel):
 
 class JudgeOutput(BaseModel):
     """Judge output: chosen coin + audit results."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     prompt_version: str = "judge_v2.2"
     chosen_coin: Optional[str] = None
@@ -713,8 +743,11 @@ class ScreenerAgent:
         for symbol, data in active_coin_data.items():
             coin_lines.append(format_screener_coin_line(symbol, data))
 
+        fng = get_crypto_fear_and_greed_index()
+        sentiment_banner = f"LIVE MARKET PSYCHOLOGY: Crypto Fear & Greed Index = {fng.get('value', 50)}/100 ({fng.get('value_classification', 'Neutral')}) - Guidance: {fng.get('guidance', '')}\n\n"
+
         sys_prompt = SCREENER_SYSTEM.replace("{min_confidence}", str(min_confidence))
-        base_user_prompt = SCREENER_USER_TEMPLATE.replace("{min_confidence}", str(min_confidence)).replace("{coin_data}", "\n".join(coin_lines))
+        base_user_prompt = sentiment_banner + SCREENER_USER_TEMPLATE.replace("{min_confidence}", str(min_confidence)).replace("{coin_data}", "\n".join(coin_lines))
         current_user_prompt = base_user_prompt
 
         last_error = None
@@ -839,6 +872,26 @@ MODERATE risk: anything between HIGH and LOW.
 - 4h is the primary execution timeframe: entry, TP, and SL are derived from 4h geometry, support/resistance, and ATR.
 - 12h is the macro trend filter: its EMA stack and slope confirm whether the move has higher-timeframe momentum.
 - Screener passed {coin, direction}. Your job is to construct the plan for that direction.
+
+## Step-by-Step Chain-of-Thought (CoT) Execution Protocol
+Before finalizing each coin's trade plan, you MUST work through these 5 sequential steps:
+Step 1: Macro Psychology & Sentiment Check
+  - Review the Crypto Fear & Greed Index score (0-100) and market regime guidance provided in the sentiment tool data.
+  - In Extreme Greed (>= 75), demand tight stop invalidation and reject overextended FOMO breakouts.
+  - In Extreme Fear (<= 25), demand solid support confirmation for longs and check macro trend continuity for shorts.
+Step 2: Mathematical Confluence (Fibonacci & Pivots)
+  - Examine the mathematical tool output for Fibonacci retracement levels (0.236, 0.382, 0.500 equilibrium, 0.618 Golden Pocket, 0.786).
+  - Verify Standard Pivot Points (P, S1, R1) and Camarilla Pivot levels.
+  - Check whether the entry price aligns with a high-confluence mathematical level (e.g. 0.618 Golden Pocket bounce or Camarilla L3/H3 retest).
+Step 3: Pattern Geometry & Structure
+  - Cross-check pattern geometry against RAG trading book rules.
+  - Confirm whether the pattern has broken out on volume or is still consolidating.
+Step 4: Volatility Sizing, Dynamic ATR Buffers & Slippage
+  - Evaluate dynamic volatility ATR levels: ensure stop loss sits beyond normal market noise (1.0 to 1.5 ATR buffer).
+  - Check slippage and fee impact estimate (< 0.50% acceptable).
+  - Pre-calculate exact Risk-to-Reward ratio: R:R = |tp - entry| / |entry - sl|. Must meet or exceed user minimum R:R threshold (default 1.5).
+Step 5: Grounded Plan Synthesis
+  - Synthesize findings into the final JSON plan. In the "grounding" field, cite exact numeric values from the tool logs (price, fibonacci level, pivot point, ATR, support, resistance).
 
 ## Order Execution Mode: Market vs Limit Order
 - Market Execution (Instant): Set `entry = current_price` when a technical breakout is active and momentum demands immediate execution.
@@ -1157,10 +1210,16 @@ COUNCIL_USER_TEMPLATE = """SCREENER SELECTIONS:
 CHART TOOL DATA:
 {chart_data}
 
+MATHEMATICAL CONFLUENCE (Fibonacci, Pivot Points, Dynamic Volatility ATR, Slippage):
+{math_confluence}
+
+INSTITUTIONAL MARKET SENTIMENT (Fear & Greed Index & Community Sentiment):
+{market_sentiment}
+
 RAG KNOWLEDGE RETRIEVED:
 {rag_knowledge}
 
-Build trade plans for each selected coin. Output valid JSON only:"""
+Follow the 5-step Chain-of-Thought protocol to build grounded trade plans for each coin. Output valid JSON only:"""
 
 
 class CouncilAgent:
@@ -1276,6 +1335,8 @@ class CouncilAgent:
         tool_log = []
         chart_data_all = {}
         rag_knowledge_all = {}
+        math_confluence_all = {}
+        market_sentiment_all = {}
 
         # Gather tool data
         for sel in selections:
@@ -1284,6 +1345,7 @@ class CouncilAgent:
 
             # Tool 1: Chart data
             print(f"[COUNCIL TOOL: CHART] Fetching 4h & 12h chart data for {coin}...")
+            chart_4h_raw = {}
             try:
                 chart_4h_raw = await chart_data_fn(coin, "4h")
                 chart_12h_raw = await chart_data_fn(coin, "12h")
@@ -1329,13 +1391,88 @@ class CouncilAgent:
                 print(f"[COUNCIL TOOL: RAG ERROR] RAG query for {coin}: {e}")
                 rag_knowledge_all[coin] = []
 
+            # Tool 3: Mathematical Confluence MCP Suite (Fibonacci, Pivots, Dynamic ATR, Slippage)
+            try:
+                c_4h_data = chart_data_all.get(coin, {}).get("4h", {})
+                curr_price = float(c_4h_data.get("current_price") or 0.0)
+                candles_4h = chart_4h_raw.get("candles") if isinstance(chart_4h_raw, dict) else []
+                if candles_4h and len(candles_4h) >= 5:
+                    recent_high = max(float(c.get("high", curr_price)) for c in candles_4h[-20:])
+                    recent_low = min(float(c.get("low", curr_price)) for c in candles_4h[-20:])
+                    last_close = float(candles_4h[-1].get("close", curr_price))
+                else:
+                    sup = float(c_4h_data.get("recent_support") or (curr_price * 0.95))
+                    res = float(c_4h_data.get("recent_resistance") or (curr_price * 1.05))
+                    recent_high = max(res, curr_price * 1.02)
+                    recent_low = min(sup, curr_price * 0.98)
+                    last_close = curr_price
+
+                atr_val = float(c_4h_data.get("atr") or (curr_price * 0.03))
+                trend_val = "BULLISH" if direction == "LONG" else "BEARISH"
+
+                fib_calc = calculate_fibonacci_confluence(high=recent_high, low=recent_low, current_price=curr_price, trend=trend_val)
+                pivots_calc = calculate_pivot_points(high=recent_high, low=recent_low, close=last_close)
+                vol_levels = calculate_dynamic_volatility_levels(current_price=curr_price, atr=atr_val, direction=direction, risk_multiplier=1.5, reward_multiplier=2.5)
+                vol_24h = float(chart_4h_raw.get("volume_24h_usd") or chart_4h_raw.get("volume_24h") or 500000.0) if isinstance(chart_4h_raw, dict) else 500000.0
+                slippage_est = estimate_trade_slippage_and_fees(order_size_usd=100.0, volume_24h_usd=vol_24h)
+
+                pat_name = c_4h_data.get("pattern", "none")
+                pat_geom = None
+                if pat_name and pat_name != "none":
+                    p_data = chart_4h_raw.get("pattern_data") if isinstance(chart_4h_raw, dict) else {}
+                    pat_geom = validate_pattern_geometry(
+                        pattern_name=pat_name,
+                        pattern_data=p_data or {"dominant_pattern": pat_name},
+                        current_price=curr_price
+                    )
+
+                math_confluence_all[coin] = {
+                    "fibonacci_levels": fib_calc.get("levels"),
+                    "closest_fibonacci": fib_calc.get("closest_fib_level"),
+                    "in_golden_pocket": fib_calc.get("in_golden_pocket"),
+                    "standard_pivots": pivots_calc.get("standard_pivots"),
+                    "camarilla_pivots": pivots_calc.get("camarilla_pivots"),
+                    "dynamic_volatility_levels": vol_levels,
+                    "slippage_fee_estimate": slippage_est,
+                    "pattern_geometry_check": pat_geom
+                }
+                tool_log.append({
+                    "tool": "mcp_math",
+                    "symbol": coin,
+                    "math_confluence": math_confluence_all[coin]
+                })
+                print(f"[COUNCIL TOOL: MCP MATH SUCCESS] {coin} -> Closest Fib: {fib_calc.get('closest_fib_level')} | Pivot: {pivots_calc.get('standard_pivots', {}).get('Pivot')}")
+            except Exception as me:
+                print(f"[COUNCIL TOOL: MCP MATH ERROR] {coin}: {me}")
+                math_confluence_all[coin] = {}
+
+            # Tool 4: Institutional Market Sentiment (Fear & Greed Index & Community Sentiment)
+            try:
+                sentiment_data = get_aggregate_market_sentiment(coin)
+                market_sentiment_all[coin] = sentiment_data
+                tool_log.append({
+                    "tool": "market_sentiment",
+                    "symbol": coin,
+                    "sentiment": sentiment_data
+                })
+                fng_val = sentiment_data.get("fear_and_greed", {}).get("value")
+                fng_regime = sentiment_data.get("fear_and_greed", {}).get("value_classification")
+                print(f"[COUNCIL TOOL: SENTIMENT SUCCESS] Fear & Greed: {fng_val} ({fng_regime})")
+            except Exception as se:
+                print(f"[COUNCIL TOOL: SENTIMENT ERROR] {coin}: {se}")
+                market_sentiment_all[coin] = {}
+
         selections_str = "\n".join([f"{s['coin']} | {s['direction']}" for s in selections])
         chart_data_str = json.dumps(chart_data_all, indent=2, default=str)
         rag_knowledge_str = json.dumps(rag_knowledge_all, indent=2, default=str)
+        math_confluence_str = json.dumps(math_confluence_all, indent=2, default=str)
+        market_sentiment_str = json.dumps(market_sentiment_all, indent=2, default=str)
 
         base_user_prompt = COUNCIL_USER_TEMPLATE.format(
             selections=selections_str,
             chart_data=chart_data_str,
+            math_confluence=math_confluence_str,
+            market_sentiment=market_sentiment_str,
             rag_knowledge=rag_knowledge_str
         )
         current_user_prompt = base_user_prompt
@@ -1523,6 +1660,7 @@ Do NOT rename or replace symbols with generic tickers or TOKEN_X.
    - "recent_support"
    - "recent_resistance"
    - neckline / pattern breakout level
+   - Fibonacci retracement level or Pivot Point in mcp_math tool logs
    Tolerance tiers:
    - 0.0% to 0.1% drift: Grounded (clean rounding, zero flags).
    - 0.1% to 0.5% drift: Minor flag (-0.10 confidence penalty). Plan NOT rejected.
@@ -1532,7 +1670,8 @@ Do NOT rename or replace symbols with generic tickers or TOKEN_X.
    TP is grounded if it is mathematically derivable from logged levels:
    (a) Matches "measured_target" in chart data within 0.1%, OR
    (b) Matches "recent_resistance" (for LONG) or "recent_support" (for SHORT) within 0.1%, OR
-   (c) Matches pattern projection from breakout level.
+   (c) Matches pattern projection from breakout level, OR
+   (d) Matches Fibonacci expansion level (1.272, 1.618) or Pivot target (R1/R2 for LONG, S1/S2 for SHORT) in tool logs within 0.1%.
    Does NOT need to be an exact single field in the tool log if it matches the structural target calculation.
    Sanity check: For LONG, tp MUST be > entry. For SHORT, tp MUST be < entry. Wrong side -> Major flag -> REJECT plan.
 

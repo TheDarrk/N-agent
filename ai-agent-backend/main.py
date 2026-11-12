@@ -332,6 +332,24 @@ class SettingsRequest(BaseModel):
     allowed_tokens: Optional[str] = None
     agent_wallet: Optional[str] = None
     notification_email: Optional[str] = None
+    trader_active: Optional[bool] = None
+    trader_timeframe: Optional[str] = None
+    trader_min_confidence: Optional[int] = None
+    trader_risk_profile: Optional[str] = None
+    trader_max_trades_per_day: Optional[int] = None
+    trader_max_trades_per_week: Optional[int] = None
+    trader_coin_mode: Optional[str] = None
+    trader_custom_coins: Optional[Any] = None
+    trader_enable_researcher: Optional[bool] = None
+    trader_min_volume_usd: Optional[float] = None
+    trader_min_price_move_pct: Optional[float] = None
+    trader_min_atr_pct: Optional[float] = None
+    trader_min_risk_reward: Optional[float] = None
+    trader_rsi_overbought: Optional[float] = None
+    trader_rsi_oversold: Optional[float] = None
+    trader_rsi_sweet_min: Optional[float] = None
+    trader_rsi_sweet_max: Optional[float] = None
+    trader_pro_settings: Optional[Any] = None
 
 class TestEmailRequest(BaseModel):
     wallet_address: str
@@ -380,6 +398,42 @@ async def update_settings(body: SettingsRequest):
         settings['agent_wallet'] = body.agent_wallet
     if body.notification_email is not None:
         settings['notification_email'] = body.notification_email
+    if body.trader_active is not None:
+        settings['trader_active'] = body.trader_active
+    if body.trader_timeframe is not None:
+        settings['trader_timeframe'] = body.trader_timeframe
+    if body.trader_min_confidence is not None:
+        settings['trader_min_confidence'] = body.trader_min_confidence
+    if body.trader_risk_profile is not None:
+        settings['trader_risk_profile'] = body.trader_risk_profile
+    if body.trader_max_trades_per_day is not None:
+        settings['trader_max_trades_per_day'] = body.trader_max_trades_per_day
+    if body.trader_max_trades_per_week is not None:
+        settings['trader_max_trades_per_week'] = body.trader_max_trades_per_week
+    if body.trader_coin_mode is not None:
+        settings['trader_coin_mode'] = body.trader_coin_mode
+    if body.trader_custom_coins is not None:
+        settings['trader_custom_coins'] = body.trader_custom_coins
+    if body.trader_enable_researcher is not None:
+        settings['trader_enable_researcher'] = body.trader_enable_researcher
+    if body.trader_min_volume_usd is not None:
+        settings['trader_min_volume_usd'] = body.trader_min_volume_usd
+    if body.trader_min_price_move_pct is not None:
+        settings['trader_min_price_move_pct'] = body.trader_min_price_move_pct
+    if body.trader_min_atr_pct is not None:
+        settings['trader_min_atr_pct'] = body.trader_min_atr_pct
+    if body.trader_min_risk_reward is not None:
+        settings['trader_min_risk_reward'] = body.trader_min_risk_reward
+    if body.trader_rsi_overbought is not None:
+        settings['trader_rsi_overbought'] = body.trader_rsi_overbought
+    if body.trader_rsi_oversold is not None:
+        settings['trader_rsi_oversold'] = body.trader_rsi_oversold
+    if body.trader_rsi_sweet_min is not None:
+        settings['trader_rsi_sweet_min'] = body.trader_rsi_sweet_min
+    if body.trader_rsi_sweet_max is not None:
+        settings['trader_rsi_sweet_max'] = body.trader_rsi_sweet_max
+    if body.trader_pro_settings is not None:
+        settings['trader_pro_settings'] = body.trader_pro_settings
 
     user = upsert_user(body.wallet_address, settings)
     return {"status": "updated", "user": user}
@@ -598,6 +652,15 @@ class TraderSettingsRequest(BaseModel):
     trader_coin_mode: Optional[str] = "auto"
     trader_custom_coins: Optional[str] = ""
     trader_enable_researcher: Optional[int] = 1
+    # Pro Trader Screening & Mathematical Filters
+    trader_min_volume_usd: Optional[float] = None
+    trader_min_price_move_pct: Optional[float] = None
+    trader_min_atr_pct: Optional[float] = None
+    trader_min_risk_reward: Optional[float] = None
+    trader_rsi_overbought: Optional[float] = None
+    trader_rsi_oversold: Optional[float] = None
+    trader_rsi_sweet_min: Optional[float] = None
+    trader_rsi_sweet_max: Optional[float] = None
 
 class NetworkToggleRequest(BaseModel):
     user_wallet: Optional[str] = None
@@ -722,6 +785,23 @@ async def update_trader_settings(body: TraderSettingsRequest):
         "trader_custom_coins": body.trader_custom_coins,
         "trader_enable_researcher": body.trader_enable_researcher
     }
+    if body.trader_min_volume_usd is not None:
+        settings["min_volume_usd"] = body.trader_min_volume_usd
+    if body.trader_min_price_move_pct is not None:
+        settings["min_price_move_pct"] = body.trader_min_price_move_pct
+    if body.trader_min_atr_pct is not None:
+        settings["min_atr_pct"] = body.trader_min_atr_pct
+    if body.trader_min_risk_reward is not None:
+        settings["min_risk_reward"] = body.trader_min_risk_reward
+    if body.trader_rsi_overbought is not None:
+        settings["rsi_overbought"] = body.trader_rsi_overbought
+    if body.trader_rsi_oversold is not None:
+        settings["rsi_oversold"] = body.trader_rsi_oversold
+    if body.trader_rsi_sweet_min is not None:
+        settings["rsi_sweet_min"] = body.trader_rsi_sweet_min
+    if body.trader_rsi_sweet_max is not None:
+        settings["rsi_sweet_max"] = body.trader_rsi_sweet_max
+
     user = upsert_user(body.user_wallet, settings)
     return {"status": "updated", "user": user}
 
