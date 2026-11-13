@@ -442,6 +442,19 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
     setIsGenerating(true);
     setGenerationStep("Ingesting 1h, 1d, 1w closed candles (zero lookahead)...");
 
+    // Auto-mark agent active in fleet configuration
+    try {
+      fetch("/api/fleet/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_wallet: accountId,
+          agent_id: "rebalancer",
+          is_active: true,
+        }),
+      }).catch(() => {});
+    } catch {}
+
     try {
       const { run_id } = await startRun("rebalancer", {
         user_wallet: accountId,

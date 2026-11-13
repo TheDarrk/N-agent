@@ -206,6 +206,19 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
     ]);
     setCurrentActiveModStep(1);
 
+    // Auto-mark agent active in fleet configuration
+    try {
+      fetch("/api/fleet/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_wallet: targetWallet,
+          agent_id: "moderator",
+          is_active: true,
+        }),
+      }).catch(() => {});
+    } catch {}
+
     try {
       const res = await fetch("/api/moderator/stream", {
         method: "POST",

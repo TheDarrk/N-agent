@@ -1368,6 +1368,7 @@ async def get_trader_trades(wallet_address: str):
 async def update_trader_settings(body: TraderSettingsRequest):
     """Save user trader preferences, researcher plugin & hard caps."""
     settings = {
+        "trader_active": 1,
         "trader_timeframe": body.trader_timeframe,
         "trader_min_confidence": body.trader_min_confidence,
         "trader_risk_profile": body.trader_risk_profile,
@@ -1821,6 +1822,9 @@ async def moderator_kill_switch_action(body: ModeratorKillSwitchRequest):
 @app.post("/api/moderator/deliberate")
 async def moderator_deliberate(body: ModeratorDeliberateRequest):
     """Trigger on-demand 4-Node LLM-as-a-Judge deliberation across Trader, Rebalancer, and Research."""
+    norm_w = normalize_wallet(body.user_wallet)
+    if norm_w:
+        upsert_user(norm_w, {"moderator_active": 1})
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()
     return await moderator.evaluate_fleet_performance(body.user_wallet)
@@ -1828,6 +1832,9 @@ async def moderator_deliberate(body: ModeratorDeliberateRequest):
 @app.post("/api/moderator/stream")
 async def moderator_deliberate_stream(body: ModeratorDeliberateRequest):
     """Real-time streaming 4-Node Watchdog Deliberation yielding NDJSON events for each node."""
+    norm_w = normalize_wallet(body.user_wallet)
+    if norm_w:
+        upsert_user(norm_w, {"moderator_active": 1})
     from fastapi.responses import StreamingResponse
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()

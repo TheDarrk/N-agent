@@ -461,6 +461,50 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       if (onConnectWallet) onConnectWallet(); else alert("Please connect your wallet first");
       return;
     }
+
+    // Auto-save settings and mark agent active in database & fleet
+    try {
+      fetch("/api/trader/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_wallet: accountId,
+          trader_timeframe: timeframe,
+          trader_min_confidence: minConfidence,
+          trader_risk_profile: riskProfile,
+          max_tx_amount: maxTxAmount,
+          trader_max_trades_per_day: tradeLimitPeriod === "day" ? tradeLimitCount : 3,
+          trader_max_trades_per_week: tradeLimitPeriod === "week" ? tradeLimitCount : 12,
+          trader_coin_mode: coinMode,
+          trader_custom_coins: customCoins.join(","),
+          trader_enable_researcher: enableResearcher ? 1 : 0,
+          trader_min_volume_usd: minVolumeUsd,
+          trader_min_price_move_pct: minPriceMovePct,
+          trader_min_atr_pct: minAtrPct,
+          trader_min_risk_reward: minRiskReward,
+          trader_rsi_overbought: rsiOverbought,
+          trader_rsi_oversold: rsiOversold,
+          trader_rsi_sweet_min: rsiSweetMin,
+          trader_rsi_sweet_max: rsiSweetMax,
+          trader_ema_fast: emaFast,
+          trader_ema_slow: emaSlow,
+          trader_ema_macro: emaMacro,
+          trader_ema_days: emaDays,
+        }),
+      }).catch(() => {});
+
+      fetch("/api/fleet/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_wallet: accountId,
+          agent_id: "trader",
+          is_active: true,
+        }),
+      }).catch(() => {});
+      setSettingsConfirmed(true);
+    } catch {}
+
     setIsScanning(true);
     setLiveEvents([{ time: new Date().toLocaleTimeString(), message: "Starting Autonomous Trader market scan...", step: 1 }]);
     setLiveProgressStep({
@@ -614,7 +658,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   const handleSaveSettingsAndRun = async () => {
     await handleSaveSettings();
     if (!isScanning) {
-      handleRunScan();
+      handleScanNow();
     }
   };
 

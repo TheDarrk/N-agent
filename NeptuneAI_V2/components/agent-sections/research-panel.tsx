@@ -335,6 +335,19 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && l.startsWith("http"));
 
+    // Auto-mark agent active in fleet configuration
+    try {
+      fetch("/api/fleet/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_wallet: accountId,
+          agent_id: "research",
+          is_active: true,
+        }),
+      }).catch(() => {});
+    } catch {}
+
     try {
       const { run_id } = await startRun("research", {
         user_wallet: accountId,
