@@ -3,7 +3,14 @@ Neptune AI v2.1 Database Package
 Exposes database connection, encryption, and the entire normalized Data Access Layer (DAL).
 """
 
-from .connection import get_connection, DB_PATH, normalize_wallet
+from .connection import (
+    get_connection,
+    DB_PATH,
+    normalize_wallet,
+    is_turso_enabled,
+    get_last_sync_status,
+    connect_libsql_local
+)
 from .encryption import WalletEncryption, get_encryption
 from .dal import *
 from .chat_db import init_chat_db, save_chat_turn, get_recent_chats, clear_chat_history

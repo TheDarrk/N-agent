@@ -69,11 +69,11 @@ async def upload_trade_trace(trace: Dict[str, Any]) -> str:
     trace["timestamp_utc"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
     trace["created_at_utc"] = now_utc.isoformat()
 
-    # Save to SQLite trader_reasoning_traces
+    # Save to SQLite trader_reasoning_traces and agent_runs
     wallet = trace.get("user_wallet") or trace.get("wallet_address") or ""
     if wallet:
         try:
-            from database import save_reasoning_trace
+            from database import save_reasoning_trace, create_run, finish_run
             img_val = trace.get("chart_image")
             if isinstance(img_val, dict):
                 img_val = img_val.get("filepath") or img_val.get("url") or img_val.get("data_uri") or json.dumps(img_val)
@@ -85,6 +85,18 @@ async def upload_trade_trace(trace: Dict[str, Any]) -> str:
                 trace_payload=trace,
                 chart_image_path=img_val
             )
+            # Ensure also persisted into agent_runs table
+            try:
+                run_id = f"trader-{cid[:12]}"
+                create_run(
+                    wallet=wallet,
+                    agent_type="trader",
+                    title=f"Trade {trace.get('symbol', 'NEAR')} - {trace.get('verdict', 'STAND_ASIDE')}",
+                    params={"symbol": trace.get("symbol", "NEAR"), "action": trace.get("action")}
+                )
+                finish_run(run_id=run_id, result=trace, cid=cid, error=None)
+            except Exception:
+                pass
         except Exception as dbe:
             print(f"[STORAGE: DB TRACE ERROR] {dbe}")
 
@@ -117,11 +129,11 @@ async def upload_research_report(report: Dict[str, Any]) -> str:
     report["timestamp_utc"] = now_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
     report["created_at_utc"] = now_utc.isoformat()
 
-    # Save to SQLite research_reports
+    # Save to SQLite research_reports and agent_runs
     wallet = report.get("requester") or report.get("user_wallet") or report.get("wallet_address") or ""
     if wallet:
         try:
-            from database import save_research_report
+            from database import save_research_report, create_run, finish_run
             save_research_report(
                 wallet_address=wallet,
                 title=report.get("title") or report.get("topic") or "Research Report",
@@ -129,6 +141,18 @@ async def upload_research_report(report: Dict[str, Any]) -> str:
                 full_report=report,
                 report_type=report.get("report_type", "comprehensive")
             )
+            # Ensure also persisted into agent_runs table
+            try:
+                run_id = f"research-{cid[:12]}"
+                create_run(
+                    wallet=wallet,
+                    agent_type="research",
+                    title=report.get("title") or report.get("topic") or "Research Report",
+                    params={"topic": report.get("topic") or report.get("research_query")}
+                )
+                finish_run(run_id=run_id, result=report, cid=cid, error=None)
+            except Exception:
+                pass
         except Exception as dbe:
             print(f"[STORAGE: DB REPORT ERROR] {dbe}")
 
@@ -198,8 +222,29 @@ def get_recent_trade_traces(limit: int = 24, wallet_address: Optional[str] = Non
     if not os.getenv("PYTEST_CURRENT_TEST"):
         return []
 
-    # Pytest unit-test fallback (strictly capped at at most 10)
+    # Test / dev mode fallback: SQLite DB is the source of truth, files are optional cache
     items = []
+    try:
+        from database import get_connection
+        conn = get_connection()
+        rows = conn.execute("""
+            SELECT trace_payload_json, cid FROM trader_reasoning_traces
+            ORDER BY created_at DESC LIMIT ?
+        """, (min(limit, 24),)).fetchall()
+        conn.close()
+        for r in rows:
+            try:
+                p = json.loads(r["trace_payload_json"])
+                p["cid"] = r["cid"]
+                items.append(p)
+            except Exception:
+                pass
+        if items:
+            return items[:limit]
+    except Exception:
+        pass
+
+    # Optional local file cache fallback
     try:
         files = [
             os.path.join(LOGS_DIR, f)
@@ -245,8 +290,29 @@ def get_recent_research_reports(limit: int = 10, wallet_address: Optional[str] =
     if not os.getenv("PYTEST_CURRENT_TEST"):
         return []
 
-    # Pytest unit-test fallback (strictly capped at at most 10)
+    # Test / dev mode fallback: SQLite DB is the source of truth, files are optional cache
     items = []
+    try:
+        from database import get_connection
+        conn = get_connection()
+        rows = conn.execute("""
+            SELECT full_report_json, cid FROM research_reports
+            ORDER BY created_at DESC LIMIT ?
+        """, (min(limit, 10),)).fetchall()
+        conn.close()
+        for r in rows:
+            try:
+                r_data = json.loads(r["full_report_json"])
+                r_data["cid"] = r["cid"]
+                items.append(r_data)
+            except Exception:
+                pass
+        if items:
+            return items[:limit]
+    except Exception:
+        pass
+
+    # Optional local file cache fallback
     try:
         files = [
             os.path.join(REPORTS_DIR, f)

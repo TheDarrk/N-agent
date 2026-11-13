@@ -14,7 +14,7 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Union
 
-from .connection import get_connection, DB_PATH, normalize_wallet
+from .connection import get_connection, DB_PATH, normalize_wallet, is_turso_enabled
 from .encryption import get_encryption, WalletEncryption
 
 
@@ -27,6 +27,14 @@ def init_db(db_path: Optional[str] = None):
     if not os.path.exists(schema_path):
         schema_path = os.path.join(os.path.dirname(__file__), "database", "schema.sql")
     conn = get_connection(db_path)
+
+    # If Turso embedded replica is enabled, sync once BEFORE init_db migrations
+    if is_turso_enabled() and hasattr(conn, "sync"):
+        try:
+            conn.sync(force=True)
+            print("[DB: Turso] Initial replica sync completed before init_db")
+        except Exception as se:
+            print(f"[DB: Turso startup sync warning] {se}")
 
     # Pre-migration: check if marketplace_listings exists with old schema (creator_wallet instead of seller_wallet)
     try:
@@ -111,10 +119,15 @@ def init_db(db_path: Optional[str] = None):
           cid           TEXT,
           error         TEXT,
           created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-          finished_at   TEXT
+          finished_at   TEXT,
+          last_heartbeat TEXT
         );
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_wallet_type ON agent_runs(wallet, agent_type, created_at DESC);")
+        # Ensure last_heartbeat column exists if table already existed
+        ar_cols = [c["name"] for c in conn.execute("PRAGMA table_info(agent_runs)").fetchall()]
+        if "last_heartbeat" not in ar_cols:
+            conn.execute("ALTER TABLE agent_runs ADD COLUMN last_heartbeat TEXT DEFAULT NULL")
         conn.execute("""
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id        TEXT NOT NULL,
@@ -2132,10 +2145,44 @@ def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confide
 
 
 def get_user_reasoning_traces(wallet_address: str, limit: int = 24) -> List[Dict[str, Any]]:
-    """Retrieves reasoning traces strictly isolated to the requesting user."""
+    """Retrieves reasoning traces strictly isolated to the requesting user from agent_runs and trader_reasoning_traces."""
     norm_w = normalize_wallet(wallet_address)
     if not norm_w:
         return []
+
+    res = []
+    seen_cids = set()
+
+    # 1. First look up completed trader runs in agent_runs
+    try:
+        runs = list_runs(norm_w, agent_type="trader", limit=limit)
+        for r in runs:
+            if r.get("status") == "completed":
+                full_run = get_run(r["run_id"], norm_w)
+                if full_run and full_run.get("result"):
+                    p = full_run["result"]
+                    cid = full_run.get("cid") or p.get("cid") or ""
+                    if cid and cid in seen_cids:
+                        continue
+                    if cid:
+                        seen_cids.add(cid)
+                    res.append({
+                        "wallet_address": norm_w,
+                        "user_wallet": norm_w,
+                        "trace_uuid": r["run_id"],
+                        "cid": cid,
+                        "symbol": p.get("symbol", "NEAR") if isinstance(p, dict) else "NEAR",
+                        "verdict": p.get("verdict", "STAND_ASIDE") if isinstance(p, dict) else "STAND_ASIDE",
+                        "confidence_score": (p.get("confidence_score") or p.get("confidence") or 50) if isinstance(p, dict) else 50,
+                        "trace_payload": p if isinstance(p, dict) else {},
+                        "created_at": r.get("created_at")
+                    })
+            if len(res) >= limit:
+                return res
+    except Exception as e:
+        print(f"[STORAGE: DB TRACE RUNS WARNING] {e}")
+
+    # 2. Also incorporate rows from trader_reasoning_traces
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM trader_reasoning_traces
@@ -2143,15 +2190,21 @@ def get_user_reasoning_traces(wallet_address: str, limit: int = 24) -> List[Dict
         ORDER BY created_at DESC LIMIT ?
     """, (norm_w, limit)).fetchall()
     conn.close()
-    res = []
     for r in rows:
         d = dict(r)
         d["user_wallet"] = d["wallet_address"]
+        cid = d.get("cid", "")
+        if cid and cid in seen_cids:
+            continue
+        if cid:
+            seen_cids.add(cid)
         try:
             d["trace_payload"] = json.loads(d["trace_payload_json"])
         except Exception:
             d["trace_payload"] = {}
         res.append(d)
+        if len(res) >= limit:
+            break
     return res
 
 
@@ -3068,7 +3121,7 @@ def get_moderator_cadence_info(user_wallet: str) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def create_run(wallet: str, agent_type: str, title: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> str:
-    """Creates a new tracked agent run row in 'running' status."""
+    """Creates a new tracked agent run row in 'running' status with initial heartbeat."""
     norm_w = normalize_wallet(wallet)
     upsert_user(norm_w)
     run_id = uuid.uuid4().hex
@@ -3076,12 +3129,28 @@ def create_run(wallet: str, agent_type: str, title: Optional[str] = None, params
     conn = get_connection()
     conn.execute("""
         INSERT INTO agent_runs (
-            run_id, wallet, agent_type, status, title, params_json, created_at
-        ) VALUES (?, ?, ?, 'running', ?, ?, ?)
-    """, (run_id, norm_w, agent_type, title, json.dumps(params or {}), now_iso))
+            run_id, wallet, agent_type, status, title, params_json, created_at, last_heartbeat
+        ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
+    """, (run_id, norm_w, agent_type, title, json.dumps(params or {}), now_iso, now_iso))
     conn.commit()
     conn.close()
     return run_id
+
+
+def update_run_heartbeat(run_id: str) -> bool:
+    """Updates the last_heartbeat timestamp for an active agent run (15s cadence)."""
+    conn = get_connection()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        cur = conn.execute("""
+            UPDATE agent_runs
+            SET last_heartbeat = ?
+            WHERE run_id = ? AND status = 'running'
+        """, (now_iso, run_id))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def append_run_event(run_id: str, event: Dict[str, Any]) -> int:
@@ -3167,14 +3236,14 @@ def list_runs(wallet: str, agent_type: Optional[str] = None, limit: int = 50, of
     conn = get_connection()
     if agent_type:
         rows = conn.execute("""
-            SELECT run_id, wallet, agent_type, status, title, params_json, cid, error, created_at, finished_at
+            SELECT run_id, wallet, agent_type, status, title, params_json, cid, error, created_at, finished_at, last_heartbeat
             FROM agent_runs
             WHERE wallet = ? AND agent_type = ?
             ORDER BY created_at DESC LIMIT ? OFFSET ?
         """, (norm_w, agent_type, limit, offset)).fetchall()
     else:
         rows = conn.execute("""
-            SELECT run_id, wallet, agent_type, status, title, params_json, cid, error, created_at, finished_at
+            SELECT run_id, wallet, agent_type, status, title, params_json, cid, error, created_at, finished_at, last_heartbeat
             FROM agent_runs
             WHERE wallet = ?
             ORDER BY created_at DESC LIMIT ? OFFSET ?
@@ -3191,22 +3260,61 @@ def list_runs(wallet: str, agent_type: Optional[str] = None, limit: int = 50, of
     return runs
 
 
-def mark_stale_runs_failed(running_run_ids: Optional[List[str]] = None):
-    """Marks runs that were in 'running' status when the server stopped/restarted as 'failed'."""
+def mark_stale_runs_failed(running_run_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Marks runs that were in 'running' status when the server stopped/restarted as 'failed'.
+    Calculates and logs downtime duration from the most recent recorded activity timestamp.
+    """
     conn = get_connection()
-    now_iso = datetime.now(timezone.utc).isoformat()
-    if running_run_ids:
-        placeholders = ",".join(["?"] * len(running_run_ids))
-        conn.execute(f"""
-            UPDATE agent_runs
-            SET status = 'failed', error = 'server restarted', finished_at = ?
-            WHERE status = 'running' AND run_id NOT IN ({placeholders})
-        """, [now_iso] + running_run_ids)
-    else:
-        conn.execute("""
-            UPDATE agent_runs
-            SET status = 'failed', error = 'server restarted', finished_at = ?
-            WHERE status = 'running'
-        """, (now_iso,))
-    conn.commit()
-    conn.close()
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    downtime_info = {
+        "last_activity": None,
+        "downtime_seconds": None,
+        "stale_count": 0
+    }
+
+    try:
+        # Calculate how long the service was down using the latest activity timestamp
+        row = conn.execute("""
+            SELECT MAX(COALESCE(last_heartbeat, finished_at, created_at)) as last_activity
+            FROM agent_runs
+        """).fetchone()
+
+        if row and row["last_activity"]:
+            last_act_str = str(row["last_activity"])
+            downtime_info["last_activity"] = last_act_str
+            try:
+                clean_ts = last_act_str.replace("Z", "+00:00")
+                if "+" not in clean_ts and "-" not in clean_ts[10:]:
+                    clean_ts += "+00:00"
+                last_dt = datetime.fromisoformat(clean_ts)
+                downtime_sec = max(0.0, (now - last_dt).total_seconds())
+                downtime_info["downtime_seconds"] = round(downtime_sec, 1)
+                print(
+                    f"[SERVER RECOVERY] Server restarted. Last recorded activity: {last_act_str}. "
+                    f"Estimated downtime: {int(downtime_sec)}s ({downtime_sec / 60.0:.1f} min)."
+                )
+            except Exception as pe:
+                print(f"[SERVER RECOVERY] Last activity found: {last_act_str} (parse notice: {pe})")
+
+        # Mark any stale runs as failed
+        if running_run_ids:
+            placeholders = ",".join(["?"] * len(running_run_ids))
+            cur = conn.execute(f"""
+                UPDATE agent_runs
+                SET status = 'failed', error = 'server restarted', finished_at = ?
+                WHERE status = 'running' AND run_id NOT IN ({placeholders})
+            """, [now_iso] + running_run_ids)
+        else:
+            cur = conn.execute("""
+                UPDATE agent_runs
+                SET status = 'failed', error = 'server restarted', finished_at = ?
+                WHERE status = 'running'
+            """, (now_iso,))
+        downtime_info["stale_count"] = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
+    return downtime_info

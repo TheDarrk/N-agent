@@ -456,7 +456,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   cid           TEXT,
   error         TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  finished_at   TEXT
+  finished_at   TEXT,
+  last_heartbeat TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_wallet_type ON agent_runs(wallet, agent_type, created_at DESC);
 

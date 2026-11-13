@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import uuid
 import asyncio
@@ -70,6 +71,23 @@ logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 @asynccontextmanager
 async def lifespan(app):
     """Startup: init database + start autonomy scheduler."""
+    # Check if running on Render without Turso persistence (TASK 1 Step 6)
+    is_render = bool(os.getenv("RENDER"))
+    from database import DB_PATH, get_connection, is_turso_enabled, mark_stale_runs_failed, init_db, update_run_heartbeat
+    if is_render and not is_turso_enabled():
+        logger.warning(
+            "\n"
+            "********************************************************************************\n"
+            "[CRITICAL WARNING: EPHEMERAL STORAGE DETECTED ON RENDER]\n"
+            "Backend is running on Render free tier WITHOUT Turso (libSQL) cloud persistence!\n"
+            "TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are not configured.\n"
+            "All SQLite data and agent runs WILL BE PERMANENTLY LOST on spin-down or redeploy!\n"
+            "To fix, create a free Turso database at https://turso.tech and configure:\n"
+            "  TURSO_DATABASE_URL=libsql://<your-db>.turso.io\n"
+            "  TURSO_AUTH_TOKEN=<your-token>\n"
+            "********************************************************************************\n"
+        )
+
     # Initialize SQLite databases (Core DB + Dedicated Chat History DB)
     init_db()
     try:
@@ -78,14 +96,16 @@ async def lifespan(app):
     except Exception as ce:
         print(f"[STARTUP] Warning: Failed to init chat database: {ce}")
     
-    # Mark stale running tasks as failed from previous server crashes and log storage health
+    # Mark stale running tasks as failed from previous server crashes and log storage health & downtime
     try:
-        from database import DB_PATH, get_connection
-        mark_stale_runs_failed()
+        downtime_info = mark_stale_runs_failed()
         conn = get_connection()
         runs_count = conn.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
         conn.close()
-        print(f"[STARTUP: STORAGE] Resolved DB path: {os.path.abspath(DB_PATH)} | Total agent_runs in DB: {runs_count}")
+        backend_type = "turso" if is_turso_enabled() else "local"
+        print(f"[STARTUP: STORAGE] Engine: {backend_type} | Resolved DB path: {os.path.abspath(DB_PATH)} | Total agent_runs in DB: {runs_count}")
+        if downtime_info.get("downtime_seconds") is not None:
+            print(f"[STARTUP: RECOVERY] Estimated service downtime: {downtime_info['downtime_seconds']}s | Stale runs marked failed: {downtime_info.get('stale_count', 0)}")
     except Exception as re:
         print(f"[STARTUP] Warning: Failed to clean stale runs: {re}")
 
@@ -177,7 +197,8 @@ async def lifespan(app):
             print(f"[STARTUP] Marketplace order expiry registration error: {exp_err}")
 
         scheduler.start()
-        print("[STARTUP] Autonomy engine started (every 30 sec)")
+        active_jobs = [j.id for j in scheduler.get_jobs()]
+        print(f"[STARTUP] Autonomy engine started with active jobs: {active_jobs}")
     except ImportError:
         print("[STARTUP] APScheduler not installed   autonomy engine disabled")
     except Exception as e:
@@ -305,9 +326,20 @@ async def root_health():
 @app.get("/api/health")
 async def api_health_check():
     """
-    Returns real-time system and persistence metrics:
-    SQLite database spacing, unique wallets count, log breakdown, open trades, and keep-alive status.
+    Fast, non-blocking health check for external pingers (every 5 min) with zero DB load.
+    Complies with Render free tier keep-alive (TASK 3 Step 1).
     """
+    return {
+        "status": "healthy",
+        "service": "Neptune AI Backend",
+        "version": "2.1.0",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@app.get("/api/health/db")
+async def api_health_db_check():
+    """Returns detailed database spacing, unique wallets count, log breakdown, open trades."""
     from database import get_database_health
     return get_database_health()
 
@@ -386,8 +418,13 @@ async def clear_chat_history_endpoint(wallet_address: str):
 
 @app.get("/health")
 def root_health_check():
-    from database import get_database_health
-    return get_database_health()
+    """Fast root health check for container liveness and external pingers."""
+    return {
+        "status": "healthy",
+        "service": "Neptune AI Backend",
+        "version": "2.1.0",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
 @app.get("/tokens")
 async def get_tokens():
@@ -809,9 +846,25 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
     Executes an agent pipeline independently of any HTTP connection.
     Guarantees every event is appended to SQLite agent_run_events and
     the final report/strategy/result is persisted in agent_runs on completion or failure.
+    Maintains a 15-second heartbeat in agent_runs.last_heartbeat while running (TASK 3 Step 3).
     """
+    from database import update_run_heartbeat
+
     result, cid, error = None, None, None
+
+    async def _heartbeat_worker():
+        try:
+            while True:
+                await asyncio.sleep(15)
+                update_run_heartbeat(run_id)
+        except asyncio.CancelledError:
+            pass
+        except Exception as he:
+            logger.debug("Heartbeat worker notice for %s: %s", run_id, he)
+
+    heartbeat_task = asyncio.create_task(_heartbeat_worker())
     try:
+        update_run_heartbeat(run_id)
         async for raw_item in gen_factory():
             if isinstance(raw_item, str):
                 try:
@@ -847,6 +900,7 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
         error = f"{type(e).__name__}: {e}"
         append_run_event(run_id, {"type": "error", "message": error})
     finally:
+        heartbeat_task.cancel()
         finish_run(run_id, result, cid, error)
         RUNNING_TASKS.pop(run_id, None)
 
@@ -922,9 +976,12 @@ async def get_run_endpoint(run_id: str, wallet: Optional[str] = None):
 
 @app.get("/api/health/storage")
 async def health_storage_endpoint():
-    from database import DB_PATH, get_connection
+    from database import DB_PATH, get_connection, is_turso_enabled, get_last_sync_status
     is_writable = False
     runs_count = 0
+    is_turso = is_turso_enabled()
+    sync_status = get_last_sync_status()
+    last_sync_ok = sync_status.get("last_sync_ok", True) if is_turso else True
     try:
         conn = get_connection()
         runs_count = conn.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
@@ -938,10 +995,12 @@ async def health_storage_endpoint():
     except Exception as e:
         logger.warning(f"Storage health check error: {e}")
     return {
-        "status": "healthy" if is_writable else "degraded",
+        "status": "healthy" if (is_writable and last_sync_ok) else "degraded",
+        "backend": "turso" if is_turso else "local",
+        "runs_count": runs_count,
+        "last_sync_ok": last_sync_ok,
         "db_path": os.path.abspath(DB_PATH),
-        "writable": is_writable,
-        "runs_count": runs_count
+        "writable": is_writable
     }
 
 

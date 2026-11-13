@@ -27,3 +27,4 @@ chromadb
 beautifulsoup4
 python-dateutil
 json-repair
+libsql>=0.1.11
