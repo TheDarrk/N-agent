@@ -32,13 +32,8 @@ function uid() {
 const SUGGESTIONS = [
   { icon: TrendingUp, label: "What is my Trader Agent doing right now?", desc: "Check active trades & TP/SL" },
   { icon: Sparkles, label: "Scan NEAR market for high confidence setups", desc: "4-node LLM Judge pipeline" },
-<<<<<<< HEAD
-  { icon: Coins, label: "Have my Trader hire Research Agent for second opinion", desc: "Inter-Agent Alpha Collaboration (Free)" },
-  { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator Watchdog status" },
-=======
   { icon: Coins, label: "Have my Trader hire Research Agent for 0.1 NEAR", desc: "Track 7 Agent-to-Agent demo" },
   { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator status" },
->>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
 ];
 
 /* ── Draggable floating About button ── */
@@ -112,8 +107,6 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
     signAndSendTransaction,
     signAndSendEvmTransaction,
     signAndSendGenericTransaction,
-    network,
-    setNetwork,
   } = useWallet();
 
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -169,6 +162,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
   }, []);
   const [agentSuiteSubView, setAgentSuiteSubView] = useState<string | null>(null);
   const [isFleetModalOpen, setIsFleetModalOpen] = useState(false);
+  const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState("");
@@ -369,16 +363,6 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
     setSessionId(uid());
   };
 
-  const handleSelectRecentChat = (chat: { human_message: string; ai_message: string }) => {
-    setMessages([
-      { id: uid(), role: "user", content: chat.human_message },
-      { id: uid(), role: "ai", content: chat.ai_message },
-    ]);
-    if (activeTab !== "chat") {
-      navigateTab("chat");
-    }
-  };
-
   const isEmpty = messages.length === 0;
 
   return (
@@ -397,7 +381,6 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
         onOpenFleetModal={() => setIsFleetModalOpen(true)}
         onOpenAgentSuite={() => navigateTab("agent-suite", null)}
         onSelectAgent={(agentId) => navigateTab("agent-suite", agentId)}
-        onSelectChat={handleSelectRecentChat}
       />
 
       <div className="flex flex-1 flex-col min-w-0">

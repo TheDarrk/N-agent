@@ -20,6 +20,7 @@ import AgentFleetModal from "./agent-fleet-modal";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
 import { ThemeToggle } from "./theme-toggle";
 import { useWallet } from "@/providers/wallet-provider";
+import { isMainnetAllowed } from "@/lib/near/network";
 
 type Props = {
   accountId: string | null;
@@ -127,16 +128,10 @@ export default function ChatHeader({
 
   return (
     <>
-<<<<<<< HEAD
-      <header className="flex flex-col xl:flex-row xl:items-center justify-between px-3 sm:px-4 py-2.5 border-b border-border bg-card/60 backdrop-blur-md gap-2 xl:gap-3 z-30 overflow-hidden select-none">
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-=======
       <div className="@container z-30 border-b border-border bg-card/60 backdrop-blur-md select-none">
         <header className="grid grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3 sm:px-4 py-2.5">
           {/* Brand */}
           <div className="col-start-1 row-start-1 flex items-center gap-2 sm:gap-3 min-w-0">
->>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
             <button
               onClick={onToggleSidebar}
               className="p-2 -ml-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors lg:hidden shrink-0"
@@ -181,22 +176,6 @@ export default function ChatHeader({
             </div>
           </div>
 
-<<<<<<< HEAD
-          {/* Mobile & Tablet Right Controls */}
-          <div className="flex items-center gap-1.5 sm:gap-2 xl:hidden shrink-0">
-            <ThemeToggle />
-
-            {/* Small Screen Mainnet/Testnet Switcher Pill */}
-            <button
-              onClick={() => handleToggleNetwork(network === "testnet" ? "mainnet" : "testnet")}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-semibold transition-all shrink-0 bg-secondary/60 border-border text-muted-foreground hover:text-foreground active:scale-95"
-              title="Click to toggle between Testnet and Mainnet"
-            >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${network === "testnet" ? "bg-emerald-400" : "bg-cyan-400"}`} />
-              <span className="uppercase font-mono text-[10px]">
-                {network}
-              </span>
-=======
           {/* Tabs */}
           <nav
             className="col-span-2 row-start-2 @3xl:col-span-1 @3xl:col-start-2 @3xl:row-start-1 min-w-0 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
@@ -243,7 +222,6 @@ export default function ChatHeader({
             >
               <span className={`w-2 h-2 rounded-full ${network === "testnet" ? "bg-emerald-400" : "bg-purple-400"}`} />
               <span className="uppercase font-mono text-[10px]">{network}</span>
->>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
             </button>
 
             <button
@@ -310,122 +288,10 @@ export default function ChatHeader({
               </>
             ) : (
               <button
-                onClick={() => onConnect()}
+                onClick={onConnect}
                 disabled={isConnecting}
                 className="flex items-center gap-2 px-3 @4xl:px-4 py-2 rounded-xl whitespace-nowrap bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/20 disabled:opacity-50"
               >
-<<<<<<< HEAD
-                Connect Wallet
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Top Navigation Bar Tabs */}
-        <nav className="flex items-center gap-1.5 py-1 justify-start sm:justify-center overflow-x-auto xl:overflow-x-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const isActive = activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => onTabChange(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap select-none ${
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20 scale-[1.02]"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
-                }`}
-              >
-                <Icon size={14} />
-                <span>{t.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Wallet Connection & Controls (Desktop) */}
-        <div className="hidden xl:flex items-center gap-2.5">
-          <ThemeToggle />
-          {/* Network Switcher Pill */}
-          <button
-            onClick={() => handleToggleNetwork(network === "testnet" ? "mainnet" : "testnet")}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all bg-secondary/60 border-border text-muted-foreground hover:text-foreground active:scale-95"
-            title="Click to toggle between Testnet and Mainnet"
-          >
-            <span className={`w-2 h-2 rounded-full ${network === "testnet" ? "bg-emerald-400" : "bg-cyan-400"}`} />
-            <span className="uppercase font-mono text-[10px]">
-              {network}
-            </span>
-          </button>
-
-
-
-          <button
-            onClick={() => setIsFullScreenHistoryOpen(true)}
-            title="Open Full Screen Fleet History & Traces"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-secondary/60 hover:bg-secondary text-xs font-semibold text-foreground transition-all active:scale-95 shadow-sm"
-          >
-            <History size={13} className="text-primary" />
-            <span className="hidden lg:inline">History</span>
-          </button>
-
-          {accountId ? (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/80 border border-border">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-glow" />
-                <Flame size={12} className="text-orange-400" />
-                <span className="text-xs font-mono text-foreground">
-                  {accountId.length > 18
-                    ? `${accountId.slice(0, 8)}...${accountId.slice(-6)}`
-                    : accountId}
-                </span>
-                {connectedChains.length > 0 && (
-                  <div className="flex items-center gap-1 ml-1">
-                    {connectedChains.map((chain) => (
-                      <span
-                        key={chain}
-                        className={`text-[9px] font-bold uppercase px-1 py-0.2 rounded ${CHAIN_COLORS[chain] || "bg-muted-foreground/30 text-secondary-foreground"}`}
-                      >
-                        {chain}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <button
-                onClick={onConnect}
-                title="Connect another chain wallet (EVM, Arbitrum, Solana, TON...)"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-primary/30 bg-primary/10 hover:bg-primary/20 text-xs font-semibold text-primary transition-all"
-              >
-                <Plus size={11} />
-                <span>+ Chain</span>
-              </button>
-
-              <button
-                onClick={onDisconnect}
-                className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              >
-                Disconnect
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => onConnect()}
-              disabled={isConnecting}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 active:scale-95 transition-all shadow-md shadow-primary/20 disabled:opacity-50"
-            >
-              {isConnecting ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Flame size={13} className="text-orange-400 fill-orange-400" />
-              )}
-              <span>Connect Wallet</span>
-            </button>
-          )}
-        </div>
-      </header>
-=======
                 {isConnecting ? (
                   <Loader2 size={13} className="animate-spin" />
                 ) : (
@@ -438,7 +304,6 @@ export default function ChatHeader({
           </div>
         </header>
       </div>
->>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
 
       {/* Agents Fleet & Autonomy Modal */}
       <AgentFleetModal
