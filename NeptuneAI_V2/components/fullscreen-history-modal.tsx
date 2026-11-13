@@ -29,6 +29,7 @@ import {
   Rocket
 } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
+import { mergeHistory, readCachedHistory } from "@/lib/history-cache";
 
 interface Props {
   isOpen: boolean;
@@ -251,21 +252,40 @@ export default function FullScreenHistoryModal({
 
     const targetWallet = accountId;
     setIsLoading(true);
+
+    // Show the last 30 days from this browser immediately, then refresh from the backend.
+    setTrades(readCachedHistory<Trade>(targetWallet, "trades", (t) => t.created_at));
+    setDroppedTrades(readCachedHistory<DroppedTrade>(targetWallet, "dropped", (t) => t.created_at));
+    setTraces(readCachedHistory<TradeTrace>(targetWallet, "traces", (t) => t.stored_at));
+    setFleetLogs(readCachedHistory<FleetLog>(targetWallet, "logs", (l) => l.created_at));
+
     try {
       // 1. Fetch trades strictly scoped to connected wallet
       const tradesRes = await fetch(`/api/trader/trades/${encodeURIComponent(targetWallet)}`);
       if (tradesRes.ok) {
         const data = await tradesRes.json();
         setOpenTrades(data.open_trades || []);
-        setTrades(data.history || []);
-        setDroppedTrades(data.dropped_trades || []);
+        setTrades(
+          mergeHistory<Trade>(targetWallet, "trades", data.history || [], (t) => String(t.id), (t) => t.created_at),
+        );
+        setDroppedTrades(
+          mergeHistory<DroppedTrade>(
+            targetWallet,
+            "dropped",
+            data.dropped_trades || [],
+            (t) => String(t.id),
+            (t) => t.created_at,
+          ),
+        );
       }
 
       // 2. Fetch decentralized traces scoped to connected wallet
       const tracesRes = await fetch(`/api/trader/traces/${encodeURIComponent(targetWallet)}`);
       if (tracesRes.ok) {
         const data = await tracesRes.json();
-        setTraces(data.traces || []);
+        setTraces(
+          mergeHistory<TradeTrace>(targetWallet, "traces", data.traces || [], (t) => t.cid, (t) => t.stored_at),
+        );
       }
 
       // 3. Fetch fleet logs scoped to connected wallet
@@ -273,7 +293,15 @@ export default function FullScreenHistoryModal({
       if (fleetRes.ok) {
         const data = await fleetRes.json();
         if (data.recent_activity) {
-          setFleetLogs(data.recent_activity);
+          setFleetLogs(
+            mergeHistory<FleetLog>(
+              targetWallet,
+              "logs",
+              data.recent_activity,
+              (l) => String(l.id ?? `${l.agent_name}-${l.created_at}`),
+              (l) => l.created_at,
+            ),
+          );
         }
       }
     } catch (e) {

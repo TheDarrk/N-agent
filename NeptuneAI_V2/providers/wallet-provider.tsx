@@ -38,6 +38,39 @@ type WalletContextValue = WalletState & {
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
+const SESSION_KEY = "neptune:wallet-session";
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
+type StoredSession = {
+    accountId: string;
+    walletAddresses: Record<string, string>;
+    connectedChains: string[];
+    network: NearNetwork;
+    expiresAt: number;
+};
+
+function readSession(): StoredSession | null {
+    try {
+        const raw = window.localStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as StoredSession;
+        if (!parsed?.accountId || typeof parsed.expiresAt !== "number" || parsed.expiresAt < Date.now()) {
+            window.localStorage.removeItem(SESSION_KEY);
+            return null;
+        }
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+function clearSession() {
+    try {
+        window.localStorage.removeItem(SESSION_KEY);
+    } catch { }
+}
+
+
 export function useWallet() {
     const ctx = useContext(WalletContext);
     if (!ctx) throw new Error("useWallet must be inside WalletProvider");
@@ -139,7 +172,7 @@ const EVM_CHAIN_KEYS = new Set([
 
 function formatBalanceManual(balance: string | bigint | number, decimals: number): string {
     const val = BigInt(balance);
-    if (val === BigInt(0)) return "0";
+    if (val === 0n) return "0";
 
     const div = BigInt(10 ** decimals);
     const int = val / div;
@@ -213,6 +246,90 @@ export default function WalletProvider({ children }: { children: React.ReactNode
     const activeWalletRef = useRef<any>(null);
     const unsubscribersRef = useRef<(() => void)[]>([]);
 
+<<<<<<< HEAD
+=======
+    // Initialize network from localStorage on mount
+    useEffect(() => {
+        const current = getNetwork();
+        setNetworkState(current);
+
+        const handleNetworkChanged = (e: Event) => {
+            const customEvent = e as CustomEvent<NearNetwork>;
+            if (customEvent.detail) {
+                setNetworkState(customEvent.detail);
+            }
+        };
+
+        window.addEventListener(NETWORK_CHANGE_EVENT, handleNetworkChanged);
+        return () => window.removeEventListener(NETWORK_CHANGE_EVENT, handleNetworkChanged);
+    }, []);
+
+    // Restore a saved wallet session (valid for 24 hours) after a refresh
+    useEffect(() => {
+        const saved = readSession();
+        if (!saved) return;
+        const current = getNetwork();
+        if (saved.network !== current || !validateNetworkAccount(saved.accountId, current).valid) {
+            clearSession();
+            return;
+        }
+        setState((prev) =>
+            prev.accountId
+                ? prev
+                : {
+                    ...prev,
+                    accountId: saved.accountId,
+                    walletAddresses: saved.walletAddresses,
+                    connectedChains: saved.connectedChains,
+                    isConnecting: false,
+                }
+        );
+    }, []);
+
+    // Save the session whenever a wallet is connected; the 24h clock starts at first connect
+    useEffect(() => {
+        if (!state.accountId) return;
+        try {
+            const existing = readSession();
+            const expiresAt =
+                existing && existing.accountId === state.accountId
+                    ? existing.expiresAt
+                    : Date.now() + SESSION_TTL_MS;
+            const session: StoredSession = {
+                accountId: state.accountId,
+                walletAddresses: state.walletAddresses,
+                connectedChains: state.connectedChains,
+                network,
+                expiresAt,
+            };
+            window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        } catch { }
+    }, [state.accountId, state.walletAddresses, state.connectedChains, network]);
+
+    // Set network handler (updates state, storage, and backend)
+    const setNetwork = useCallback((net: NearNetwork) => {
+        setNetworkState(net);
+        saveNetwork(net, state.accountId);
+
+        // Hard Network Validation check on existing connected account
+        if (state.accountId) {
+            const validation = validateNetworkAccount(state.accountId, net);
+            if (!validation.valid) {
+                console.warn("[Wallet] Active account does not match new network:", validation.error);
+                // Clear state on network mismatch so user connects appropriate network account
+                clearSession();
+                setState({
+                    accountId: null,
+                    walletAddresses: {},
+                    connectedChains: [],
+                    balances: {},
+                    isConnecting: false,
+                });
+            }
+        }
+    }, [state.accountId]);
+
+>>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
     // ── Dedicated NEAR Balance Fetcher (Works for both Testnet & Mainnet without HotKit) ──
     const fetchNearBalances = useCallback(async (nearAddress: string) => {
         if (!nearAddress) return;
@@ -468,6 +585,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         return () => clearInterval(interval);
     }, [state.accountId, state.walletAddresses.near, fetchNearBalances]);
 
+<<<<<<< HEAD
     // ── Handle Successful Direct Account Connection ───────
     const handleDirectConnect = useCallback((directAccountId: string) => {
         // Auto-detect network from account domain if needed
@@ -482,6 +600,12 @@ export default function WalletProvider({ children }: { children: React.ReactNode
 
         // Hard assertion check against target network
         const validation = validateNetworkAccount(directAccountId, targetNet);
+=======
+    // ── Handle Successful Testnet Account Connection ─────���─
+    const handleTestnetConnect = useCallback((testnetAccountId: string) => {
+        // Hard assertion check
+        const validation = validateNetworkAccount(testnetAccountId, "testnet");
+>>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
         if (!validation.valid) {
             console.error(`[Wallet] Attempted to connect incompatible account for ${targetNet}:`, directAccountId);
             return;
@@ -534,6 +658,7 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                             ? rawApiKey
                             : "3a8170812b534d0ff9d794f19a901d64";
 
+<<<<<<< HEAD
                         const kit = new HotKitClass({
                             projectId: effectiveProjectId,
                             apiKey: effectiveProjectId,
@@ -561,6 +686,52 @@ export default function WalletProvider({ children }: { children: React.ReactNode
                         setIsTestnetModalOpen(false);
                         return;
                     }
+=======
+                    console.log(`[Wallet] Initializing HOT Kit with connectors:`, safeConnectors);
+
+                    const rawApiKey = process.env.NEXT_PUBLIC_HOT_API_KEY || process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+                    const hasValidWcProject = Boolean(
+                        rawApiKey &&
+                        rawApiKey.trim() !== "" &&
+                        rawApiKey !== "neptune-ai-dev" &&
+                        rawApiKey.length >= 24
+                    );
+
+                    const kitOptions: any = {
+                        connectors: safeConnectors,
+                    };
+
+                    if (hasValidWcProject && rawApiKey) {
+                        kitOptions.apiKey = rawApiKey;
+                        kitOptions.walletConnect = {
+                            projectId: rawApiKey,
+                            metadata: {
+                                name: "Neptune AI",
+                                description: "Autonomous AI Agents on NEAR Protocol",
+                                url: typeof window !== "undefined" ? window.location.origin : "https://neptune.ai",
+                                icons: ["https://storage.herewallet.app/upload/73a44e583769f11112b0eff1f2dd2a560c05eed5f6d92f0c03484fa047c31668.png"],
+                            },
+                        };
+                    }
+
+                    const kit = new HotKitClass(kitOptions);
+                    hotKitRef.current = kit;
+
+                    const unsubConnect = kit.onConnect?.((payload: any) => {
+                        console.log("[HOT Kit] Wallet connected:", payload?.wallet?.address);
+                        syncWallets(kit);
+                    });
+
+                    const unsubDisconnect = kit.onDisconnect?.((payload: any) => {
+                        console.log("[HOT Kit] Wallet disconnected:", payload?.wallet?.address);
+                        syncWallets(kit);
+                    });
+
+                    if (unsubConnect) unsubscribersRef.current.push(unsubConnect);
+                    if (unsubDisconnect) unsubscribersRef.current.push(unsubDisconnect);
+
+                    syncWallets(kit);
+>>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
                 }
             }
 
@@ -644,12 +815,16 @@ export default function WalletProvider({ children }: { children: React.ReactNode
         }
         unsubscribersRef.current = [];
 
+<<<<<<< HEAD
         if (typeof window !== "undefined") {
             localStorage.removeItem(WALLET_STORAGE_KEY);
             localStorage.removeItem(ADDRESSES_STORAGE_KEY);
             localStorage.removeItem(CHAINS_STORAGE_KEY);
         }
 
+=======
+        clearSession();
+>>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
         setState({
             accountId: null,
             walletAddresses: {},
@@ -865,10 +1040,16 @@ export default function WalletProvider({ children }: { children: React.ReactNode
             <TestnetWalletModal
                 isOpen={isTestnetModalOpen}
                 onClose={() => setIsTestnetModalOpen(false)}
+<<<<<<< HEAD
                 network={network}
                 onConnectSuccess={handleDirectConnect}
                 onLaunchHotKit={() => connectWallet(network === "testnet" ? 1010 : undefined)}
                 onConnectSpecificWallet={(walletId: string) => connectWallet(1010, walletId)}
+=======
+                onConnectSuccess={handleTestnetConnect}
+                onLaunchHotKit={() => connectWallet(1010)}
+                onConnectSpecificWallet={(walletId) => connectWallet(1010, walletId)}
+>>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
             />
         </WalletContext.Provider>
     );

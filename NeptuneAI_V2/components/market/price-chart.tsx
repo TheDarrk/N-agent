@@ -109,6 +109,22 @@ function sma(candles: Candle[], period: number) {
   return out;
 }
 
+function fmtChartTime(sec: number, interval: Interval) {
+  const d = new Date(sec * 1000);
+  const date = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  if (interval === "1d") return date;
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${date}, ${time}`;
+}
+
+function fmtCandleSpan(sec: number, interval: Interval) {
+  const start = fmtChartTime(sec, interval);
+  if (interval === "1d") return start;
+  const step = INTERVALS.find((i) => i.id === interval)?.seconds ?? 60;
+  const end = new Date((sec + step) * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${start} to ${end}`;
+}
+
 function candleData(c: Candle) {
   return { time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close };
 }
@@ -206,6 +222,9 @@ export default function PriceChart({
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
         fontSize: 11,
         attributionLogo: false,
+      },
+      localization: {
+        timeFormatter: (t: unknown) => (typeof t === "number" ? fmtChartTime(t, intervalRef.current) : String(t)),
       },
       grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
       rightPriceScale: { borderColor: colors.border, scaleMargins: { top: 0.08, bottom: 0.22 } },
@@ -407,7 +426,12 @@ export default function PriceChart({
     <div className="relative h-full min-h-[360px] w-full">
       <div ref={containerRef} className="absolute inset-0" role="img" aria-label={`${symbol} price chart, ${interval} candles`} />
       {shown && (
-        <dl className="pointer-events-none absolute left-3 top-2 z-10 flex max-w-[calc(100%-5rem)] flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg bg-card/70 px-2 py-1 font-mono text-[11px] tabular-nums backdrop-blur-sm">
+        <dl className="pointer-events-none absolute left-3 top-2 z-10 flex max-w-[calc(100%-5rem)] flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg bg-card/80 px-2.5 py-1.5 font-mono text-[11px] tabular-nums backdrop-blur-sm">
+          <div className="flex w-full items-center gap-2 font-sans text-xs font-semibold text-foreground">
+            <dt className="sr-only">Candle time</dt>
+            <dd>{fmtCandleSpan(shown.time, interval)}</dd>
+            {!hover && <dd className="rounded bg-primary/15 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-primary">Latest</dd>}
+          </div>
           {(
             [
               ["O", shown.open],
@@ -428,22 +452,26 @@ export default function PriceChart({
           <dd className={tone}>{`${change >= 0 ? "+" : ""}${change.toFixed(2)}%`}</dd>
         </dl>
       )}
-      {candles.length === 0 && !error && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center">
-          <span className="animate-pulse text-sm text-muted-foreground">Loading {symbol} market data...</span>
-        </div>
-      )}
-      {candles.length === 0 && error && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2">
-          <span className="text-sm text-rose-400">Failed to load {symbol} market data</span>
-          {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="rounded bg-secondary px-3 py-1 text-xs text-foreground hover:bg-secondary/80"
-            >
-              Retry
-            </button>
+      {candles.length === 0 && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          {error ? (
+            <>
+              <p className="text-sm font-medium text-foreground">Couldn&apos;t load {symbol} price data</p>
+              <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+                The exchange data feeds could not be reached from this network. Check your internet or VPN connection, then retry.
+              </p>
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  Retry
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="animate-pulse text-sm text-muted-foreground">Loading {symbol} market data...</span>
           )}
         </div>
       )}

@@ -37,8 +37,8 @@ type RangeId = "30m" | "1h" | "4h" | "1d" | "all";
 const RANGES: { id: RangeId; label: string; seconds: number | null; interval: Interval | null }[] = [
   { id: "30m", label: "30m", seconds: 1800, interval: "1m" },
   { id: "1h", label: "1H", seconds: 3600, interval: "1m" },
-  { id: "4h", label: "4H", seconds: 14400, interval: "5m" },
-  { id: "1d", label: "1D", seconds: 86400, interval: "15m" },
+  { id: "4h", label: "4H", seconds: 14400, interval: "1m" },
+  { id: "1d", label: "1D", seconds: 86400, interval: "5m" },
   { id: "all", label: "All", seconds: null, interval: null },
 ];
 
@@ -296,6 +296,7 @@ export default function MarketTerminal({ data }: { data: DashboardData }) {
             </button>
           ))}
         </div>
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" aria-hidden="true">Range</span>
         <div role="radiogroup" aria-label="Visible time range" className="flex rounded-lg border border-border bg-background p-0.5">
           {RANGES.map((r) => (
             <button
@@ -307,6 +308,24 @@ export default function MarketTerminal({ data }: { data: DashboardData }) {
               className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${rangeId === r.id ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               {r.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" aria-hidden="true">Candle</span>
+        <div role="radiogroup" aria-label="Candle size" className="flex rounded-lg border border-border bg-background p-0.5">
+          {INTERVALS.map((i) => (
+            <button
+              key={i.id}
+              type="button"
+              role="radio"
+              aria-checked={interval === i.id}
+              onClick={() => {
+                setIntervalId(i.id);
+                setRangeId("all");
+              }}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${interval === i.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {i.label}
             </button>
           ))}
         </div>
@@ -454,20 +473,6 @@ export default function MarketTerminal({ data }: { data: DashboardData }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div role="radiogroup" aria-label="Candle interval" className="flex rounded-xl border border-border bg-background p-1">
-              {INTERVALS.map((i) => (
-                <button
-                  key={i.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={interval === i.id}
-                  onClick={() => setIntervalId(i.id)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${interval === i.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  {i.label}
-                </button>
-              ))}
-            </div>
             <div className="flex flex-wrap gap-1.5">
               <Toggle label="MA 20" active={showMa20} onChange={setShowMa20} />
               <Toggle label="MA 50" active={showMa50} onChange={setShowMa50} />

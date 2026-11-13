@@ -9,7 +9,11 @@ import {
   Plus,
   History,
   ChevronRight,
+<<<<<<< HEAD
   MessageSquare,
+=======
+  ChevronLeft,
+>>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
   type LucideIcon,
 } from "lucide-react";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
@@ -23,6 +27,8 @@ import { getTokenLogoUrl, TOKEN_LOGOS } from "@/lib/near/token-logos";
 type Props = {
   open: boolean;
   onClose: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
   accountId: string | null;
   walletAddresses?: Record<string, string>;
   connectedChains?: string[];
@@ -289,6 +295,8 @@ function WalletPanel({
 export default function ChatSidebar({
   open,
   onClose,
+  collapsed = false,
+  onToggleCollapse,
   accountId,
   walletAddresses = {},
   connectedChains = [],
@@ -308,10 +316,25 @@ export default function ChatSidebar({
   return (
     <>
       {open && <div className="fixed inset-0 z-40 bg-black/65 lg:hidden" onClick={onClose} />}
+      {onToggleCollapse && (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? "Open sidebar" : "Close sidebar"}
+          aria-expanded={!collapsed}
+          style={{ left: collapsed ? 0 : 300 }}
+          className="fixed top-1/2 z-[60] hidden h-16 w-6 -translate-y-1/2 items-center justify-center rounded-r-xl border border-l-0 border-primary/50 bg-card text-primary shadow-[0_0_14px_hsl(var(--primary)/0.45)] transition-[left,color,background-color,box-shadow] duration-200 ease-out hover:bg-primary hover:text-primary-foreground hover:shadow-[0_0_20px_hsl(var(--primary)/0.7)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:flex"
+        >
+          <ChevronLeft
+            size={16}
+            className={`transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
+          />
+        </button>
+      )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[min(300px,85vw)] flex-col border-r border-border bg-sidebar-background transition-transform duration-200 ease-out lg:relative lg:w-[300px] lg:shrink-0 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[min(300px,85vw)] flex-col border-r border-border bg-sidebar-background transition-[transform,margin-left,visibility] duration-200 ease-out lg:relative lg:w-[300px] lg:shrink-0 lg:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
-        }`}
+        } ${collapsed ? "lg:invisible lg:-ml-[300px]" : "lg:visible lg:ml-0"}`}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3.5">

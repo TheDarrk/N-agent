@@ -63,9 +63,9 @@ export default function InfoTip({ children, label = "More info", side = "top", c
             // With a mouse the popover is already open from hover; keep it open instead of toggling it shut.
             if (lastPointer.current === "mouse" && open) e.preventDefault();
           }}
-          className={`inline-grid h-5 w-5 shrink-0 place-items-center rounded-full text-muted-foreground/70 transition-colors hover:bg-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${className}`}
+          className={`inline-grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/15 text-primary shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_40%,transparent),0_0_10px_color-mix(in_oklab,var(--primary)_45%,transparent)] transition-all hover:scale-110 hover:bg-primary/25 hover:shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_16px_color-mix(in_oklab,var(--primary)_70%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 motion-reduce:transition-none ${className}`}
         >
-          <Info size={13} aria-hidden="true" />
+          <Info size={15} aria-hidden="true" />
         </button>
       </PopoverTrigger>
       <PopoverContent

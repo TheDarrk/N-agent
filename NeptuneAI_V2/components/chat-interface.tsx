@@ -32,8 +32,13 @@ function uid() {
 const SUGGESTIONS = [
   { icon: TrendingUp, label: "What is my Trader Agent doing right now?", desc: "Check active trades & TP/SL" },
   { icon: Sparkles, label: "Scan NEAR market for high confidence setups", desc: "4-node LLM Judge pipeline" },
+<<<<<<< HEAD
   { icon: Coins, label: "Have my Trader hire Research Agent for second opinion", desc: "Inter-Agent Alpha Collaboration (Free)" },
   { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator Watchdog status" },
+=======
+  { icon: Coins, label: "Have my Trader hire Research Agent for 0.1 NEAR", desc: "Track 7 Agent-to-Agent demo" },
+  { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator status" },
+>>>>>>> 892b6c9 (Trader advanced UI, chart tweaks, sidebar arrow, wallet session, 30-day history, header layout)
 ];
 
 /* ── Draggable floating About button ── */
@@ -169,6 +174,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
   const [sessionId, setSessionId] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [txModalOpen, setTxModalOpen] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [txStep, setTxStep] = useState<TxStep>("preparing");
@@ -195,7 +201,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
     }
   }, [input]);
 
-  // ── Real Transaction Signing ──────────────────────────
+  // ── Real Transaction Signing ───────────────────���──────
   const handleSign = async (payload: Record<string, unknown>) => {
     if (!accountId) {
       connectWallet();
@@ -380,6 +386,8 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
       <ChatSidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
         accountId={accountId}
         walletAddresses={walletAddresses}
         connectedChains={connectedChains}
@@ -401,6 +409,8 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
           onDisconnect={disconnect}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           sidebarOpen={sidebarOpen}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebarCollapse={() => setSidebarCollapsed((c) => !c)}
           activeTab={activeTab}
           onTabChange={(tab) => navigateTab(tab, null)}
           onSelectAgent={(agentId) => navigateTab("agent-suite", agentId as any)}
@@ -417,7 +427,6 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
           <AgentMarketplace
             accountId={accountId}
             onSelectAgentTab={(agentId) => navigateTab("agent-suite", agentId)}
-            onConnectWallet={connectWallet}
           />
         ) : activeTab === "dashboard" ? (
           <AgentDashboard

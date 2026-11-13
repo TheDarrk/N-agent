@@ -4,6 +4,7 @@ import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCw, Brain, Maximize2, ChevronRight } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
+import { mergeHistory, readCachedHistory } from "@/lib/history-cache";
 
 type Props = {
   accountId: string | null;
@@ -83,12 +84,14 @@ export default function SidebarAgentFeed({
   const fetchLogs = useCallback(async () => {
     const wallet = accountId || "guest.near";
     setIsLoading(true);
+    const logTime = (l: AgentLogItem) => l.created_at || l.created_at_utc;
+    const logId = (l: AgentLogItem) => String(l.id ?? `${l.agent_name}-${logTime(l)}`);
     try {
       const fleetRes = await fetch(`/api/fleet/${wallet}`);
       if (fleetRes.ok) {
         const fleetData = await fleetRes.json();
         if (fleetData.recent_activity && fleetData.recent_activity.length > 0) {
-          setLogs(fleetData.recent_activity);
+          setLogs(mergeHistory<AgentLogItem>(wallet, "logs", fleetData.recent_activity, logId, logTime));
           return;
         }
       }
@@ -96,9 +99,11 @@ export default function SidebarAgentFeed({
       const logRes = await fetch(`/api/logs/${wallet}`);
       if (logRes.ok) {
         const data = await logRes.json();
-        setLogs(Array.isArray(data) ? data.slice(0, 30) : []);
+        const fresh: AgentLogItem[] = Array.isArray(data) ? data : [];
+        setLogs(mergeHistory<AgentLogItem>(wallet, "logs", fresh, logId, logTime));
       }
     } catch (e) {
+      setLogs((current) => (current.length ? current : readCachedHistory<AgentLogItem>(wallet, "logs", logTime)));
       // silent
     } finally {
       setIsLoading(false);
