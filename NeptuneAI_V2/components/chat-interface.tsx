@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Send, ArrowDownUp, Coins, HelpCircle, CreditCard, X, TrendingUp, ShieldAlert, Sparkles } from "lucide-react";
+import { Send, ArrowDownUp, Coins, HelpCircle, CreditCard, X, TrendingUp, ShieldAlert, Sparkles, Wallet } from "lucide-react";
 import ChatHeader from "@/components/chat-header";
 import ChatSidebar from "@/components/chat-sidebar";
 import ChatMessage from "@/components/chat-message";
@@ -178,10 +178,51 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
 
   useEffect(() => {
     setSessionId(uid());
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!accountId) {
+      setMessages([]);
+      return;
+    }
+
+    const loadHistory = async () => {
+      setIsFetchingHistory(true);
+      try {
+        const res = await fetch(`/api/chat/history/${encodeURIComponent(accountId)}`);
+        if (res.ok && active) {
+          const data = await res.json();
+          if (Array.isArray(data.messages) && data.messages.length > 0) {
+            setMessages(
+              data.messages.map((m: any) => ({
+                id: m.id || uid(),
+                role: m.role === "assistant" ? "ai" : m.role,
+                content: m.content || "",
+                action: m.action,
+                payload: m.payload,
+              }))
+            );
+          } else {
+            setMessages([]);
+          }
+        }
+      } catch (err) {
+        console.warn("[Chat] Failed to load history:", err);
+      } finally {
+        if (active) setIsFetchingHistory(false);
+      }
+    };
+
+    loadHistory();
+    return () => {
+      active = false;
+    };
+  }, [accountId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -420,7 +461,33 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
           <>
         {/* Chat Area */}
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {isEmpty ? (
+          {!accountId ? (
+            /* Connect Wallet Required for Chat History */
+            <div className="flex flex-col items-center justify-center min-h-full px-4 py-6">
+              <div className="max-w-md w-full text-center p-6 rounded-3xl border border-border bg-card/60 backdrop-blur-sm shadow-xl">
+                <img
+                  src="/neptune-logo.png"
+                  alt="Neptune AI"
+                  width={68}
+                  height={68}
+                  className="mx-auto mb-3 rounded-2xl"
+                />
+                <h3 className="text-base font-bold text-foreground mb-1.5">
+                  Connect Wallet to See Chat History
+                </h3>
+                <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
+                  Connect your wallet to restore your persistent conversations, execute trades, and manage autonomous agents.
+                </p>
+                <button
+                  onClick={connectWallet}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all active:scale-95 shadow-md shadow-primary/20"
+                >
+                  <Wallet size={15} />
+                  Connect Wallet
+                </button>
+              </div>
+            </div>
+          ) : isEmpty ? (
             /* Empty State */
             <div className="flex flex-col items-center justify-center min-h-full px-4 py-6">
               <div className="max-w-lg w-full text-center">

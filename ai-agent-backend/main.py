@@ -382,19 +382,15 @@ async def chat_endpoint(body: ChatRequest, request: Request):
     if len(history) > 20:
         session_data["history"] = history[-20:]
 
-    # Persist the conversational turn to dedicated chat database per wallet
-    target_wallet = str(body.account_id or (wallet_addresses.get("near") if wallet_addresses else "") or "").strip()
+    # Persist the conversational turn to persistent chat_messages table per wallet
+    target_wallet = normalize_wallet(body.account_id or (wallet_addresses.get("near") if wallet_addresses else ""))
     if target_wallet:
         try:
-            from database.chat_db import save_chat_turn
-            save_chat_turn(
-                wallet_address=target_wallet,
-                human_message=user_msg,
-                ai_message=ai_text,
-                session_id=session_id
-            )
+            from database.dal import save_chat_message
+            save_chat_message(wallet=target_wallet, role="user", content=user_msg)
+            save_chat_message(wallet=target_wallet, role="assistant", content=ai_text)
         except Exception as ce:
-            print(f"[CHAT DB] Turn persistence notice: {ce}")
+            print(f"[CHAT PERSISTENCE] Message persistence notice: {ce}")
 
     return ChatResponse(
         response=ai_text,
@@ -404,16 +400,65 @@ async def chat_endpoint(body: ChatRequest, request: Request):
 
 @app.get("/api/chat/history/{wallet_address}")
 async def get_chat_history_endpoint(wallet_address: str):
-    """Return the 5 most recent chat turns for a user wallet from dedicated chat database."""
-    from database.chat_db import get_recent_chats
-    chats = get_recent_chats(wallet_address, limit=5)
-    return {"status": "success", "wallet": wallet_address, "history": chats}
+    """Return persistent chat history for a normalized user wallet."""
+    from database.connection import normalize_wallet
+    from database.dal import get_chat_history
+    norm_wallet = normalize_wallet(wallet_address)
+    if not norm_wallet:
+        return {"status": "success", "wallet": "", "messages": [], "history": []}
+    raw_msgs = get_chat_history(norm_wallet, limit=100)
+    
+    messages = [
+        {
+            "id": m["message_id"],
+            "role": "ai" if m["role"] == "assistant" else "user",
+            "content": m["content"],
+            "created_at": m["created_at"]
+        }
+        for m in raw_msgs
+    ]
+    
+    turns = []
+    i = 0
+    while i < len(raw_msgs):
+        if raw_msgs[i]["role"] == "user":
+            h_msg = raw_msgs[i]["content"]
+            ai_msg = ""
+            created_at = raw_msgs[i]["created_at"]
+            if i + 1 < len(raw_msgs) and raw_msgs[i+1]["role"] == "assistant":
+                ai_msg = raw_msgs[i+1]["content"]
+                i += 1
+            turns.append({
+                "id": len(turns) + 1,
+                "wallet_address": norm_wallet,
+                "human_message": h_msg,
+                "ai_message": ai_msg,
+                "created_at": created_at
+            })
+        elif raw_msgs[i]["role"] == "assistant":
+            turns.append({
+                "id": len(turns) + 1,
+                "wallet_address": norm_wallet,
+                "human_message": "(Prompt)",
+                "ai_message": raw_msgs[i]["content"],
+                "created_at": raw_msgs[i]["created_at"]
+            })
+        i += 1
+    
+    return {
+        "status": "success",
+        "wallet": norm_wallet,
+        "messages": messages,
+        "history": turns[-10:]
+    }
 
 @app.delete("/api/chat/history/{wallet_address}")
 async def clear_chat_history_endpoint(wallet_address: str):
-    """Clear chat history for a user wallet in dedicated chat database."""
-    from database.chat_db import clear_chat_history
-    cleared = clear_chat_history(wallet_address)
+    """Clear chat history for a user wallet in persistent database."""
+    from database.connection import normalize_wallet
+    from database.dal import clear_chat_history
+    norm_wallet = normalize_wallet(wallet_address)
+    cleared = clear_chat_history(norm_wallet)
     return {"status": "success", "cleared": cleared}
 
 @app.get("/health")

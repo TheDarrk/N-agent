@@ -363,8 +363,21 @@ CREATE TABLE IF NOT EXISTS marketplace_trade_mirrors (
 );
 
 -- =====================================================================
+-- 7. CHAT & MESSAGING PERSISTENCE (Task 1.2)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS chat_messages (
+    message_id TEXT PRIMARY KEY,
+    wallet TEXT NOT NULL,             -- normalized
+    role TEXT NOT NULL,               -- 'user' | 'assistant'
+    content TEXT NOT NULL,
+    agent_type TEXT,                  -- which agent the message was for, if any
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- =====================================================================
 -- PERFORMANCE & ISOLATION INDEXES
 -- =====================================================================
+CREATE INDEX IF NOT EXISTS idx_chat_wallet ON chat_messages(wallet, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_core_kill_switch ON core_user_wallets(kill_switch_active);
 CREATE INDEX IF NOT EXISTS idx_core_network ON core_user_wallets(network_mode);
 CREATE INDEX IF NOT EXISTS idx_agent_wallets_user ON core_agent_wallets(wallet_address);

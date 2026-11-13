@@ -14,7 +14,7 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Union
 
-from .connection import get_connection, DB_PATH, normalize_wallet, is_turso_enabled
+from .connection import get_connection, DB_PATH, normalize_wallet, is_turso_enabled, _debounced_sync
 from .encryption import get_encryption, WalletEncryption
 
 
@@ -216,9 +216,126 @@ def init_db(db_path: Optional[str] = None):
     except Exception as e:
         print(f"[DB: marketplace migration warning] {e}")
 
+    # Safe migration: ensure chat_messages exists for durable chat persistence
+    try:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            message_id TEXT PRIMARY KEY,
+            wallet TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            agent_type TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_wallet ON chat_messages(wallet, created_at DESC);")
+    except Exception as e:
+        print(f"[DB: chat_messages migration warning] {e}")
+
     conn.commit()
     conn.close()
     print("[DB] Neptune v2.1 database initialized cleanly with 18 tables.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAT & MESSAGING PERSISTENCE (Task 1.2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_chat_message(
+    wallet: str,
+    role: str,
+    content: str,
+    agent_type: Optional[str] = None,
+    message_id: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Persist a chat message with normalized wallet isolation.
+    """
+    clean_wallet = normalize_wallet(wallet)
+    if not clean_wallet:
+        return {}
+    
+    mid = message_id or f"msg_{uuid.uuid4().hex[:16]}"
+    norm_role = "assistant" if role.lower() in ("ai", "assistant", "system") else "user"
+    clean_content = str(content or "")
+
+    conn = get_connection(db_path)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO chat_messages (message_id, wallet, role, content, agent_type, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (mid, clean_wallet, norm_role, clean_content, agent_type, now_iso))
+    conn.commit()
+    if hasattr(conn, "_raw_conn"):
+        _debounced_sync(conn._raw_conn)
+    conn.close()
+
+    return {
+        "message_id": mid,
+        "wallet": clean_wallet,
+        "role": norm_role,
+        "content": clean_content,
+        "agent_type": agent_type,
+        "created_at": now_iso
+    }
+
+
+def get_chat_history(
+    wallet: str,
+    limit: int = 50,
+    db_path: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve chronological chat messages for a normalized wallet.
+    """
+    clean_wallet = normalize_wallet(wallet)
+    if not clean_wallet:
+        return []
+
+    conn = get_connection(db_path)
+    rows = conn.execute("""
+        SELECT message_id, wallet, role, content, agent_type, created_at
+        FROM chat_messages
+        WHERE wallet = ?
+        ORDER BY created_at ASC
+        LIMIT ?
+    """, (clean_wallet, limit)).fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        results.append({
+            "message_id": r["message_id"],
+            "wallet": r["wallet"],
+            "role": r["role"],
+            "content": r["content"],
+            "agent_type": r["agent_type"],
+            "created_at": r["created_at"]
+        })
+    return results
+
+
+def clear_chat_history(
+    wallet: str,
+    db_path: Optional[str] = None
+) -> int:
+    """
+    Clear all chat messages for a normalized wallet.
+    """
+    clean_wallet = normalize_wallet(wallet)
+    if not clean_wallet:
+        return 0
+
+    conn = get_connection(db_path)
+    cur = conn.execute("DELETE FROM chat_messages WHERE wallet = ?", (clean_wallet,))
+    deleted = cur.rowcount if hasattr(cur, "rowcount") else 0
+    conn.commit()
+    if hasattr(conn, "_raw_conn"):
+        _debounced_sync(conn._raw_conn)
+    conn.close()
+    return deleted
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
