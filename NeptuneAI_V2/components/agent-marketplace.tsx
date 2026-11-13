@@ -18,9 +18,11 @@ import {
   TrendingUp,
   Tag,
   ShoppingBag,
-  Sliders
+  Sliders,
+  Zap
 } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
+import { useWallet } from "@/providers/wallet-provider";
 
 type Props = {
   accountId: string | null;
@@ -67,6 +69,10 @@ interface MarketplaceOrder {
 }
 
 export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnectWallet }: Props) {
+  const walletContext = useWallet();
+  const connectWallet = onConnectWallet || walletContext.connectWallet;
+  const signAndSendTransaction = walletContext.signAndSendTransaction;
+
   const [activeTab, setActiveTab] = useState<"browse" | "purchases" | "sales">("browse");
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [myOrders, setMyOrders] = useState<MarketplaceOrder[]>([]);
@@ -77,6 +83,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
   const [buyModalListing, setBuyModalListing] = useState<MarketplaceListing | null>(null);
   const [activeOrder, setActiveOrder] = useState<MarketplaceOrder | null>(null);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
   const [txHashInput, setTxHashInput] = useState("");
   const [verifyStatus, setVerifyStatus] = useState<"idle" | "verifying" | "pending_retry" | "failed" | "completed">("idle");
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null);
@@ -208,7 +215,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
   // Start Buy Flow
   const handleOpenBuyModal = async (listing: MarketplaceListing) => {
     if (!accountId) {
-      if (onConnectWallet) onConnectWallet();
+      if (connectWallet) connectWallet();
       else alert("Please connect your NEAR wallet first.");
       return;
     }
@@ -262,9 +269,58 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
     }
   };
 
+  // 1-Click Auto Pay via Connected Wallet
+  const handleAutoPayAndVerify = async () => {
+    if (!activeOrder || !accountId) return;
+    setIsPaying(true);
+    setVerifyStatus("verifying");
+    setVerifyMessage("Opening wallet to approve USDT transfer...");
+
+    try {
+      const payload = {
+        receiverId: activeOrder.token_contract,
+        actions: [
+          {
+            type: "FunctionCall",
+            params: {
+              methodName: "ft_transfer",
+              args: {
+                receiver_id: activeOrder.payout_wallet,
+                amount: activeOrder.amount_base_units,
+                memo: `Neptune AI Order ${activeOrder.order_id}`
+              },
+              gas: "50000000000000",
+              deposit: "1"
+            }
+          }
+        ]
+      };
+
+      if (!signAndSendTransaction) {
+        throw new Error("Wallet signing function not available. Please send USDT manually using the details below.");
+      }
+
+      const txResult = await signAndSendTransaction(payload);
+      const hash = txResult?.hash || "";
+      if (!hash) {
+        throw new Error("No transaction hash returned from wallet. Paste hash below to verify.");
+      }
+
+      setTxHashInput(hash);
+      setVerifyMessage(`Transfer broadcast: ${hash.slice(0, 10)}... Verifying on NEAR RPC...`);
+      await executeVerify(hash);
+    } catch (err: any) {
+      setVerifyStatus("failed");
+      setVerifyMessage(err.message || "Wallet transaction rejected or failed.");
+    } finally {
+      setIsPaying(false);
+    }
+  };
+
   // Verify Payment on-chain
-  const handleVerifyPayment = async () => {
-    if (!activeOrder || !txHashInput.trim() || !accountId) return;
+  const executeVerify = async (hashToVerify?: string) => {
+    const hash = (hashToVerify || txHashInput).trim();
+    if (!activeOrder || !hash || !accountId) return;
 
     setVerifyStatus("verifying");
     setVerifyMessage("Querying NEAR blockchain RPC for NEP-141 USDT transfer...");
@@ -275,7 +331,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           buyer_wallet: accountId,
-          tx_hash: txHashInput.trim()
+          tx_hash: hash
         })
       });
 
@@ -283,17 +339,17 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
 
       if (data.status === "completed") {
         setVerifyStatus("completed");
-        setVerifyMessage(data.apply_message || "Payment verified! Configuration mirrored to your agent suite.");
+        setVerifyMessage(data.apply_message || "Payment verified! Configuration automatically applied to your agent.");
         localStorage.removeItem("neptune_active_order");
         fetchListings();
         fetchUserOrdersAndSales();
       } else if (data.status === "pending_retry") {
         setVerifyStatus("pending_retry");
         setVerifyMessage(data.message || "Transaction not finalized yet. Auto-retrying in 15 seconds...");
-        startAutoRetryCountdown();
+        startAutoRetryCountdown(hash);
       } else {
         setVerifyStatus("failed");
-        setVerifyMessage(data.message || `Verification failed: ${data.reason}`);
+        setVerifyMessage(data.message || `Verification failed: ${data.reason || "Invalid transaction"}`);
       }
     } catch (e: any) {
       setVerifyStatus("failed");
@@ -301,7 +357,9 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
     }
   };
 
-  const startAutoRetryCountdown = () => {
+  const handleVerifyPayment = () => executeVerify(txHashInput);
+
+  const startAutoRetryCountdown = (hashRetry?: string) => {
     let count = 15;
     setRetryCountdown(count);
     if (retryTimerRef.current) clearInterval(retryTimerRef.current);
@@ -310,7 +368,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
       setRetryCountdown(count);
       if (count <= 0) {
         if (retryTimerRef.current) clearInterval(retryTimerRef.current);
-        handleVerifyPayment();
+        executeVerify(hashRetry || txHashInput);
       }
     }, 1000);
   };
@@ -787,6 +845,45 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* 1-Click Auto-Purchase with Connected Wallet (Task 5.1) */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-primary/15 via-primary/5 to-emerald-500/10 border border-primary/30 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                  <Zap size={14} className="text-primary" />
+                  <span>1-Click Automated Purchase</span>
+                </span>
+                <span className="text-[10px] font-mono text-emerald-400 font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                  Instant Verification
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Execute transfer directly from your connected wallet (<code>{accountId}</code>). Neptune captures your transaction hash and applies the configuration immediately.
+              </p>
+              <button
+                onClick={handleAutoPayAndVerify}
+                disabled={verifyStatus === "verifying" || isPaying}
+                className="w-full py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-xs transition-all shadow-lg shadow-primary/25 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isPaying || verifyStatus === "verifying" ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Processing On-Chain Transfer...</span>
+                  </>
+                ) : (
+                  <>
+                    <DollarSign size={14} />
+                    <span>Pay {activeOrder.amount_usdt} USDT & Activate Agent</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 my-1">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">or manual transfer</span>
+              <div className="flex-1 h-px bg-border" />
             </div>
 
             {/* Step 2: Transfer Guidance */}

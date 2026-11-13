@@ -62,8 +62,13 @@ from marketplace_verify import (
 )
 
 
-@pytest.fixture(scope="module", autouse=True)
-def setup_test_db():
+@pytest.fixture(autouse=True)
+def setup_test_db(monkeypatch):
+    monkeypatch.setenv("TURSO_DATABASE_URL", "")
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "")
+    monkeypatch.setenv("RENDER", "")
+    monkeypatch.setattr("database.connection.is_turso_enabled", lambda: False)
+    monkeypatch.setattr("database.dal.is_turso_enabled", lambda: False)
     init_db()
 
 
