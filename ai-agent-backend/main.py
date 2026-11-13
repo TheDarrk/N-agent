@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
 from contextlib import asynccontextmanager
 
 import uuid
+import asyncio
 import uvicorn
 import os
 import sys
@@ -23,6 +25,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+logger = logging.getLogger("main")
+
 load_dotenv(override=True)
 
 # Import our Agent logic
@@ -35,7 +39,9 @@ from database import (
     get_active_strategies, deactivate_strategy,
     get_agent_logs, activate_kill_switch, deactivate_kill_switch,
     save_agent_key, get_agent_key, get_all_agent_keys,
-    update_agent_key_status, delete_agent_key, delete_all_user_agent_keys
+    update_agent_key_status, delete_agent_key, delete_all_user_agent_keys,
+    create_run, append_run_event, get_run_events, finish_run, get_run,
+    list_runs, mark_stale_runs_failed, normalize_wallet
 )
 from key_manager import (
     generate_near_keypair, generate_evm_keypair, generate_flow_keypair,
@@ -71,6 +77,18 @@ async def lifespan(app):
         init_chat_db()
     except Exception as ce:
         print(f"[STARTUP] Warning: Failed to init chat database: {ce}")
+    
+    # Mark stale running tasks as failed from previous server crashes and log storage health
+    try:
+        from database import DB_PATH, get_connection
+        mark_stale_runs_failed()
+        conn = get_connection()
+        runs_count = conn.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
+        conn.close()
+        print(f"[STARTUP: STORAGE] Resolved DB path: {os.path.abspath(DB_PATH)} | Total agent_runs in DB: {runs_count}")
+    except Exception as re:
+        print(f"[STARTUP] Warning: Failed to clean stale runs: {re}")
+
     print("[STARTUP] Neptune database ready")
     
     # Pre-fetch token list so the autonomy engine can map contracts -> symbols
@@ -117,7 +135,11 @@ async def lifespan(app):
                     moderator = ModeratorAgent()
                     for r in rows:
                         wallet = r["wallet_address"]
-                        await moderator.run_cadence_check(wallet)
+                        mod_res = await moderator.run_cadence_check(wallet)
+                        if mod_res and isinstance(mod_res, dict):
+                            m_run_id = create_run(wallet, "moderator", title="Autonomous Fleet Deliberation", params={"source": "cadence_scheduler"})
+                            cid_val = mod_res.get("cid")
+                            finish_run(m_run_id, result=mod_res, cid=cid_val, error=None)
                 except Exception as me:
                     print(f"[STARTUP] Moderator cadence runner error: {me}")
 
@@ -751,6 +773,154 @@ class ModeratorFrequencyRequest(BaseModel):
     frequency: str  # '1w', '2w', '1m'
 
 
+# =============================================================================
+# DECOUPLED RESILIENT AGENT RUNNER & NDJSON STREAMING ENGINE
+# =============================================================================
+
+RUNNING_TASKS: Dict[str, asyncio.Task] = {}
+
+
+async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
+    """
+    Executes an agent pipeline independently of any HTTP connection.
+    Guarantees every event is appended to SQLite agent_run_events and
+    the final report/strategy/result is persisted in agent_runs on completion or failure.
+    """
+    result, cid, error = None, None, None
+    try:
+        async for raw_item in gen_factory():
+            if isinstance(raw_item, str):
+                try:
+                    event = json.loads(raw_item)
+                except Exception:
+                    event = {"type": "raw", "data": raw_item}
+            else:
+                event = raw_item
+
+            append_run_event(run_id, event)
+
+            evt_type = event.get("type")
+            if evt_type == "result":
+                result = event.get("data")
+            elif evt_type == "final" and "result" in event:
+                result = event["result"]
+            elif evt_type == "step" and "report" in event:
+                result = event["report"]
+            elif evt_type == "step" and "strategy" in event:
+                result = event["strategy"]
+
+            if result and isinstance(result, dict) and result.get("cid"):
+                cid = result["cid"]
+            elif event.get("cid"):
+                cid = event["cid"]
+
+    except asyncio.CancelledError:
+        error = "cancelled"
+        logger.warning(f"Run {run_id} cancelled.")
+        raise
+    except Exception as e:
+        logger.exception("Run %s failed: %s", run_id, e)
+        error = f"{type(e).__name__}: {e}"
+        append_run_event(run_id, {"type": "error", "message": error})
+    finally:
+        finish_run(run_id, result, cid, error)
+        RUNNING_TASKS.pop(run_id, None)
+
+
+async def _stream_run_events(run_id: str, wallet: Optional[str], after: int, request: Request):
+    """
+    NDJSON event stream generator reading committed events from DB.
+    Resumable via after=seq. Disconnection never cancels the underlying task.
+    """
+    current_after = after
+    while True:
+        events = get_run_events(run_id, after_seq=current_after)
+        for ev in events:
+            current_after = max(current_after, ev.get("seq", current_after))
+            yield json.dumps(ev) + "\n"
+
+        run = get_run(run_id, wallet=wallet)
+        if not run:
+            break
+
+        if run.get("status") != "running":
+            trailing = get_run_events(run_id, after_seq=current_after)
+            for ev in trailing:
+                current_after = max(current_after, ev.get("seq", current_after))
+                yield json.dumps(ev) + "\n"
+            yield json.dumps({
+                "type": "run_finished",
+                "status": run.get("status"),
+                "run_id": run_id,
+                "cid": run.get("cid"),
+                "error": run.get("error"),
+                "finished_at": run.get("finished_at")
+            }) + "\n"
+            break
+
+        if await request.is_disconnected():
+            break
+        await asyncio.sleep(0.4)
+
+
+@app.get("/api/runs/{run_id}/stream")
+async def stream_run_endpoint(run_id: str, request: Request, after: int = 0, wallet: Optional[str] = None):
+    run = get_run(run_id, wallet=wallet)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    headers = {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive"
+    }
+    return StreamingResponse(
+        _stream_run_events(run_id, wallet, after, request),
+        media_type="application/x-ndjson",
+        headers=headers
+    )
+
+
+@app.get("/api/runs")
+async def list_runs_endpoint(wallet: str, agent_type: Optional[str] = None, limit: int = 50, offset: int = 0):
+    norm_w = normalize_wallet(wallet)
+    runs = list_runs(norm_w, agent_type=agent_type, limit=limit, offset=offset)
+    return {"runs": runs, "wallet": norm_w}
+
+
+@app.get("/api/runs/{run_id}")
+async def get_run_endpoint(run_id: str, wallet: Optional[str] = None):
+    run = get_run(run_id, wallet=wallet)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"run": run}
+
+
+@app.get("/api/health/storage")
+async def health_storage_endpoint():
+    from database import DB_PATH, get_connection
+    is_writable = False
+    runs_count = 0
+    try:
+        conn = get_connection()
+        runs_count = conn.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
+        conn.close()
+        test_file = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), ".storage_write_test")
+        with open(test_file, "w") as tf:
+            tf.write("ok")
+        if os.path.exists(test_file):
+            os.remove(test_file)
+            is_writable = True
+    except Exception as e:
+        logger.warning(f"Storage health check error: {e}")
+    return {
+        "status": "healthy" if is_writable else "degraded",
+        "db_path": os.path.abspath(DB_PATH),
+        "writable": is_writable,
+        "runs_count": runs_count
+    }
+
+
 # ─── 1. TRADER AGENT ENDPOINTS ───────────────────────────────────
 
 @app.post("/api/trader/analyze")
@@ -771,27 +941,53 @@ async def trader_analyze(body: TraderScanRequest):
     return result
 
 
-@app.post("/api/trader/stream")
-async def trader_stream_endpoint(body: TraderScanRequest):
-    """
-    Real-time streaming trader pipeline.
-    Streams each stage (Pre-scanner -> Screener -> Council -> Judge -> Execution)
-    as it executes on the backend as NDJSON.
-    """
-    from fastapi.responses import StreamingResponse
+@app.post("/api/trader/start")
+async def trader_start_endpoint(body: TraderScanRequest):
+    norm_w = normalize_wallet(body.user_wallet)
+    title = f"Trader Scan ({body.symbol or body.coin_mode or 'auto'})"
+    params = {
+        "symbol": body.symbol,
+        "coin_mode": body.coin_mode,
+        "custom_coins": body.custom_coins,
+        "timeframe": body.timeframe,
+        "min_confidence": body.min_confidence,
+        "enable_researcher_plugin": body.enable_researcher_plugin
+    }
+    run_id = create_run(norm_w, "trader", title=title, params=params)
     from autonomous_agents.trader_agent import TraderAgent
     trader = TraderAgent()
+    gen_factory = lambda: trader.run_pipeline_stream(
+        user_wallet=norm_w,
+        symbol=body.symbol,
+        coin_mode=body.coin_mode,
+        custom_coins=body.custom_coins,
+        force_timeframe=body.timeframe,
+        force_min_confidence=body.min_confidence,
+        enable_researcher_plugin=body.enable_researcher_plugin
+    )
+    task = asyncio.create_task(_execute_run(run_id, "trader", norm_w, gen_factory))
+    RUNNING_TASKS[run_id] = task
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.post("/api/trader/stream")
+async def trader_stream_endpoint(body: TraderScanRequest, request: Request):
+    """
+    Real-time streaming trader pipeline.
+    Runs pipeline independently in background, streaming NDJSON events to client.
+    """
+    res = await trader_start_endpoint(body)
+    run_id = res["run_id"]
+    headers = {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive"
+    }
     return StreamingResponse(
-        trader.run_pipeline_stream(
-            user_wallet=body.user_wallet,
-            symbol=body.symbol,
-            coin_mode=body.coin_mode,
-            custom_coins=body.custom_coins,
-            force_timeframe=body.timeframe,
-            force_min_confidence=body.min_confidence,
-            enable_researcher_plugin=body.enable_researcher_plugin
-        ),
-        media_type="application/x-ndjson"
+        _stream_run_events(run_id, body.user_wallet, 0, request),
+        media_type="application/x-ndjson",
+        headers=headers
     )
 
 @app.get("/api/trader/trades/{wallet_address}")
@@ -915,28 +1111,52 @@ async def rebalancer_generate_strategy(body: RebalanceStrategyRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/rebalancer/stream")
-async def rebalancer_generate_strategy_stream(body: RebalanceStrategyRequest):
-    """
-    Real-time streaming portfolio rebalancing strategy generation yielding NDJSON events:
-    Node 1: Multi-Timeframe Chart Analysis (1h, 1d, 1w)
-    Node 2: Macro BTC Beta & Correlation Matrix
-    Node 3: On-Chain Holdings & Liquidity Context
-    Node 4: Institutional Strategy Formulation & Deterministic Guardrails
-    """
-    from fastapi.responses import StreamingResponse
+@app.post("/api/rebalancer/start")
+async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
+    norm_w = normalize_wallet(body.user_wallet)
+    coins_summary = ", ".join((body.selected_coins or [])[:3])
+    title = f"Rebalance ({coins_summary})" if coins_summary else "Portfolio Rebalance"
+    params = {
+        "selected_coins": body.selected_coins,
+        "user_expectation": body.user_expectation,
+        "current_holdings": body.current_holdings,
+        "cadence_days": body.cadence_days,
+        "min_stable_pct": body.min_stable_pct
+    }
+    run_id = create_run(norm_w, "rebalancer", title=title, params=params)
     from autonomous_agents.rebalancer_agent import RebalancerAgent
     rebalancer = RebalancerAgent()
+    gen_factory = lambda: rebalancer.generate_strategy_stream(
+        user_wallet=norm_w,
+        selected_coins=body.selected_coins,
+        user_expectation=body.user_expectation or "",
+        current_holdings=body.current_holdings,
+        cadence_days=body.cadence_days or 7,
+        min_stable_pct=body.min_stable_pct or 10.0
+    )
+    task = asyncio.create_task(_execute_run(run_id, "rebalancer", norm_w, gen_factory))
+    RUNNING_TASKS[run_id] = task
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.post("/api/rebalancer/stream")
+async def rebalancer_generate_strategy_stream(body: RebalanceStrategyRequest, request: Request):
+    """
+    Real-time streaming portfolio rebalancing strategy generation yielding NDJSON events.
+    Runs independently in background, streaming events to client.
+    """
+    res = await rebalancer_start_endpoint(body)
+    run_id = res["run_id"]
+    headers = {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive"
+    }
     return StreamingResponse(
-        rebalancer.generate_strategy_stream(
-            user_wallet=body.user_wallet,
-            selected_coins=body.selected_coins,
-            user_expectation=body.user_expectation or "",
-            current_holdings=body.current_holdings,
-            cadence_days=body.cadence_days or 7,
-            min_stable_pct=body.min_stable_pct or 10.0
-        ),
-        media_type="application/x-ndjson"
+        _stream_run_events(run_id, body.user_wallet, 0, request),
+        media_type="application/x-ndjson",
+        headers=headers
     )
 
 @app.get("/api/rebalancer/strategy/{wallet_address}")
@@ -1032,24 +1252,49 @@ async def research_generate(body: ResearchRequest):
         requester=body.user_wallet
     )
 
-@app.post("/api/research/stream")
-async def research_stream_endpoint(body: ResearchRequest):
-    """
-    Real-time streaming research pipeline.
-    Streams each step card as it completes on the backend as NDJSON.
-    """
-    from fastapi.responses import StreamingResponse
+@app.post("/api/research/start")
+async def research_start_endpoint(body: ResearchRequest):
+    norm_w = normalize_wallet(body.user_wallet)
+    title = body.topic or "NEAR Research Report"
+    params = {
+        "topic": body.topic,
+        "user_expectations": body.user_expectations,
+        "links": body.links,
+        "date_range": body.date_range
+    }
+    run_id = create_run(norm_w, "research", title=title, params=params)
     from autonomous_agents.research_agent import ResearchAgent
     researcher = ResearchAgent()
+    gen_factory = lambda: researcher.generate_research_report_stream(
+        topic=body.topic or "NEAR Liquid Staking Yields & DEX Liquidity",
+        user_expectations=body.user_expectations,
+        links=body.links,
+        date_range=body.date_range or "1_month",
+        requester=norm_w
+    )
+    task = asyncio.create_task(_execute_run(run_id, "research", norm_w, gen_factory))
+    RUNNING_TASKS[run_id] = task
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.post("/api/research/stream")
+async def research_stream_endpoint(body: ResearchRequest, request: Request):
+    """
+    Real-time streaming research pipeline.
+    Runs pipeline independently in background, streaming NDJSON events to client.
+    """
+    res = await research_start_endpoint(body)
+    run_id = res["run_id"]
+    headers = {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive"
+    }
     return StreamingResponse(
-        researcher.generate_research_report_stream(
-            topic=body.topic or "NEAR Liquid Staking Yields & DEX Liquidity",
-            user_expectations=body.user_expectations,
-            links=body.links,
-            date_range=body.date_range or "1_month",
-            requester=body.user_wallet
-        ),
-        media_type="application/x-ndjson"
+        _stream_run_events(run_id, body.user_wallet, 0, request),
+        media_type="application/x-ndjson",
+        headers=headers
     )
 
 @app.post("/api/research/hire")

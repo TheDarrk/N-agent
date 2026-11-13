@@ -6,6 +6,14 @@ import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-sect
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { setVisibleInterval } from "@/lib/visible-interval";
 import {
+  startRun,
+  streamRun,
+  getRun,
+  listRuns,
+  getActiveRun,
+  setActiveRun,
+} from "@/lib/agent-runs";
+import {
   Scale,
   RotateCw,
   Play,
@@ -292,6 +300,21 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
     }
   };
 
+  const handleStreamEvent = useCallback((ev: any) => {
+    if (ev.type === "step") {
+      setGenerationStep(ev.agent_reasoning || `Executing Step ${ev.step_number || ""}`);
+      if (ev.strategy) {
+        setActiveStrategy(ev.strategy);
+      }
+    } else if (ev.type === "final" && ev.result) {
+      setActiveStrategy(ev.result);
+      setGenerationStep("Strategy synthesized and saved to database!");
+    } else if (ev.type === "run_finished") {
+      setIsGenerating(false);
+      setGenerationStep("");
+    }
+  }, []);
+
   useEffect(() => {
     fetchStrategyAndStatus();
 
@@ -304,11 +327,54 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
 
     const cleanup = setVisibleInterval(fetchStrategyAndStatus, 20000);
 
+    const abortCtrl = new AbortController();
+    async function checkActiveRebalanceRun() {
+      if (!accountId) return;
+      const activeRunId = getActiveRun("rebalancer", accountId);
+      if (activeRunId) {
+        try {
+          const run = await getRun(activeRunId, accountId);
+          if (run) {
+            if (run.status === "completed" && run.result) {
+              setActiveStrategy(run.result as any);
+              setActiveRun("rebalancer", accountId, null);
+              setIsGenerating(false);
+              return;
+            } else if (run.status === "failed") {
+              setActiveRun("rebalancer", accountId, null);
+              setIsGenerating(false);
+              return;
+            } else if (run.status === "running") {
+              setIsGenerating(true);
+              setGenerationStep("Resuming strategy generation in background...");
+              streamRun(
+                activeRunId,
+                handleStreamEvent,
+                0,
+                abortCtrl.signal
+              )
+                .then(() => {
+                  setActiveRun("rebalancer", accountId, null);
+                  setIsGenerating(false);
+                  fetchStrategyAndStatus();
+                })
+                .catch(() => {});
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn("[REBALANCER] Error reconnecting active run:", e);
+        }
+      }
+    }
+    checkActiveRebalanceRun();
+
     return () => {
       cleanup();
+      abortCtrl.abort();
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [accountId]);
+  }, [accountId, handleStreamEvent]);
 
   // ─── COIN SELECTION (ADD / REMOVE) ───
   const handleToggleCoin = (sym: string) => {
@@ -369,44 +435,54 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
     setGenerationStep("Ingesting 1h, 1d, 1w closed candles (zero lookahead)...");
 
     try {
-      setTimeout(() => {
-        setGenerationStep("Computing BTC Beta, correlation matrix & 1Click dry-run quotes...");
-      }, 2000);
-
-      setTimeout(() => {
-        setGenerationStep("Synthesizing 20 Trading Book heuristics & enforcing min stable floor...");
-      }, 4500);
-
-      const res = await fetch("/api/rebalancer/generate-strategy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_wallet: accountId,
-          selected_coins: selectedCoins,
-          user_expectation: userExpectation,
-          current_holdings: currentHoldings,
-          cadence_days: cadenceDays,
-          min_stable_pct: minStablePct
-        })
+      const { run_id } = await startRun("rebalancer", {
+        user_wallet: accountId,
+        selected_coins: selectedCoins,
+        user_expectation: userExpectation,
+        current_holdings: currentHoldings,
+        cadence_days: cadenceDays,
+        min_stable_pct: minStablePct
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server returned ${res.status}`);
-      }
+      setActiveRun("rebalancer", accountId, run_id);
 
-      const newStrategy = await res.json();
-      setActiveStrategy(newStrategy);
-      setGenerationStep("Strategy saved to Rebalancer DB! Agent status activated.");
+      await streamRun(run_id, handleStreamEvent, 0);
 
-      // Refresh live status & history
+      setActiveRun("rebalancer", accountId, null);
       await fetchStrategyAndStatus();
     } catch (e: any) {
-      console.error("Strategy generation error:", e);
-      alert(`Error generating strategy: ${e.message || String(e)}`);
+      console.warn("Direct stream encounter, falling back to synchronous generation:", e);
+      try {
+        const res = await fetch("/api/rebalancer/generate-strategy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_wallet: accountId,
+            selected_coins: selectedCoins,
+            user_expectation: userExpectation,
+            current_holdings: currentHoldings,
+            cadence_days: cadenceDays,
+            min_stable_pct: minStablePct
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server returned ${res.status}`);
+        }
+
+        const newStrategy = await res.json();
+        setActiveStrategy(newStrategy);
+        setGenerationStep("Strategy saved to Rebalancer DB! Agent status activated.");
+        await fetchStrategyAndStatus();
+      } catch (err: any) {
+        console.error("Strategy generation error:", err);
+        alert(`Error generating strategy: ${err.message || String(err)}`);
+      }
     } finally {
       setIsGenerating(false);
       setGenerationStep("");
+      setActiveRun("rebalancer", accountId, null);
     }
   };
 

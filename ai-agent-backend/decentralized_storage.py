@@ -14,11 +14,13 @@ from datetime import datetime, timezone
 MAX_TRADER_TRACES = 24
 MAX_RESEARCH_REPORTS = 5
 MAX_RECENT_ITEMS = 24
-LOGS_DIR = os.path.join(os.path.dirname(__file__), "reasoning_logs")
-REPORTS_DIR = os.path.join(os.path.dirname(__file__), "research_reports")
+LOGS_DIR = os.getenv("REASONING_LOGS_DIR") or os.path.join(os.path.dirname(__file__), "reasoning_logs")
+REPORTS_DIR = os.getenv("RESEARCH_REPORTS_DIR") or os.path.join(os.path.dirname(__file__), "research_reports")
+MODERATOR_DIR = os.getenv("MODERATOR_LOGS_DIR") or os.path.join(os.path.dirname(__file__), "reasoning_logs", "moderator")
 
 os.makedirs(LOGS_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
+os.makedirs(MODERATOR_DIR, exist_ok=True)
 
 STORACHA_KEY = os.getenv("STORACHA_KEY", "")
 
@@ -87,12 +89,15 @@ async def upload_trade_trace(trace: Dict[str, Any]) -> str:
             print(f"[STORAGE: DB TRACE ERROR] {dbe}")
 
     # Also save to local recent files
-    timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
-    filepath = os.path.join(LOGS_DIR, f"trace_{timestamp}_{cid[:10]}.json")
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(trace, f, indent=2)
+    try:
+        timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
+        filepath = os.path.join(LOGS_DIR, f"trace_{timestamp}_{cid[:10]}.json")
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(trace, f, indent=2)
+        _prune_directory(LOGS_DIR, MAX_TRADER_TRACES)
+    except Exception as fe:
+        print(f"[STORAGE: LOCAL FILE TRACE WARNING] {fe}")
 
-    _prune_directory(LOGS_DIR, MAX_TRADER_TRACES)
     print(f"[STORAGE] Trade reasoning trace saved: {cid} (user: {wallet or 'global'})")
     return cid
 
@@ -128,12 +133,15 @@ async def upload_research_report(report: Dict[str, Any]) -> str:
             print(f"[STORAGE: DB REPORT ERROR] {dbe}")
 
     # Also save to local recent files
-    timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
-    filepath = os.path.join(REPORTS_DIR, f"report_{timestamp}_{cid[:10]}.json")
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2)
+    try:
+        timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
+        filepath = os.path.join(REPORTS_DIR, f"report_{timestamp}_{cid[:10]}.json")
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        _prune_directory(REPORTS_DIR, MAX_RESEARCH_REPORTS)
+    except Exception as fe:
+        print(f"[STORAGE: LOCAL FILE REPORT WARNING] {fe}")
 
-    _prune_directory(REPORTS_DIR, MAX_RESEARCH_REPORTS)
     print(f"[STORAGE] Research report saved: {cid} (user: {wallet or 'global'})")
     return cid
 

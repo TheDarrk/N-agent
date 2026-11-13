@@ -1,7 +1,15 @@
 "use client";
 
 import { setVisibleInterval } from "@/lib/visible-interval"
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  startRun,
+  streamRun,
+  getRun,
+  listRuns,
+  getActiveRun,
+  setActiveRun,
+} from "@/lib/agent-runs";
 import {
   TrendingUp,
   Activity,
@@ -363,42 +371,57 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   // In-progress scan persistence across page refreshes and tab switches
   useEffect(() => {
     if (!accountId) return;
-    try {
-      const rawMeta = localStorage.getItem("neptune_trader_scan_in_progress");
-      if (rawMeta) {
-        const meta = JSON.parse(rawMeta);
-        const elapsed = Date.now() - (meta.startedAt || 0);
-        if (meta.accountId === accountId && elapsed < 120000) {
-          setIsScanning(true);
-          const pollInterval = setInterval(async () => {
-            try {
-              const res = await fetch(`/api/trader/traces/${encodeURIComponent(accountId)}`);
-              if (res.ok) {
-                const traceData = await res.json();
-                const list = traceData.traces || [];
-                setTraces(list);
-                if (list.length > 0) {
-                  const newest = list[0];
-                  const traceTime = newest.created_at ? new Date(newest.created_at).getTime() : 0;
-                  const currentElapsed = Date.now() - meta.startedAt;
-                  if (traceTime >= meta.startedAt - 5000 || currentElapsed > 35000) {
-                    setIsScanning(false);
-                    localStorage.removeItem("neptune_trader_scan_in_progress");
-                    clearInterval(pollInterval);
-                    await fetchTrades();
-                  }
-                }
-              }
-            } catch {}
-          }, 3000);
+    const abortCtrl = new AbortController();
 
-          return () => clearInterval(pollInterval);
-        } else {
-          localStorage.removeItem("neptune_trader_scan_in_progress");
+    async function checkActiveTraderRun() {
+      const activeRunId = getActiveRun("trader", accountId);
+      if (activeRunId) {
+        try {
+          const run = await getRun(activeRunId, accountId);
+          if (run) {
+            if (run.status === "completed" && run.result) {
+              setScanResult(run.result);
+              setActiveRun("trader", accountId, null);
+              setIsScanning(false);
+              await fetchTrades();
+              return;
+            } else if (run.status === "failed") {
+              setActiveRun("trader", accountId, null);
+              setIsScanning(false);
+              return;
+            } else if (run.status === "running") {
+              setIsScanning(true);
+              streamRun(
+                activeRunId,
+                (ev) => {
+                  if (ev.type === "final" && ev.result) {
+                    setScanResult(ev.result);
+                  }
+                },
+                0,
+                abortCtrl.signal
+              )
+                .then(() => {
+                  setActiveRun("trader", accountId, null);
+                  setIsScanning(false);
+                  fetchTrades();
+                })
+                .catch(() => {});
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn("[TRADER] Error reconnecting active run:", e);
         }
       }
-    } catch {}
-  }, [accountId]);
+    }
+
+    checkActiveTraderRun();
+
+    return () => {
+      abortCtrl.abort();
+    };
+  }, [accountId, fetchTrades]);
 
   // Handle adding custom coin (max 20)
   const handleAddCustomCoin = () => {
@@ -426,42 +449,55 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       if (onConnectWallet) onConnectWallet(); else alert("Please connect your wallet first");
       return;
     }
-    const scanMeta = {
-      accountId,
-      startedAt: Date.now(),
-      coinMode,
-      timeframe,
-    };
-    try {
-      localStorage.setItem("neptune_trader_scan_in_progress", JSON.stringify(scanMeta));
-    } catch {}
     setIsScanning(true);
     try {
-      const res = await fetch("/api/trader/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_wallet: accountId,
-          coin_mode: coinMode,
-          custom_coins: coinMode === "custom" ? customCoins : undefined,
-          timeframe: timeframe,
-          min_confidence: minConfidence,
-          enable_researcher_plugin: enableResearcher,
-        }),
+      const { run_id } = await startRun("trader", {
+        user_wallet: accountId,
+        coin_mode: coinMode,
+        custom_coins: coinMode === "custom" ? customCoins : undefined,
+        timeframe: timeframe,
+        min_confidence: minConfidence,
+        enable_researcher_plugin: enableResearcher,
       });
-      const data = await res.json();
-      setScanResult(data);
-      try {
-        localStorage.setItem("neptune_latest_trader_run_" + accountId, JSON.stringify(data));
-      } catch {}
+
+      setActiveRun("trader", accountId, run_id);
+
+      await streamRun(
+        run_id,
+        (ev) => {
+          if (ev.type === "final" && ev.result) {
+            setScanResult(ev.result);
+          }
+        },
+        0
+      );
+
+      setActiveRun("trader", accountId, null);
       await fetchTrades();
-    } catch (e) {
-      console.error("Scan error:", e);
+    } catch (e: any) {
+      console.warn("Direct stream encounter, falling back to synchronous scan:", e);
+      try {
+        const res = await fetch("/api/trader/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_wallet: accountId,
+            coin_mode: coinMode,
+            custom_coins: coinMode === "custom" ? customCoins : undefined,
+            timeframe: timeframe,
+            min_confidence: minConfidence,
+            enable_researcher_plugin: enableResearcher,
+          }),
+        });
+        const data = await res.json();
+        setScanResult(data);
+        await fetchTrades();
+      } catch (err) {
+        console.error("Scan fallback error:", err);
+      }
     } finally {
       setIsScanning(false);
-      try {
-        localStorage.removeItem("neptune_trader_scan_in_progress");
-      } catch {}
+      setActiveRun("trader", accountId, null);
     }
   };
 

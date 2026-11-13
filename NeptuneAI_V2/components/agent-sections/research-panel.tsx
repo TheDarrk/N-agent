@@ -4,8 +4,16 @@ import { tilt3d } from "./trader/tilt-3d";
 import ReportView from "./research/report-view";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { setVisibleInterval } from "@/lib/visible-interval";
+import {
+  startRun,
+  streamRun,
+  getRun,
+  listRuns,
+  getActiveRun,
+  setActiveRun,
+} from "@/lib/agent-runs";
 import {
   FileText,
   Sparkles,
@@ -209,48 +217,103 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [fetchReports]);
 
-  // Check if a research generation was in progress before refresh
+  const handleStreamEvent = useCallback((data: any) => {
+    if (data.type === "step" && data.card) {
+      setStepCards((prev) => {
+        const updated = [...prev];
+        updated[data.step_number - 1] = data.card;
+        return updated;
+      });
+      setCurrentActiveStep(data.step_number + 1);
+      if (data.report) {
+        setActiveReport(data.report);
+      }
+    } else if (data.type === "result" && data.data) {
+      setActiveReport(data.data);
+      if (data.data.cot_step_cards) {
+        setStepCards(data.data.cot_step_cards);
+      }
+    } else if (data.type === "pre_crawl") {
+      setLiveToolCalls((prev) => [
+        ...prev,
+        {
+          tool: "pre_crawl",
+          args: { links: data.links },
+          thought: data.message || "Pre-crawling user seed links to depth 4...",
+        },
+      ]);
+    } else if (data.type === "tool_call") {
+      setLiveToolCalls((prev) => [...prev, data]);
+    } else if (data.type === "run_finished") {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Check if a research generation was in progress before refresh or tab switch
   useEffect(() => {
     if (!accountId) return;
-    try {
-      const raw = localStorage.getItem("neptune_research_in_progress");
-      if (raw) {
-        const meta = JSON.parse(raw);
-        const elapsed = Date.now() - (meta.startedAt || 0);
-        if (meta.accountId === accountId && elapsed < 180000) {
-          setIsLoading(true);
-          const poll = setInterval(async () => {
-            try {
-              const res = await fetch(`/api/research/reports/${encodeURIComponent(accountId)}`);
-              if (res.ok) {
-                const data = await res.json();
-                const list = data.reports || [];
-                setReports(list);
-                if (list.length > 0) {
-                  const newest = list[0];
-                  const created = newest.created_at ? new Date(newest.created_at).getTime() : 0;
-                  const currentElapsed = Date.now() - meta.startedAt;
-                  if (created >= meta.startedAt - 5000 || currentElapsed > 45000) {
-                    setIsLoading(false);
-                    setActiveReport(newest);
-                    if (newest.cot_step_cards) setStepCards(newest.cot_step_cards);
-                    localStorage.removeItem("neptune_research_in_progress");
-                    try {
-                      localStorage.setItem("neptune_latest_research_" + accountId, JSON.stringify(newest));
-                    } catch {}
-                    clearInterval(poll);
-                  }
-                }
-              }
-            } catch {}
-          }, 3000);
-          return () => clearInterval(poll);
-        } else {
-          localStorage.removeItem("neptune_research_in_progress");
+    const abortCtrl = new AbortController();
+
+    async function checkActiveOrLatest() {
+      const activeRunId = getActiveRun("research", accountId);
+      if (activeRunId) {
+        try {
+          const run = await getRun(activeRunId, accountId);
+          if (run) {
+            if (run.status === "completed" && run.result) {
+              setActiveReport(run.result as Report);
+              if (run.result.cot_step_cards) setStepCards(run.result.cot_step_cards);
+              setActiveRun("research", accountId, null);
+              setIsLoading(false);
+              return;
+            } else if (run.status === "failed") {
+              setActiveRun("research", accountId, null);
+              setIsLoading(false);
+              return;
+            } else if (run.status === "running") {
+              setIsLoading(true);
+              setShowSteps(true);
+              streamRun(
+                activeRunId,
+                handleStreamEvent,
+                0,
+                abortCtrl.signal
+              )
+                .then(() => {
+                  setActiveRun("research", accountId, null);
+                  setIsLoading(false);
+                  fetchReports();
+                })
+                .catch(() => {});
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn("[RESEARCH] Error reconnecting active run:", e);
         }
       }
-    } catch {}
-  }, [accountId]);
+
+      // If no active run or completed, fetch latest completed run from backend
+      try {
+        const historyRuns = await listRuns(accountId, "research", 1);
+        if (historyRuns.length > 0 && !activeReport) {
+          const latestRun = await getRun(historyRuns[0].run_id, accountId);
+          if (latestRun?.result) {
+            setActiveReport(latestRun.result as Report);
+            if (latestRun.result.cot_step_cards) setStepCards(latestRun.result.cot_step_cards);
+          }
+        }
+      } catch (e) {
+        console.warn("[RESEARCH] Error fetching latest run:", e);
+      }
+    }
+
+    checkActiveOrLatest();
+
+    return () => {
+      abortCtrl.abort();
+    };
+  }, [accountId, handleStreamEvent, fetchReports]);
 
   const handleGenerate = async () => {
     if (!accountId) {
@@ -259,19 +322,13 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       return;
     }
 
-    try {
-      localStorage.setItem(
-        "neptune_research_in_progress",
-        JSON.stringify({ accountId, startedAt: Date.now(), topic })
-      );
-    } catch {}
-
-    // Immediately clear all previous reports & cards to avoid any stale dummy context
+    // Immediately clear previous cards to avoid stale context
     setActiveReport(null);
     setStepCards([]);
     setLiveToolCalls([]);
     setCurrentActiveStep(1);
     setIsLoading(true);
+    setShowSteps(true);
 
     const parsedLinks = linksInput
       .split("\n")
@@ -279,77 +336,21 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       .filter((l) => l.length > 0 && l.startsWith("http"));
 
     try {
-      // Connect to real-time backend stream (no fake timers!)
-      const res = await fetch("/api/research/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_wallet: accountId,
-          topic: topic,
-          user_expectations: userExpectations,
-          links: parsedLinks,
-          date_range: dateRange,
-        }),
+      const { run_id } = await startRun("research", {
+        user_wallet: accountId,
+        topic,
+        user_expectations: userExpectations,
+        links: parsedLinks,
+        date_range: dateRange,
       });
 
-      if (!res.ok) {
-        throw new Error(`Streaming failed with status HTTP ${res.status}`);
-      }
+      setActiveRun("research", accountId, run_id);
 
-      const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error("No response stream available from backend");
-      }
+      await streamRun(run_id, handleStreamEvent, 0);
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const data = JSON.parse(trimmed);
-            if (data.type === "step" && data.card) {
-              setStepCards((prev) => {
-                const updated = [...prev];
-                updated[data.step_number - 1] = data.card;
-                return updated;
-              });
-              setCurrentActiveStep(data.step_number + 1);
-              if (data.report) {
-                setActiveReport(data.report);
-                try {
-                  localStorage.setItem("neptune_latest_research_" + accountId, JSON.stringify(data.report));
-                } catch {}
-              }
-            } else if (data.type === "pre_crawl") {
-              setLiveToolCalls((prev) => [
-                ...prev,
-                {
-                  tool: "pre_crawl",
-                  args: { links: data.links },
-                  thought: data.message || "Pre-crawling user seed links to depth 4..."
-                }
-              ]);
-            } else if (data.type === "tool_call") {
-              setLiveToolCalls((prev) => [...prev, data]);
-            } else if (data.type === "done") {
-              break;
-            }
-          } catch (pe) {
-            console.error("NDJSON chunk parse error:", pe);
-          }
-        }
-      }
+      setActiveRun("research", accountId, null);
       await fetchReports();
-    } catch (e) {
+    } catch (e: any) {
       console.warn("Direct stream encounter, falling back to synchronous generation:", e);
       try {
         const res = await fetch("/api/research/generate", {
@@ -369,9 +370,6 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
           if (generated.cot_step_cards) {
             setStepCards(generated.cot_step_cards);
           }
-          try {
-            localStorage.setItem("neptune_latest_research_" + accountId, JSON.stringify(generated));
-          } catch {}
           await fetchReports();
         }
       } catch (err) {
@@ -380,9 +378,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
     } finally {
       setIsLoading(false);
       setCurrentActiveStep(0);
-      try {
-        localStorage.removeItem("neptune_research_in_progress");
-      } catch {}
+      setActiveRun("research", accountId, null);
     }
   };
 
