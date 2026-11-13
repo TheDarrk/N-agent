@@ -444,7 +444,7 @@ async def get_chat_history_endpoint(wallet_address: str):
     from database.dal import get_chat_history
     norm_wallet = normalize_wallet(wallet_address)
     if not norm_wallet:
-        return {"status": "success", "wallet": "", "messages": [], "history": []}
+        raise HTTPException(status_code=400, detail="Valid wallet address is required to access chat history")
     raw_msgs = get_chat_history(norm_wallet, limit=100)
     
     messages = [
@@ -497,6 +497,8 @@ async def clear_chat_history_endpoint(wallet_address: str):
     from database.connection import normalize_wallet
     from database.dal import clear_chat_history
     norm_wallet = normalize_wallet(wallet_address)
+    if not norm_wallet:
+        raise HTTPException(status_code=400, detail="Valid wallet address is required")
     cleared = clear_chat_history(norm_wallet)
     return {"status": "success", "cleared": cleared}
 
@@ -1175,12 +1177,16 @@ async def stream_run_endpoint(run_id: str, request: Request, after: int = 0, wal
 @app.get("/api/runs")
 async def list_runs_endpoint(wallet: str, agent_type: Optional[str] = None, limit: int = 50, offset: int = 0):
     norm_w = normalize_wallet(wallet)
+    if not norm_w:
+        raise HTTPException(status_code=400, detail="Valid wallet query parameter is required to access runs")
     runs = list_runs(norm_w, agent_type=agent_type, limit=limit, offset=offset)
     return {"runs": runs, "wallet": norm_w}
 
 
 @app.get("/api/runs/{run_id}")
 async def get_run_endpoint(run_id: str, wallet: Optional[str] = None):
+    if not wallet or not normalize_wallet(wallet):
+        raise HTTPException(status_code=400, detail="Wallet parameter is required to access encrypted run details")
     run = get_run(run_id, wallet=wallet)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")

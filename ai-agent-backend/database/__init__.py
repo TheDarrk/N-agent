@@ -12,6 +12,7 @@ from .connection import (
     connect_libsql_local
 )
 from .encryption import WalletEncryption, get_encryption
+from .crypto import derive_user_key, encrypt_field, decrypt_field, encrypt_dict, decrypt_dict
 from .dal import *
 from .chat_db import init_chat_db, save_chat_turn, get_recent_chats, clear_chat_history
 from marketplace_service import (

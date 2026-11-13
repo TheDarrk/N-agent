@@ -16,6 +16,7 @@ from typing import Optional, List, Dict, Any, Union
 
 from .connection import get_connection, DB_PATH, normalize_wallet, is_turso_enabled, _debounced_sync
 from .encryption import get_encryption, WalletEncryption
+from .crypto import encrypt_dict, decrypt_dict, encrypt_field, decrypt_field
 
 
 def init_db(db_path: Optional[str] = None):
@@ -280,13 +281,14 @@ def save_chat_message(
     mid = message_id or f"msg_{uuid.uuid4().hex[:16]}"
     norm_role = "assistant" if role.lower() in ("ai", "assistant", "system") else "user"
     clean_content = str(content or "")
+    encrypted_content = encrypt_field(clean_wallet, clean_content)
 
     conn = get_connection(db_path)
     now_iso = datetime.now(timezone.utc).isoformat()
     conn.execute("""
         INSERT INTO chat_messages (message_id, wallet, role, content, agent_type, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (mid, clean_wallet, norm_role, clean_content, agent_type, now_iso))
+    """, (mid, clean_wallet, norm_role, encrypted_content, agent_type, now_iso))
     conn.commit()
     if hasattr(conn, "_raw_conn"):
         _debounced_sync(conn._raw_conn)
@@ -308,7 +310,7 @@ def get_chat_history(
     db_path: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Retrieve chronological chat messages for a normalized wallet.
+    Retrieve chronological chat messages for a normalized wallet (decrypted with wallet key).
     """
     clean_wallet = normalize_wallet(wallet)
     if not clean_wallet:
@@ -330,7 +332,7 @@ def get_chat_history(
             "message_id": r["message_id"],
             "wallet": r["wallet"],
             "role": r["role"],
-            "content": r["content"],
+            "content": decrypt_field(clean_wallet, r["content"]),
             "agent_type": r["agent_type"],
             "created_at": r["created_at"]
         })
@@ -968,6 +970,9 @@ def save_rebalancer_strategy(
         "captured_at_utc": datetime.now(timezone.utc).isoformat()
     }
 
+    enc_raw_pydantic = encrypt_dict(user_wallet, raw_pydantic_output or {})
+    enc_config_snapshot = encrypt_dict(user_wallet, config_snapshot)
+
     # 3. Insert new active strategy
     cursor = conn.execute("""
         INSERT INTO rebalancer_strategies (
@@ -978,8 +983,8 @@ def save_rebalancer_strategy(
     """, (
         user_wallet, json.dumps(selected_coins), user_expectation, cadence_days,
         json.dumps(allocations or {}), json.dumps(tp_sl_rules or []), market_regime,
-        overall_strategy, json.dumps(raw_pydantic_output or {}), float(min_stable_pct),
-        json.dumps(config_snapshot)
+        overall_strategy, enc_raw_pydantic, float(min_stable_pct),
+        enc_config_snapshot
     ))
     new_id = cursor.lastrowid
 
@@ -995,7 +1000,7 @@ def save_rebalancer_strategy(
     result["selected_coins"] = json.loads(result["selected_coins_json"])
     result["allocations"] = json.loads(result["allocations_json"])
     result["tp_sl_rules"] = json.loads(result["tp_sl_rules_json"])
-    result["raw_pydantic_output"] = json.loads(result["raw_pydantic_output_json"])
+    result["raw_pydantic_output"] = decrypt_dict(user_wallet, result.get("raw_pydantic_output_json"))
     return result
 
 
@@ -1051,10 +1056,7 @@ def get_active_rebalancer_strategy(user_wallet: str) -> Optional[Dict[str, Any]]
         res["tp_sl_rules"] = json.loads(res.get("tp_sl_rules_json", "[]"))
     except Exception:
         res["tp_sl_rules"] = []
-    try:
-        res["raw_pydantic_output"] = json.loads(res.get("raw_pydantic_output_json", "{}"))
-    except Exception:
-        res["raw_pydantic_output"] = {}
+    res["raw_pydantic_output"] = decrypt_dict(user_wallet, res.get("raw_pydantic_output_json"))
     return res
 
 
@@ -3552,17 +3554,18 @@ def get_moderator_cadence_info(user_wallet: str) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def create_run(wallet: str, agent_type: str, title: Optional[str] = None, params: Optional[Dict[str, Any]] = None, db_path: Optional[str] = None) -> str:
-    """Creates a new tracked agent run row in 'running' status with initial heartbeat."""
+    """Creates a new tracked agent run row in 'running' status with initial heartbeat and encrypted params."""
     norm_w = normalize_wallet(wallet)
     upsert_user(norm_w)
     run_id = uuid.uuid4().hex
     now_iso = datetime.now(timezone.utc).isoformat()
+    enc_params = encrypt_dict(norm_w, params or {})
     conn = get_connection(db_path)
     conn.execute("""
         INSERT INTO agent_runs (
             run_id, wallet, agent_type, status, title, params_json, created_at, last_heartbeat
         ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
-    """, (run_id, norm_w, agent_type, title, json.dumps(params or {}), now_iso, now_iso))
+    """, (run_id, norm_w, agent_type, title, enc_params, now_iso, now_iso))
     conn.commit()
     if hasattr(conn, "sync"):
         conn.sync()
@@ -3628,26 +3631,30 @@ def get_run_events(run_id: str, after_seq: int = 0) -> List[Dict[str, Any]]:
     return events
 
 
-def finish_run(run_id: str, result: Optional[Dict[str, Any]] = None, cid: Optional[str] = None, error: Optional[str] = None):
-    """Marks a run completed or failed and persists the final output. Always succeeds."""
+def finish_run(run_id: str, result: Optional[Dict[str, Any]] = None, cid: Optional[str] = None, error: Optional[str] = None, db_path: Optional[str] = None):
+    """Marks a run completed or failed and persists encrypted output. Always succeeds."""
     status = "failed" if error else "completed"
     finished_at = datetime.now(timezone.utc).isoformat()
-    result_json = json.dumps(result) if result is not None else None
-    conn = get_connection()
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT wallet FROM agent_runs WHERE run_id = ?", (run_id,)).fetchone()
+    run_wallet = row["wallet"] if row else ""
+    enc_result = encrypt_dict(run_wallet, result) if result is not None else None
+    enc_error = encrypt_field(run_wallet, error) if error is not None else None
+
     conn.execute("""
         UPDATE agent_runs
         SET status = ?, result_json = COALESCE(?, result_json), cid = COALESCE(?, cid), error = ?, finished_at = ?
         WHERE run_id = ?
-    """, (status, result_json, cid, error, finished_at, run_id))
+    """, (status, enc_result, cid, enc_error, finished_at, run_id))
     conn.commit()
     if hasattr(conn, "sync"):
         conn.sync()
     conn.close()
 
 
-def get_run(run_id: str, wallet: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Gets a full agent run by run_id, enforcing wallet ownership if wallet is passed."""
-    conn = get_connection()
+def get_run(run_id: str, wallet: Optional[str] = None, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Gets a full agent run by run_id, enforcing wallet ownership and transparently decrypting fields."""
+    conn = get_connection(db_path)
     if wallet:
         norm_w = normalize_wallet(wallet)
         row = conn.execute("SELECT * FROM agent_runs WHERE run_id = ? AND wallet = ?", (run_id, norm_w)).fetchone()
@@ -3657,23 +3664,19 @@ def get_run(run_id: str, wallet: Optional[str] = None) -> Optional[Dict[str, Any
     if not row:
         return None
     d = dict(row)
-    try:
-        d["params"] = json.loads(d["params_json"]) if d.get("params_json") else {}
-    except Exception:
-        d["params"] = {}
-    try:
-        d["result"] = json.loads(d["result_json"]) if d.get("result_json") else None
-    except Exception:
-        d["result"] = None
+    dec_wallet = d.get("wallet") or (normalize_wallet(wallet) if wallet else "")
+    d["params"] = decrypt_dict(dec_wallet, d.get("params_json"))
+    d["result"] = decrypt_dict(dec_wallet, d.get("result_json"))
+    d["error"] = decrypt_field(dec_wallet, d.get("error"))
     return d
 
 
-def list_runs(wallet: str, agent_type: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-    """Lists run metadata (excluding heavy result_json) for history views."""
+def list_runs(wallet: str, agent_type: Optional[str] = None, limit: int = 50, offset: int = 0, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Lists run metadata (excluding heavy result_json) with decrypted params/errors for history views."""
     norm_w = normalize_wallet(wallet)
     if not norm_w:
         return []
-    conn = get_connection()
+    conn = get_connection(db_path)
     if agent_type:
         rows = conn.execute("""
             SELECT run_id, wallet, agent_type, status, title, params_json, cid, error, created_at, finished_at, last_heartbeat
@@ -3692,10 +3695,8 @@ def list_runs(wallet: str, agent_type: Optional[str] = None, limit: int = 50, of
     runs = []
     for r in rows:
         d = dict(r)
-        try:
-            d["params"] = json.loads(d["params_json"]) if d.get("params_json") else {}
-        except Exception:
-            d["params"] = {}
+        d["params"] = decrypt_dict(norm_w, d.get("params_json"))
+        d["error"] = decrypt_field(norm_w, d.get("error"))
         runs.append(d)
     return runs
 

@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 
 from database.connection import get_connection, normalize_wallet
+from database.crypto import encrypt_dict, decrypt_dict, encrypt_field, decrypt_field
 
 # Constants
 DEFAULT_USDT_CONTRACT_MAINNET = "usdt.tether-token.near"
@@ -181,6 +182,9 @@ def create_marketplace_listing(
         "market_regime": snapshot.get("market_regime", "BALANCED")
     }
 
+    enc_config = encrypt_dict(seller_wallet, snapshot_json)
+    enc_public_stats = encrypt_dict(seller_wallet, public_stats)
+
     conn = get_connection()
     conn.execute("""
         INSERT INTO marketplace_listings (
@@ -190,8 +194,8 @@ def create_marketplace_listing(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, datetime('now'), datetime('now'))
     """, (
         listing_id, seller_wallet, payout_wallet, agent_type.lower(),
-        title, description.strip(), clean_price, snapshot_json,
-        json.dumps(public_stats)
+        title, description.strip(), clean_price, enc_config,
+        enc_public_stats
     ))
     conn.commit()
     if hasattr(conn, "sync"):
@@ -203,10 +207,7 @@ def create_marketplace_listing(
     res = dict(row)
     # Never expose config_json in listing output
     res.pop("config_json", None)
-    try:
-        res["public_stats"] = json.loads(res.get("public_stats_json") or "{}")
-    except Exception:
-        res["public_stats"] = {}
+    res["public_stats"] = decrypt_dict(seller_wallet, res.get("public_stats_json"))
     return res
 
 
@@ -250,10 +251,7 @@ def get_marketplace_listings(
     listings = []
     for r in rows:
         d = dict(r)
-        try:
-            d["public_stats"] = json.loads(d.get("public_stats_json") or "{}")
-        except Exception:
-            d["public_stats"] = {}
+        d["public_stats"] = decrypt_dict(d.get("seller_wallet"), d.get("public_stats_json"))
         listings.append(d)
     return listings
 
@@ -272,10 +270,7 @@ def get_marketplace_listing_by_id(listing_id: str) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     d = dict(row)
-    try:
-        d["public_stats"] = json.loads(d.get("public_stats_json") or "{}")
-    except Exception:
-        d["public_stats"] = {}
+    d["public_stats"] = decrypt_dict(d.get("seller_wallet"), d.get("public_stats_json"))
     return d
 
 
@@ -409,6 +404,10 @@ def create_marketplace_order(listing_id: str, buyer_wallet: str) -> Dict[str, An
     token_contract = get_token_contract(buyer_wallet)
     expires_at = (now_utc + timedelta(hours=ORDER_TTL_HOURS)).isoformat()
 
+    # Decrypt seller config, then re-encrypt with buyer's wallet key
+    seller_config = decrypt_dict(seller_wallet, listing["config_json"])
+    buyer_config_enc = encrypt_dict(buyer_wallet, seller_config)
+
     conn.execute("""
         INSERT INTO marketplace_orders (
             order_id, listing_id, buyer_wallet, seller_wallet, payout_wallet,
@@ -417,7 +416,7 @@ def create_marketplace_order(listing_id: str, buyer_wallet: str) -> Dict[str, An
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?)
     """, (
         order_id, listing_id, buyer_wallet, seller_wallet, payout_wallet,
-        amount_usdt, amount_base_units, token_contract, listing["config_json"],
+        amount_usdt, amount_base_units, token_contract, buyer_config_enc,
         now_iso, expires_at
     ))
     conn.commit()
@@ -443,6 +442,8 @@ def get_marketplace_order(order_id: str) -> Optional[Dict[str, Any]]:
     d = dict(row)
     if d["status"] != "completed":
         d.pop("config_json", None)
+    else:
+        d["config"] = decrypt_dict(d.get("buyer_wallet"), d.get("config_json"))
     return d
 
 
@@ -552,11 +553,9 @@ def apply_purchased_config(order: Dict[str, Any]) -> Tuple[bool, str]:
     """
     buyer_wallet = normalize_wallet(order["buyer_wallet"])
     config_raw = order.get("config_json") or "{}"
-
-    try:
-        snapshot = json.loads(config_raw) if isinstance(config_raw, str) else config_raw
-    except Exception as e:
-        return False, f"Failed to parse config JSON: {e}"
+    snapshot = decrypt_dict(buyer_wallet, config_raw)
+    if not isinstance(snapshot, dict):
+        return False, "Failed to parse or decrypt config JSON"
 
     agent_type = snapshot.get("agent_type") or "trader"
 
