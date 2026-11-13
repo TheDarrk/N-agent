@@ -26,3 +26,4 @@ requests
 chromadb
 beautifulsoup4
 python-dateutil
+json-repair

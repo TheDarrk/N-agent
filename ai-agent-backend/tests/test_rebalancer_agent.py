@@ -334,3 +334,44 @@ def test_rebalancer_agent_dynamic_stablecoin_expansion_above_floor():
         assert allocations["NEAR"] == 25.0
         assert allocations["ETH"] == 15.0
         assert round(sum(allocations.values()), 1) == 100.0
+
+
+def test_rebalancer_agent_forced_garbage_fallback():
+    """Verify that if the LLM output is garbage, fallback strategy is triggered and saved cleanly."""
+    agent = RebalancerAgent(api_key="mock_key")
+    test_user_wallet = f"user_garbage_{uuid.uuid4().hex[:6]}.near"
+
+    mock_compact_charts = {
+        "symbol": "NEAR",
+        "current_price": 4.0,
+        "timeframes": {
+            "1h": {"current_price": 4.0, "ema20": 4.0, "ema50": 4.0, "ema200": None, "rsi14": 50.0},
+            "1d": {"current_price": 4.0, "ema20": 4.0, "ema50": 4.0, "ema200": None, "rsi14": 50.0},
+            "1w": {"current_price": 4.0, "ema20": 4.0, "ema50": 4.0, "ema200": None, "rsi14": 50.0}
+        }
+    }
+
+    # Simulate garbage LLM return
+    with patch.object(agent, "_fetch_compact_chart_intelligence", new=AsyncMock(return_value=mock_compact_charts)), \
+         patch.object(agent, "_call_llm_json", new=AsyncMock(return_value="THIS IS NOT VALID JSON AT ALL -- TOTAL GARBAGE")), \
+         patch("autonomous_agents.rebalancer_agent.compute_btc_beta_and_correlations", new=AsyncMock(return_value={"btc_beta": {}, "btc_correlation": {}})), \
+         patch("autonomous_agents.rebalancer_agent.get_swap_quote", return_value={"estimated_slippage_bps": 25, "amount_out": 49.5}), \
+         patch("autonomous_agents.rebalancer_agent.get_wallet_portfolio", new=AsyncMock(return_value={"near": 10.0, "usdt": 50.0})):
+
+        res = asyncio.run(
+            agent.generate_strategy(
+                user_wallet=test_user_wallet,
+                selected_coins=["USDT", "NEAR", "ETH"],
+                user_expectation="Test garbage recovery",
+                cadence_days=7,
+                min_stable_pct=20.0
+            )
+        )
+
+        assert res["success"] is True
+        assert res["active_strategy"]["status"] == "ACTIVE"
+        assert res["allocations"]["USDT"] >= 20.0
+        assert sum(res["allocations"].values()) == 100.0
+        assert "USDT" in res["allocations"]
+        assert "NEAR" in res["allocations"]
+        assert "ETH" in res["allocations"]
