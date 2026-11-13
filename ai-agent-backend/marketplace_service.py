@@ -194,6 +194,8 @@ def create_marketplace_listing(
         json.dumps(public_stats)
     ))
     conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
 
     row = conn.execute("SELECT * FROM marketplace_listings WHERE listing_id = ?", (listing_id,)).fetchone()
     conn.close()
@@ -315,6 +317,8 @@ def update_marketplace_listing(listing_id: str, seller_wallet: str, updates: Dic
         params.append(listing_id)
         conn.execute(f"UPDATE marketplace_listings SET {', '.join(set_clauses)} WHERE listing_id = ?", tuple(params))
         conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
 
     row = conn.execute("SELECT * FROM marketplace_listings WHERE listing_id = ?", (listing_id,)).fetchone()
     conn.close()
@@ -338,6 +342,8 @@ def delete_marketplace_listing(listing_id: str, seller_wallet: str) -> bool:
 
     conn.execute("UPDATE marketplace_listings SET status = 'removed', updated_at = datetime('now') WHERE listing_id = ?", (listing_id,))
     conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
     conn.close()
     return True
 
@@ -415,6 +421,8 @@ def create_marketplace_order(listing_id: str, buyer_wallet: str) -> Dict[str, An
         now_iso, expires_at
     ))
     conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
 
     row = conn.execute("SELECT * FROM marketplace_orders WHERE order_id = ?", (order_id,)).fetchone()
     conn.close()
@@ -522,6 +530,8 @@ def complete_marketplace_order(order_id: str, tx_hash: str) -> bool:
         """, (row["listing_id"],))
 
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         return True
     except sqlite3.IntegrityError:
         conn.rollback()

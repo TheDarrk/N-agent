@@ -688,6 +688,28 @@ def get_active_rebalancer_strategy(user_wallet: str) -> Optional[Dict[str, Any]]
     conn.close()
 
     if not row:
+        # Fallback to agent_runs (TASK 2 durable DB source of truth)
+        try:
+            runs = list_runs(user_wallet, agent_type="rebalancer", limit=1)
+            for r in runs:
+                if r.get("status") == "completed":
+                    full_run = get_run(r["run_id"], user_wallet)
+                    if full_run and full_run.get("result"):
+                        res_obj = full_run["result"]
+                        if isinstance(res_obj, dict):
+                            return {
+                                "user_wallet": user_wallet,
+                                "wallet_address": user_wallet,
+                                "strategy_id": r["run_id"],
+                                "status": "ACTIVE",
+                                "selected_coins": res_obj.get("selected_coins", []),
+                                "allocations": res_obj.get("allocations", {}),
+                                "tp_sl_rules": res_obj.get("tp_sl_rules", []),
+                                "raw_pydantic_output": res_obj,
+                                "created_at": r.get("created_at")
+                            }
+        except Exception:
+            pass
         return None
 
     res = dict(row)
@@ -735,6 +757,33 @@ def get_rebalancer_strategy_history(user_wallet: str, limit: int = 15) -> List[D
             except Exception:
                 d[k_dst] = {} if "json" in k_src and "{" in str(d.get(k_src)) else []
         results.append(d)
+
+    # Incorporate any completed rebalancer runs from agent_runs table
+    try:
+        runs = list_runs(user_wallet, agent_type="rebalancer", limit=limit)
+        seen_dates = {r.get("created_at") for r in results}
+        for r in runs:
+            if r.get("status") == "completed" and r.get("created_at") not in seen_dates:
+                full_run = get_run(r["run_id"], user_wallet)
+                if full_run and full_run.get("result"):
+                    res_obj = full_run["result"]
+                    if isinstance(res_obj, dict):
+                        results.append({
+                            "user_wallet": user_wallet,
+                            "wallet_address": user_wallet,
+                            "strategy_id": r["run_id"],
+                            "status": "ACTIVE",
+                            "selected_coins": res_obj.get("selected_coins", []),
+                            "allocations": res_obj.get("allocations", {}),
+                            "tp_sl_rules": res_obj.get("tp_sl_rules", []),
+                            "raw_pydantic_output": res_obj,
+                            "created_at": r.get("created_at")
+                        })
+            if len(results) >= limit:
+                break
+    except Exception:
+        pass
+
     return results
 
 
@@ -3133,6 +3182,8 @@ def create_run(wallet: str, agent_type: str, title: Optional[str] = None, params
         ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
     """, (run_id, norm_w, agent_type, title, json.dumps(params or {}), now_iso, now_iso))
     conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
     conn.close()
     return run_id
 
@@ -3148,6 +3199,8 @@ def update_run_heartbeat(run_id: str) -> bool:
             WHERE run_id = ? AND status = 'running'
         """, (now_iso, run_id))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         return cur.rowcount > 0
     finally:
         conn.close()
@@ -3166,6 +3219,9 @@ def append_run_event(run_id: str, event: Dict[str, Any]) -> int:
             INSERT INTO agent_run_events (run_id, seq, event_json, created_at)
             VALUES (?, ?, ?, ?)
         """, (run_id, seq, json.dumps(event_copy), now_iso))
+        conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
     conn.close()
     return seq
 
@@ -3202,6 +3258,8 @@ def finish_run(run_id: str, result: Optional[Dict[str, Any]] = None, cid: Option
         WHERE run_id = ?
     """, (status, result_json, cid, error, finished_at, run_id))
     conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
     conn.close()
 
 

@@ -12,6 +12,14 @@ import tempfile
 import threading
 import logging
 from typing import Optional, Dict, Any, List, Union
+from dotenv import load_dotenv
+
+# Ensure environment variables from .env are loaded
+env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+if os.path.exists(env_path):
+    load_dotenv(env_path, override=False)
+else:
+    load_dotenv(override=False)
 
 logger = logging.getLogger("neptune.database.connection")
 
@@ -334,6 +342,17 @@ def get_connection(db_path: Optional[str] = None) -> Union[sqlite3.Connection, L
         target_path = db_path or get_replica_local_path()
         url = os.getenv("TURSO_DATABASE_URL", TURSO_DATABASE_URL).strip()
         token = os.getenv("TURSO_AUTH_TOKEN", TURSO_AUTH_TOKEN).strip()
+
+        # If primary replica db file was wiped, clean up any orphaned metadata files (-info, -shm, -wal)
+        if not os.path.exists(target_path):
+            for suffix in ["-info", "-shm", "-wal", "-meta"]:
+                orphan = f"{target_path}{suffix}"
+                if os.path.exists(orphan):
+                    try:
+                        os.remove(orphan)
+                    except Exception:
+                        pass
+
         raw = libsql.connect(
             target_path,
             sync_url=url,
@@ -341,6 +360,13 @@ def get_connection(db_path: Optional[str] = None) -> Union[sqlite3.Connection, L
             autocommit=True
         )
         wrapper = LibsqlConnectionWrapper(raw, is_replica=True)
+
+        # Pull latest state from Turso Cloud
+        try:
+            raw.sync()
+        except Exception as se:
+            logger.warning(f"[Turso initial sync warning] {se}")
+
         try:
             wrapper.execute("PRAGMA foreign_keys = ON;")
             wrapper.execute("PRAGMA busy_timeout = 30000;")
