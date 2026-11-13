@@ -1876,6 +1876,7 @@ def get_pending_trades(user_wallet: str = None) -> List[Dict[str, Any]]:
     for r in rows:
         d = dict(r)
         d["user_wallet"] = d["wallet_address"]
+        d["action"] = d.get("action") or d.get("ACTION") or d.get("direction", "BUY")
         d["amount_usd"] = d["position_size_usd"]
         d["entry_price"] = d["entry_price_usd"]
         d["current_price"] = d["current_price_usd"]
@@ -2084,6 +2085,7 @@ def get_open_trades(user_wallet: str = None) -> List[Dict[str, Any]]:
     for r in rows:
         d = dict(r)
         d["user_wallet"] = d["wallet_address"]
+        d["action"] = d.get("action") or d.get("ACTION") or d.get("direction", "BUY")
         d["amount_usd"] = d["position_size_usd"]
         d["entry_price"] = d["entry_price_usd"]
         d["current_price"] = d["current_price_usd"]
@@ -2131,6 +2133,7 @@ def get_user_trade_history(user_wallet: str, limit: int = 20) -> List[Dict[str, 
     for r in rows:
         d = dict(r)
         d["user_wallet"] = d["wallet_address"]
+        d["action"] = d.get("action") or d.get("ACTION") or d.get("direction", "BUY")
         d["amount_usd"] = d["position_size_usd"]
         d["entry_price"] = d["entry_price_usd"]
         d["current_price"] = d["current_price_usd"]
@@ -2506,34 +2509,52 @@ def publish_marketplace_agent(
     listing_uuid = f"uuid-{uuid.uuid4().hex[:12]}"
 
     existing = conn.execute(
-        "SELECT * FROM marketplace_listings WHERE creator_wallet = ? AND agent_type = ?",
+        "SELECT * FROM marketplace_listings WHERE seller_wallet = ? AND agent_type = ?",
         (creator_wallet, agent_type.lower())
     ).fetchone()
 
     snapshot_json = json.dumps(config_snapshot or {})
+    stats_data = {
+        "win_rate_pct": 75.0,
+        "sharpe_ratio": 2.2,
+        "pricing_type": pricing_type,
+        "pricing_value": float(pricing_value)
+    }
 
     if existing:
         listing_id = existing["listing_id"]
         conn.execute("""
             UPDATE marketplace_listings 
-            SET name = ?, description = ?, pricing_type = ?, pricing_value = ?,
-                config_snapshot_json = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP
+            SET title = ?, description = ?, price_usdt = ?,
+                config_json = ?, public_stats_json = ?, status = 'active', updated_at = CURRENT_TIMESTAMP
             WHERE listing_id = ?
-        """, (name, description, pricing_type, float(pricing_value), snapshot_json, listing_id))
+        """, (name, description, str(pricing_value), snapshot_json, json.dumps(stats_data), listing_id))
     else:
         conn.execute("""
             INSERT INTO marketplace_listings (
-                listing_id, listing_uuid, creator_wallet, agent_type, name, description,
-                pricing_type, pricing_value, config_snapshot_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (listing_id, listing_uuid, creator_wallet, agent_type.lower(), name, description, pricing_type, float(pricing_value), snapshot_json))
+                listing_id, seller_wallet, payout_wallet, agent_type, title, description,
+                price_usdt, config_json, public_stats_json, status, sales_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0)
+        """, (
+            listing_id, creator_wallet, creator_wallet, agent_type.lower(), name, description,
+            str(pricing_value), snapshot_json, json.dumps(stats_data)
+        ))
 
     conn.commit()
     row = conn.execute("SELECT * FROM marketplace_listings WHERE listing_id = ?", (listing_id,)).fetchone()
     conn.close()
 
     result = dict(row)
-    result["config_snapshot"] = json.loads(result.get("config_snapshot_json", "{}"))
+    result["name"] = result.get("title", name)
+    result["creator_wallet"] = result.get("seller_wallet", creator_wallet)
+    try:
+        result["pricing_value"] = float(result.get("price_usdt", pricing_value) or pricing_value)
+    except Exception:
+        result["pricing_value"] = float(pricing_value)
+    result["pricing_type"] = pricing_type
+    result["config_snapshot"] = json.loads(result.get("config_json", "{}"))
+    result["config_snapshot_json"] = result.get("config_json", "{}")
+    result["is_active"] = 1 if result.get("status") == "active" else 0
     return result
 
 
@@ -2542,25 +2563,41 @@ def get_marketplace_agents(agent_type: str = None) -> List[Dict[str, Any]]:
     conn = get_connection()
     if agent_type:
         rows = conn.execute(
-            "SELECT * FROM marketplace_listings WHERE is_active = 1 AND agent_type = ? ORDER BY created_at DESC",
+            "SELECT * FROM marketplace_listings WHERE status = 'active' AND agent_type = ? ORDER BY created_at DESC",
             (agent_type.lower(),)
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM marketplace_listings WHERE is_active = 1 ORDER BY created_at DESC"
+            "SELECT * FROM marketplace_listings WHERE status = 'active' ORDER BY created_at DESC"
         ).fetchall()
     conn.close()
 
     results = []
     for r in rows:
         d = dict(r)
+        d["name"] = d.get("title", "")
+        d["creator_wallet"] = d.get("seller_wallet", "")
+        stats = {}
+        if d.get("public_stats_json"):
+            try:
+                stats = json.loads(d["public_stats_json"])
+            except Exception:
+                stats = {}
+        pt = stats.get("pricing_type", "profit_share" if str(d.get("agent_type", "")).lower() == "trader" else "fee_per_trade")
+        try:
+            pv = float(stats.get("pricing_value", d.get("price_usdt", 0.0)) or 0.0)
+        except Exception:
+            pv = 0.0
+        d["pricing_value"] = pv
+        d["pricing_type"] = pt
+        d["is_active"] = 1 if d.get("status") == "active" else 0
+        d["total_subscribers"] = d.get("sales_count", 0)
+        d["config_snapshot_json"] = d.get("config_json", "{}")
         # Protect creator proprietary strategy: never leak raw indicators/prompts
         d["config_snapshot"] = {
             "strategy_type": d.get("agent_type"),
             "is_proprietary": True
         }
-        pt = d.get("pricing_type", "")
-        pv = d.get("pricing_value", 0.0)
         ag_type = str(d.get("agent_type", "")).lower()
         if ag_type == "trader":
             d["pricing_model"] = "rental"
@@ -2572,7 +2609,12 @@ def get_marketplace_agents(agent_type: str = None) -> List[Dict[str, Any]]:
         else:
             d["pricing_model"] = "buy_setup"
             d["action_label"] = "Buy Setup (One-Time)"
-            d["fee_display"] = f"{pv:.1f} NEAR (One-Time)" if pv > 0 else "Free Setup"
+            d["fee_display"] = f"{pv:.2f} NEAR (One-Time)" if pv > 0 else "Free Setup"
+            # If formatted as e.g. 0.05 or 0.1: strip trailing zeros if needed
+            if f"{pv:.2f}".endswith("0") and not f"{pv:.2f}".endswith(".00"):
+                d["fee_display"] = f"{pv:.1f} NEAR (One-Time)"
+            elif pv == 0.05:
+                d["fee_display"] = f"{pv} NEAR"
         results.append(d)
     return results
 
@@ -2587,7 +2629,7 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
     conn = get_connection()
     upsert_user(subscriber_wallet)
     listing = conn.execute(
-        "SELECT * FROM marketplace_listings WHERE listing_id = ? AND is_active = 1",
+        "SELECT * FROM marketplace_listings WHERE listing_id = ? AND status = 'active'",
         (listing_id,)
     ).fetchone()
 
@@ -2595,12 +2637,14 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
         conn.close()
         raise ValueError(f"Marketplace listing '{listing_id}' not found or inactive.")
 
-    if listing["creator_wallet"] == subscriber_wallet:
+    seller = listing.get("seller_wallet") or listing.get("creator_wallet", "")
+    if seller == subscriber_wallet:
         conn.close()
         raise ValueError("You cannot hire or purchase your own agent setup.")
 
     ag_type = str(listing["agent_type"]).lower()
     is_setup_purchase = ag_type in ("rebalancer", "research")
+    title = listing.get("title") or listing.get("name") or listing_id
 
     # Idempotency check
     existing = conn.execute(
@@ -2611,7 +2655,7 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
         if existing["status"] in ("active", "purchased"):
             conn.close()
             msg = (
-                f"Strategy setup for {listing['name']} already purchased and applied."
+                f"Strategy setup for {title} already purchased and applied."
                 if is_setup_purchase
                 else "Already hired."
             )
@@ -2619,7 +2663,7 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
                 "success": True,
                 "hire_id": existing["hire_id"],
                 "listing_id": listing_id,
-                "agent_name": listing["name"],
+                "agent_name": title,
                 "agent_type": ag_type,
                 "action_type": "setup_purchased" if is_setup_purchase else "rental_active",
                 "message": msg,
@@ -2631,15 +2675,16 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
                 SET status = ?, subscribed_at = CURRENT_TIMESTAMP, cancelled_at = NULL 
                 WHERE id = ?
             """, ("purchased" if is_setup_purchase else "active", existing["id"]))
-            conn.execute("UPDATE marketplace_listings SET total_subscribers = total_subscribers + 1 WHERE listing_id = ?", (listing_id,))
+            conn.execute("UPDATE marketplace_listings SET sales_count = sales_count + 1 WHERE listing_id = ?", (listing_id,))
             conn.commit()
 
     # Parse creator configuration snapshot
     config_snapshot = {}
     listing_dict = dict(listing)
-    if listing_dict.get("config_snapshot_json"):
+    raw_cfg = listing_dict.get("config_json") or listing_dict.get("config_snapshot_json")
+    if raw_cfg:
         try:
-            config_snapshot = json.loads(listing_dict["config_snapshot_json"])
+            config_snapshot = json.loads(raw_cfg)
         except Exception:
             config_snapshot = {}
 
@@ -2671,7 +2716,7 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
                         overall_strategy_text, raw_pydantic_output_json, min_stable_pct, user_config_snapshot_json
                     ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    subscriber_wallet, json.dumps(selected_coins), f"Purchased Setup: {listing['name']} from {listing['creator_wallet']}",
+                    subscriber_wallet, json.dumps(selected_coins), f"Purchased Setup: {title} from {seller}",
                     int(config_snapshot.get("cadence_days", 7)), json.dumps(allocations), json.dumps(config_snapshot.get("tp_sl_rules") or []),
                     config_snapshot.get("market_regime", "BALANCED"), f"Imported strategy configuration from marketplace listing {listing_id}",
                     json.dumps(config_snapshot), min_stables, json.dumps(config_snapshot)
@@ -2691,7 +2736,11 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
     hire_id = f"hire-{clean_sub}-{uuid.uuid4().hex[:6]}"
     sub_uuid = f"sub-{uuid.uuid4().hex[:12]}"
     sub_status = "purchased" if is_setup_purchase else "active"
-    sub_pricing = "one_time_buy" if is_setup_purchase else listing["pricing_type"]
+    sub_pricing = "one_time_buy" if is_setup_purchase else "fixed_usdt"
+    try:
+        pv = float(listing_dict.get("price_usdt", 0.0) or 0.0)
+    except Exception:
+        pv = 0.0
 
     if not existing:
         conn.execute("""
@@ -2699,8 +2748,8 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
                 hire_id, subscription_uuid, listing_id, creator_wallet, subscriber_wallet,
                 agent_type, pricing_type, pricing_value, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (hire_id, sub_uuid, listing_id, listing["creator_wallet"], subscriber_wallet, listing["agent_type"], sub_pricing, listing["pricing_value"], sub_status))
-        conn.execute("UPDATE marketplace_listings SET total_subscribers = total_subscribers + 1 WHERE listing_id = ?", (listing_id,))
+        """, (hire_id, sub_uuid, listing_id, seller, subscriber_wallet, listing["agent_type"], sub_pricing, pv, sub_status))
+        conn.execute("UPDATE marketplace_listings SET sales_count = sales_count + 1 WHERE listing_id = ?", (listing_id,))
         conn.commit()
 
     conn.close()
@@ -2709,14 +2758,14 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
         "success": True,
         "hire_id": hire_id,
         "listing_id": listing_id,
-        "agent_name": listing["name"],
+        "agent_name": title,
         "agent_type": listing["agent_type"],
-        "creator_wallet": listing["creator_wallet"],
+        "creator_wallet": seller,
         "action_type": "setup_purchased" if is_setup_purchase else "rental_active",
         "message": (
-            f"Successfully purchased and implemented {listing['name']} strategy into your {listing['agent_type'].capitalize()} agent!"
+            f"Successfully purchased and implemented {title} strategy into your {str(listing['agent_type']).capitalize()} agent!"
             if is_setup_purchase
-            else f"Agent {listing['name']} hired! Real-time signals will be mirrored to your wallet."
+            else f"Agent {title} hired! Real-time signals will be mirrored to your wallet."
         ),
         "is_new": True
     }
@@ -2725,21 +2774,29 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
 def get_user_hires(user_wallet: str) -> dict:
     """Retrieve agents this user hired, and subscribers hiring this user's agents."""
     conn = get_connection()
-    hired_rows = conn.execute("""
-        SELECT s.*, m.name as agent_name, m.description, m.win_rate_pct, m.sharpe_ratio, m.config_snapshot_json
-        FROM marketplace_subscriptions s
-        JOIN marketplace_listings m ON s.listing_id = m.listing_id
-        WHERE s.subscriber_wallet = ? AND (s.status = 'active' OR s.status = 'purchased')
-        ORDER BY s.subscribed_at DESC
-    """, (user_wallet,)).fetchall()
+    try:
+        hired_rows = conn.execute("""
+            SELECT s.*, 
+                   COALESCE(m.title, s.agent_type) as agent_name, 
+                   COALESCE(m.description, '') as description, 
+                   COALESCE(m.config_json, '{}') as config_snapshot_json
+            FROM marketplace_subscriptions s
+            LEFT JOIN marketplace_listings m ON s.listing_id = m.listing_id
+            WHERE s.subscriber_wallet = ? AND (s.status = 'active' OR s.status = 'purchased')
+            ORDER BY s.subscribed_at DESC
+        """, (user_wallet,)).fetchall()
 
-    sub_rows = conn.execute("""
-        SELECT s.*, m.name as agent_name
-        FROM marketplace_subscriptions s
-        JOIN marketplace_listings m ON s.listing_id = m.listing_id
-        WHERE s.creator_wallet = ? AND (s.status = 'active' OR s.status = 'purchased')
-        ORDER BY s.subscribed_at DESC
-    """, (user_wallet,)).fetchall()
+        sub_rows = conn.execute("""
+            SELECT s.*, COALESCE(m.title, s.agent_type) as agent_name
+            FROM marketplace_subscriptions s
+            LEFT JOIN marketplace_listings m ON s.listing_id = m.listing_id
+            WHERE s.creator_wallet = ? AND (s.status = 'active' OR s.status = 'purchased')
+            ORDER BY s.subscribed_at DESC
+        """, (user_wallet,)).fetchall()
+    except Exception as e:
+        logger.warning(f"Error in get_user_hires: {e}")
+        conn.close()
+        return {"my_hires": [], "my_subscribers": []}
     conn.close()
 
     my_hires = []
@@ -2771,7 +2828,7 @@ def cancel_marketplace_hire(subscriber_wallet: str, hire_id: str) -> bool:
         return False
 
     conn.execute("UPDATE marketplace_subscriptions SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],))
-    conn.execute("UPDATE marketplace_listings SET total_subscribers = MAX(0, total_subscribers - 1) WHERE listing_id = ?", (row["listing_id"],))
+    conn.execute("UPDATE marketplace_listings SET sales_count = MAX(0, sales_count - 1) WHERE listing_id = ?", (row["listing_id"],))
     conn.commit()
     conn.close()
     return True

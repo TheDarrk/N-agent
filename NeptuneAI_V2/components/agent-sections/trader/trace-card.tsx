@@ -295,8 +295,8 @@ export default function TraceCard({ trace: tr, expanded, copied, onToggle, onCop
                 hint="Closes the trade if price drops"
               />
               <Fact
-                label="Reward vs risk"
-                value={typeof tr.risk_reward_ratio === "number" ? `${tr.risk_reward_ratio.toFixed(1)} : 1` : "—"}
+                label="Risk : Reward"
+                value={typeof tr.risk_reward_ratio === "number" ? `1 : ${tr.risk_reward_ratio.toFixed(1)}` : "—"}
               />
             </div>
           )}

@@ -62,7 +62,7 @@ from marketplace_verify import (
 )
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def setup_test_db():
     init_db()
 

@@ -934,7 +934,7 @@ export default function FullScreenHistoryModal({
                                   <span>Step 2:</span> Vision Pattern Recognition
                                 </span>
                                 <span className="text-[10px] font-mono text-cyan-400">
-                                  R:R {tr.risk_reward_ratio || 1.8}x
+                                  R:R 1:{tr.risk_reward_ratio || 1.8}
                                 </span>
                               </div>
                               <p className="text-xs font-semibold text-foreground">

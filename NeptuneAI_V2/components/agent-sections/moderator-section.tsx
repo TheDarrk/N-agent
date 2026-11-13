@@ -418,7 +418,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
               ],
           metrics: [
             { label: "Win Rate", value: node1Trader?.metrics?.win_rate_pct != null ? `${Math.round(node1Trader.metrics.win_rate_pct)}%` : "—" },
-            { label: "Gain vs Risk", value: node1Trader?.metrics?.avg_risk_reward_ratio != null ? `${node1Trader.metrics.avg_risk_reward_ratio}:1` : "—" },
+            { label: "Risk : Reward", value: node1Trader?.metrics?.avg_risk_reward_ratio != null ? `1:${node1Trader.metrics.avg_risk_reward_ratio}` : "—" },
             { label: "Open Trades", value: `${node1Trader?.metrics?.open_trades_count ?? 0}` },
             { label: "Daily Allowance", value: `${node1Trader?.metrics?.daily_cap_remaining ?? (3 - (node1Trader?.metrics?.open_trades_count || 0))} left` },
           ],
@@ -885,7 +885,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
                       </div>
                       {step.step_number === 1 && step.data?.metrics && (
                         <p className="text-muted-foreground">
-                          Win rate {Math.round(step.data.metrics.win_rate)}% &middot; Gain vs risk {step.data.metrics.avg_risk_reward_ratio}:1
+                          Win rate {Math.round(step.data.metrics.win_rate)}% &middot; Risk:Reward 1:{step.data.metrics.avg_risk_reward_ratio}
                         </p>
                       )}
                       {step.step_number === 2 && step.data?.metrics && (

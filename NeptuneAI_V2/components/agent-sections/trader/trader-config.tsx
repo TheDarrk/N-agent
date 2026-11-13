@@ -477,12 +477,12 @@ export default function TraderSetup(p: Props) {
                     onClick={() => p.setMinRiskReward && p.setMinRiskReward(rr)}
                     className={`flex-1 py-1.5 text-center font-mono text-xs font-bold ${choice((p.minRiskReward ?? 1.5) === rr)}`}
                   >
-                    {rr.toFixed(1)}:1
+                    1:{rr % 1 === 0 ? rr.toFixed(0) : rr.toFixed(1)}
                   </button>
                 ))}
               </div>
               <span className="text-[11px] text-muted-foreground">
-                Current threshold: <strong className="text-foreground font-mono">{(p.minRiskReward ?? 1.5).toFixed(1)} : 1</strong>
+                Current threshold: <strong className="text-foreground font-mono">1 : {(p.minRiskReward ?? 1.5).toFixed(1)}</strong>
               </span>
             </SettingBox>
 
