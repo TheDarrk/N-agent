@@ -7,14 +7,14 @@ import {
   Key,
   Cpu,
   Plus,
-  History,
+  MessageSquare,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
 } from "lucide-react";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
 import AgentWalletManagerModal from "./agent-wallet-manager-modal";
-import SidebarAgentFeed from "./sidebar-agent-feed";
+import SidebarChatHistory from "./sidebar-chat-history";
 import SidebarFleetBar from "./sidebar-fleet-bar";
 import { getTokenLogoUrl, TOKEN_LOGOS } from "@/lib/near/token-logos";
 
@@ -34,12 +34,12 @@ type Props = {
   onSelectAgent?: (agentId: string) => void;
 };
 
-type TabId = "wallet" | "fleet" | "activity";
+type TabId = "chat" | "wallet" | "fleet";
 
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
+  { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "wallet", label: "Wallet", icon: Wallet },
-  { id: "fleet", label: "Fleet", icon: Cpu },
-  { id: "activity", label: "Activity", icon: History },
+  { id: "fleet", label: "Fleet Status", icon: Cpu },
 ];
 
 const CHAIN_LABELS: Record<string, string> = {
@@ -294,7 +294,7 @@ export default function ChatSidebar({
   onOpenAgentSuite = () => {},
   onSelectAgent,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>("wallet");
+  const [activeTab, setActiveTab] = useState<TabId>("chat");
   const [isAgentWalletModalOpen, setIsAgentWalletModalOpen] = useState(false);
   const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
   const chains = connectedChains.length > 0 ? connectedChains : accountId ? ["near"] : [];
@@ -390,8 +390,15 @@ export default function ChatSidebar({
           id={`sidebar-panel-${activeTab}`}
           role="tabpanel"
           aria-labelledby={`sidebar-tab-${activeTab}`}
-          className={`min-h-0 flex-1 px-3 pt-4 ${activeTab === "activity" ? "flex flex-col overflow-hidden pb-3" : "overflow-y-auto pb-4"}`}
+          className="min-h-0 flex-1 px-3 pt-4 overflow-y-auto pb-4"
         >
+          {activeTab === "chat" && (
+            <SidebarChatHistory
+              accountId={accountId}
+              onConnectWallet={onConnectWallet}
+            />
+          )}
+
           {activeTab === "wallet" && (
             <WalletPanel
               accountId={accountId}
@@ -410,15 +417,6 @@ export default function ChatSidebar({
               onOpenFleetModal={onOpenFleetModal}
               onOpenAgentSuite={onOpenAgentSuite}
               onSelectAgent={onSelectAgent}
-            />
-          )}
-
-          {activeTab === "activity" && (
-            <SidebarAgentFeed
-              accountId={accountId}
-              onOpenAgentSuite={onOpenAgentSuite}
-              onSelectAgent={onSelectAgent}
-              onOpenFullScreenHistory={() => setIsFullScreenHistoryOpen(true)}
             />
           )}
         </div>
