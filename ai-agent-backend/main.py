@@ -156,6 +156,26 @@ async def lifespan(app):
         except Exception as mod_err:
             print(f"[STARTUP] Moderator cadence registration error: {mod_err}")
 
+        # Register Marketplace Order Expiry Job (every 10 min) per Task 3.3
+        try:
+            from marketplace_service import expire_stale_orders
+            swept = expire_stale_orders()
+            if swept > 0:
+                print(f"[STARTUP] Cleaned {swept} expired marketplace orders.")
+
+            scheduler.add_job(
+                expire_stale_orders,
+                'interval',
+                minutes=10,
+                id='marketplace_order_expiry_job',
+                misfire_grace_time=3600,
+                coalesce=True,
+                replace_existing=True
+            )
+            print("[STARTUP] Marketplace order expiry job registered (every 10 min)")
+        except Exception as exp_err:
+            print(f"[STARTUP] Marketplace order expiry registration error: {exp_err}")
+
         scheduler.start()
         print("[STARTUP] Autonomy engine started (every 30 sec)")
     except ImportError:
@@ -174,6 +194,10 @@ async def lifespan(app):
 app = FastAPI(title="Neptune AI Agent", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Mount Global Marketplace Router (USDT On-Chain Verified)
+from marketplace_router import router as marketplace_router
+app.include_router(marketplace_router)
 
 # Strict CORS Policy (Production Only)
 ORIGINS = [

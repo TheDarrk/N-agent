@@ -20,13 +20,23 @@ from .encryption import get_encryption, WalletEncryption
 
 def init_db(db_path: Optional[str] = None):
     """
-    Initialize the full 18-table v2.1 schema if not already present.
+    Initialize the full schema if not already present.
     Safe to call multiple times (idempotent).
     """
     schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
     if not os.path.exists(schema_path):
         schema_path = os.path.join(os.path.dirname(__file__), "database", "schema.sql")
     conn = get_connection(db_path)
+
+    # Pre-migration: check if marketplace_listings exists with old schema (creator_wallet instead of seller_wallet)
+    try:
+        ml_cols = [c["name"] for c in conn.execute("PRAGMA table_info(marketplace_listings)").fetchall()]
+        if ml_cols and "seller_wallet" not in ml_cols:
+            conn.execute("DROP TABLE IF EXISTS marketplace_listings")
+            conn.commit()
+    except Exception:
+        pass
+
     with open(schema_path, "r", encoding="utf-8") as f:
         schema_sql = f.read()
     conn.executescript(schema_sql)
@@ -116,6 +126,82 @@ def init_db(db_path: Optional[str] = None):
         """)
     except Exception as e:
         print(f"[DB: agent_runs migration warning] {e}")
+
+    # Safe migration: ensure marketplace_listings and marketplace_orders follow target USDT schema
+    try:
+        ml_cols = [c["name"] for c in conn.execute("PRAGMA table_info(marketplace_listings)").fetchall()]
+        if "seller_wallet" not in ml_cols:
+            old_rows = conn.execute("SELECT * FROM marketplace_listings").fetchall()
+            conn.execute("DROP TABLE IF EXISTS marketplace_listings")
+            conn.execute("""
+            CREATE TABLE marketplace_listings (
+              listing_id      TEXT PRIMARY KEY,
+              seller_wallet   TEXT NOT NULL,
+              payout_wallet   TEXT NOT NULL,
+              agent_type      TEXT NOT NULL,
+              title           TEXT NOT NULL,
+              description     TEXT,
+              price_usdt      TEXT NOT NULL,
+              config_json     TEXT NOT NULL,
+              public_stats_json TEXT,
+              status          TEXT NOT NULL DEFAULT 'active',
+              sales_count     INTEGER NOT NULL DEFAULT 0,
+              created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON marketplace_listings(status, created_at DESC);")
+            for r in old_rows:
+                s_w = normalize_wallet(r["creator_wallet"] if "creator_wallet" in r.keys() else "")
+                conn.execute("""
+                INSERT OR IGNORE INTO marketplace_listings (
+                    listing_id, seller_wallet, payout_wallet, agent_type, title, description,
+                    price_usdt, config_json, public_stats_json, status, sales_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    r["listing_id"] if "listing_id" in r.keys() else uuid.uuid4().hex,
+                    s_w,
+                    s_w,
+                    r["agent_type"] if "agent_type" in r.keys() else "trader",
+                    r["name"] if "name" in r.keys() else "Migrated Agent",
+                    r["description"] if "description" in r.keys() else "",
+                    str(r["pricing_value"] if "pricing_value" in r.keys() else "10.0"),
+                    r["config_snapshot_json"] if "config_snapshot_json" in r.keys() else "{}",
+                    json.dumps({"win_rate_pct": r["win_rate_pct"] if "win_rate_pct" in r.keys() else 75.0, "sharpe_ratio": r["sharpe_ratio"] if "sharpe_ratio" in r.keys() else 2.2}),
+                    "active" if ("is_active" in r.keys() and r["is_active"]) else "paused",
+                    r["total_subscribers"] if "total_subscribers" in r.keys() else 0,
+                    r["created_at"] if "created_at" in r.keys() else datetime.now(timezone.utc).isoformat(),
+                    r["updated_at"] if "updated_at" in r.keys() else datetime.now(timezone.utc).isoformat()
+                ))
+        else:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON marketplace_listings(status, created_at DESC);")
+
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS marketplace_orders (
+          order_id        TEXT PRIMARY KEY,
+          listing_id      TEXT NOT NULL,
+          buyer_wallet    TEXT NOT NULL,
+          seller_wallet   TEXT NOT NULL,
+          payout_wallet   TEXT NOT NULL,
+          amount_usdt     TEXT NOT NULL,
+          amount_base_units TEXT NOT NULL,
+          token_contract  TEXT NOT NULL,
+          config_json     TEXT NOT NULL,
+          status          TEXT NOT NULL,
+          tx_hash         TEXT,
+          created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at      TEXT NOT NULL,
+          verified_at     TEXT,
+          failure_reason  TEXT,
+          apply_status    TEXT DEFAULT NULL,
+          apply_error     TEXT DEFAULT NULL,
+          FOREIGN KEY (listing_id) REFERENCES marketplace_listings(listing_id) ON DELETE CASCADE
+        );
+        """)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_txhash ON marketplace_orders(tx_hash) WHERE tx_hash IS NOT NULL;")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_buyer ON marketplace_orders(buyer_wallet, created_at DESC);")
+    except Exception as e:
+        print(f"[DB: marketplace migration warning] {e}")
 
     conn.commit()
     conn.close()
@@ -427,7 +513,10 @@ def upsert_user(wallet_address: str, settings: Dict[str, Any] = None) -> Dict[st
     conn.commit()
     conn.close()
 
-    return get_user(wallet_address) or {}
+    return get_user(wallet_address)
+
+
+update_user_settings = upsert_user or {}
 
 
 def clear_user_agent_wallet(wallet_address: str):

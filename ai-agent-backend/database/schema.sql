@@ -289,24 +289,40 @@ CREATE TABLE IF NOT EXISTS moderator_evaluations (
 -- ---------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS marketplace_listings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    listing_id TEXT UNIQUE NOT NULL,
-    listing_uuid TEXT UNIQUE NOT NULL,
-    creator_wallet TEXT NOT NULL,
-    agent_type TEXT NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    pricing_type TEXT NOT NULL,
-    pricing_value REAL NOT NULL,
-    win_rate_pct REAL DEFAULT 75.0,
-    sharpe_ratio REAL DEFAULT 2.2,
-    total_trades INTEGER DEFAULT 0,
-    total_subscribers INTEGER NOT NULL DEFAULT 0,
-    config_snapshot_json TEXT DEFAULT '{}',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (creator_wallet) REFERENCES core_user_wallets(wallet_address) ON DELETE CASCADE
+    listing_id      TEXT PRIMARY KEY,
+    seller_wallet   TEXT NOT NULL,
+    payout_wallet   TEXT NOT NULL,
+    agent_type      TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    description     TEXT,
+    price_usdt      TEXT NOT NULL,
+    config_json     TEXT NOT NULL,
+    public_stats_json TEXT,
+    status          TEXT NOT NULL DEFAULT 'active',
+    sales_count     INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS marketplace_orders (
+    order_id        TEXT PRIMARY KEY,
+    listing_id      TEXT NOT NULL,
+    buyer_wallet    TEXT NOT NULL,
+    seller_wallet   TEXT NOT NULL,
+    payout_wallet   TEXT NOT NULL,
+    amount_usdt     TEXT NOT NULL,
+    amount_base_units TEXT NOT NULL,
+    token_contract  TEXT NOT NULL,
+    config_json     TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    tx_hash         TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at      TEXT NOT NULL,
+    verified_at     TEXT,
+    failure_reason  TEXT,
+    apply_status    TEXT DEFAULT NULL,
+    apply_error     TEXT DEFAULT NULL,
+    FOREIGN KEY (listing_id) REFERENCES marketplace_listings(listing_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS marketplace_subscriptions (
@@ -364,7 +380,9 @@ CREATE INDEX IF NOT EXISTS idx_rebalancer_exec_wallet ON rebalancer_executions(w
 CREATE INDEX IF NOT EXISTS idx_portfolio_snap_wallet ON portfolio_snapshots(wallet_address, created_at);
 CREATE INDEX IF NOT EXISTS idx_research_reports_wallet ON research_reports(wallet_address, created_at);
 CREATE INDEX IF NOT EXISTS idx_moderator_eval_wallet ON moderator_evaluations(wallet_address, created_at);
-CREATE INDEX IF NOT EXISTS idx_marketplace_active ON marketplace_listings(is_active, agent_type);
+CREATE INDEX IF NOT EXISTS idx_listings_status ON marketplace_listings(status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_txhash ON marketplace_orders(tx_hash) WHERE tx_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_buyer ON marketplace_orders(buyer_wallet, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_marketplace_subs_user ON marketplace_subscriptions(subscriber_wallet, status);
 
 -- =====================================================================
