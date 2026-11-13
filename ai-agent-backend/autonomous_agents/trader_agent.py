@@ -1421,7 +1421,8 @@ class TraderAgent:
                     "focus_area": focus_area,
                     "info_note": hire_result.get("info_note", "Make sure Researcher Agent (or you) have configured the data source in source links accordingly."),
                     "executive_summary": full_rep.get("executive_summary", ""),
-                    "risk_factors": full_rep.get("risk_factors", "")
+                    "risk_factors": full_rep.get("risk_factors", ""),
+                    "sources": hire_result.get("sources", [])
                 }
             except Exception as e:
                 print(f"[TRADER-PLUGIN] Research agent second opinion notice: {e}")
@@ -1749,6 +1750,7 @@ class TraderAgent:
                 "ascii_chart": node1_data.get("ascii_chart", ""),
                 "twitter_sentiment": node1_data.get("twitter_sentiment", {}),
                 "researcher_intel": node1_data.get("researcher_intel"),
+            "sources": (node1_data.get("researcher_intel") or {}).get("sources", []),
                 "multiframe_chart": node1_data.get("multiframe_chart"),
                 "scan_results": node1_data.get("scan_results"),
                 "screener_result": node1_data.get("screener_result"),

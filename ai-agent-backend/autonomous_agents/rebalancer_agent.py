@@ -678,6 +678,19 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             min_stable_pct=min_stable_pct
         )
 
+        research_intel = None
+        try:
+            from autonomous_agents.research_agent import run_research_subagent
+            research_intel = await run_research_subagent(
+                wallet=user_wallet,
+                coins=norm_selected,
+                calling_agent="rebalancer",
+                depth=1,
+                date_range_days=30
+            )
+        except Exception as e:
+            print(f"[REBALANCER] Subagent research notice: {e}")
+
         strat_id = saved_record.get("id", "?")
         print(f"[REBALANCER: SUCCESS] Strategy #{strat_id} successfully created & active! Target Allocations: {allocations_dict}")
 
@@ -692,6 +705,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             "executive_summary": pydantic_strat.executive_summary,
             "allocations": allocations_dict,
             "tp_sl_rules": tp_sl_rules,
+            "research": research_intel,
+            "sources": research_intel.get("sources", []) if research_intel else [],
             "active_strategy": saved_record
         }
 
@@ -1064,6 +1079,19 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 }
             }) + "\n"
 
+            research_intel = None
+            try:
+                from autonomous_agents.research_agent import run_research_subagent
+                research_intel = await run_research_subagent(
+                    wallet=user_wallet,
+                    coins=norm_selected,
+                    calling_agent="rebalancer",
+                    depth=1,
+                    date_range_days=30
+                )
+            except Exception as e:
+                print(f"[REBALANCER STREAM] Subagent research notice: {e}")
+
             result = {
                 "success": True,
                 "strategy_id": saved_record.get("id"),
@@ -1075,6 +1103,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "executive_summary": pydantic_strat.executive_summary,
                 "allocations": allocations_dict,
                 "tp_sl_rules": tp_sl_rules,
+                "research": research_intel,
+                "sources": research_intel.get("sources", []) if research_intel else [],
                 "source": source_tag,
                 "active_strategy": saved_record
             }

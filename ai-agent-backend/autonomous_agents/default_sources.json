@@ -1,0 +1,116 @@
+{
+  "NEAR": [
+    {
+      "title": "NEAR Official Documentation & Ecosystem",
+      "url": "https://docs.near.org",
+      "snippet": "Core protocol documentation, sharding (Nightshade 2.0), user-owned AI, and NEAR Intents infrastructure.",
+      "date": "2026-04-01"
+    },
+    {
+      "title": "NEAR Foundation Blog & Research",
+      "url": "https://near.org/blog",
+      "snippet": "Ecosystem announcements, chain abstraction updates, and AI agent execution frameworks.",
+      "date": "2026-04-10"
+    },
+    {
+      "title": "Ref Finance DEX Microstructure",
+      "url": "https://guide.ref.finance",
+      "snippet": "Liquidity pool metrics, concentrated liquidity depth, and swaps on NEAR protocol.",
+      "date": "2026-04-15"
+    },
+    {
+      "title": "Meta Pool Liquid Staking Research",
+      "url": "https://docs.metapool.app",
+      "snippet": "Staking yield dynamics, validator decentralization, and stNEAR collateralization ratios.",
+      "date": "2026-04-12"
+    }
+  ],
+  "BTC": [
+    {
+      "title": "Bitcoin Core & Network Telemetry",
+      "url": "https://bitcoin.org/en/resources",
+      "snippet": "Network hash rate, block size distribution, difficulty adjustments, and UTXO age bands.",
+      "date": "2026-04-14"
+    },
+    {
+      "title": "Clark Moody Bitcoin Dashboard",
+      "url": "https://bitcoin.clarkmoody.com/dashboard",
+      "snippet": "Macro block stats, mempool congestion, lightning network capacity, and Halving cycle telemetry.",
+      "date": "2026-04-15"
+    },
+    {
+      "title": "Glassnode On-Chain Intelligence",
+      "url": "https://insights.glassnode.com",
+      "snippet": "Long-term holder cost basis, exchange net flow volume, and spot ETF cumulative inflows.",
+      "date": "2026-04-12"
+    }
+  ],
+  "ETH": [
+    {
+      "title": "Ethereum Foundation Research & EIPs",
+      "url": "https://ethereum.org/en/developers/docs",
+      "snippet": "Proof-of-stake validator economics, blob space gas utilization, and Layer 2 rollup scaling.",
+      "date": "2026-04-10"
+    },
+    {
+      "title": "Etherscan Macro Telemetry",
+      "url": "https://etherscan.io/charts",
+      "snippet": "Daily transaction volume, gas fee burnt (EIP-1559), and beacon chain staked ETH yield.",
+      "date": "2026-04-13"
+    },
+    {
+      "title": "L2Beat Scaling Analytics",
+      "url": "https://l2beat.com/scaling/summary",
+      "snippet": "Total value locked across Arbitrum, Optimism, Base, and rollup sequencer finality.",
+      "date": "2026-04-14"
+    }
+  ],
+  "DOGE": [
+    {
+      "title": "Dogecoin Official Documentation",
+      "url": "https://dogecoin.com",
+      "snippet": "Scrypt-based proof-of-work parameters, block generation intervals, and peer-to-peer settlement.",
+      "date": "2026-04-05"
+    },
+    {
+      "title": "DogeChain On-Chain Explorer",
+      "url": "https://dogechain.info",
+      "snippet": "Large transaction whale alerts, daily active addresses, and mining pool distribution.",
+      "date": "2026-04-14"
+    },
+    {
+      "title": "CoinMarketCap DOGE Microstructure",
+      "url": "https://coinmarketcap.com/currencies/dogecoin",
+      "snippet": "Circulating supply, social volume momentum, and derivatives open interest.",
+      "date": "2026-04-15"
+    }
+  ],
+  "USDT": [
+    {
+      "title": "Tether Transparency & Reserves Audit",
+      "url": "https://tether.to/en/transparency",
+      "snippet": "Quarterly attestation of US Treasury bill collateral, cash equivalents, and circulation supply.",
+      "date": "2026-03-31"
+    },
+    {
+      "title": "Tether NEP-141 Contract on NEAR",
+      "url": "https://nearblocks.io/token/usdt.tether-token.near",
+      "snippet": "Total supply, active holders, and transfer velocity across NEAR ecosystem.",
+      "date": "2026-04-14"
+    }
+  ],
+  "USDC": [
+    {
+      "title": "Circle USDC Transparency & Reserves",
+      "url": "https://www.circle.com/en/transparency",
+      "snippet": "Regulated fiat reserve breakdown, SEC compliance, and overnight reverse repo backing.",
+      "date": "2026-03-31"
+    },
+    {
+      "title": "Circle Cross-Chain Transfer Protocol (CCTP)",
+      "url": "https://www.circle.com/en/cctp",
+      "snippet": "Native cross-chain burn-and-mint throughput between NEAR, Ethereum, and Solana.",
+      "date": "2026-04-11"
+    }
+  ]
+}
