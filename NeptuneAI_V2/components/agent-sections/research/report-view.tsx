@@ -386,29 +386,36 @@ function RiskPanel({ risks, gaps }: { risks: string[]; gaps: string[] }) {
 
 function SourceList({ sources }: { sources: SourceCitation[] }) {
   return (
-    <ul className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
       {sources.map((source, index) => (
         <li key={index} style={stagger(index)} className="pop-in">
           <a
             href={source.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-purple-500/40 hover:shadow-md hover:shadow-purple-500/10"
+            className="group flex flex-col justify-between rounded-xl border border-border bg-card p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-purple-500/40 hover:shadow-md hover:shadow-purple-500/10"
           >
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-purple-500/15 font-mono text-sm font-bold text-purple-700 dark:text-purple-300">
-              {source.index || index + 1}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[15px] font-semibold text-foreground group-hover:text-purple-700 dark:group-hover:text-purple-300">
-                {source.title}
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-purple-500/15 font-mono text-sm font-bold text-purple-700 dark:text-purple-300">
+                {source.index || index + 1}
               </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {hostnameOf(source.url)}
-                {source.date && source.date !== "N/A" ? ` · ${source.date}` : ""}
-                {source.source_type === "on_chain" ? " · live on-chain" : ""}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[14px] font-semibold text-foreground group-hover:text-purple-700 dark:group-hover:text-purple-300">
+                  {source.title || source.url}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {hostnameOf(source.url)}
+                  {source.date && source.date !== "N/A" ? ` · ${source.date}` : ""}
+                  {source.source_type === "on_chain" ? " · live on-chain" : ""}
+                </span>
               </span>
-            </span>
-            <ExternalLink aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+              <ExternalLink aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+            </div>
+            {Boolean((source as any).snippet || (source as any).description) && (
+              <p className="mt-2 text-xs text-muted-foreground line-clamp-2">
+                {(source as any).snippet || (source as any).description}
+              </p>
+            )}
           </a>
         </li>
       ))}
@@ -460,7 +467,7 @@ export default function ReportView({ report }: { report: Report }) {
   const [copied, setCopied] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
-  const sources = report.sources_cited || [];
+  const sources = (report.sources_cited && report.sources_cited.length > 0) ? report.sources_cited : ((report as any).sources || []);
   const signals = report.signals || [];
   const opportunities = report.ecosystem_opportunities || [];
   const risks = report.risk_factors || [];

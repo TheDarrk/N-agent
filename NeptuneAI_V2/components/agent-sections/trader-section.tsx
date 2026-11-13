@@ -163,7 +163,9 @@ interface TradeTrace {
     fee_paid?: string;
     signal?: any;
     executive_summary?: any;
+    sources?: any[];
   } | null;
+  sources?: any[];
   tx_hash?: string;
   user_wallet?: string;
 }
@@ -1096,6 +1098,47 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                     </div>
                   )}
                 </div>
+
+                {/* Verified Depth-2 Subagent Research Source Links */}
+                {Boolean((activeRun.researcher_intel?.sources && activeRun.researcher_intel.sources.length > 0) || (activeRun.sources && activeRun.sources.length > 0)) && (
+                  <div className="p-3.5 rounded-xl bg-card border border-border text-xs space-y-2 mb-3">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-bold text-foreground text-[11px]">
+                        <BrainCircuit size={13} className="text-purple-400" />
+                        Verified Source Links (Depth 2 Researcher Second Opinion)
+                      </span>
+                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-semibold">
+                        {(activeRun.researcher_intel?.sources || activeRun.sources || []).length} Sources
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {(activeRun.researcher_intel?.sources || activeRun.sources || []).map((src: any, sIdx: number) => (
+                        <a
+                          key={sIdx}
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2.5 rounded-lg border border-border bg-secondary/20 hover:border-purple-500/40 hover:bg-secondary/40 transition-all flex flex-col justify-between group"
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="font-semibold text-[11px] text-foreground group-hover:text-purple-400 truncate">
+                              {src.title || src.url}
+                            </span>
+                            <ExternalLink size={12} className="text-muted-foreground group-hover:text-purple-400 shrink-0" />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground truncate mt-0.5">
+                            {src.url}
+                          </span>
+                          {(src.snippet || src.description) && (
+                            <p className="text-[10px] text-muted-foreground line-clamp-1 mt-1">
+                              {src.snippet || src.description}
+                            </p>
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   <strong>Judge Reasoning:</strong> {activeRun.reasoning}

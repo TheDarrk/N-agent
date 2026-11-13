@@ -40,7 +40,9 @@ import {
   FileText,
   History,
   X,
-  Check
+  Check,
+  ExternalLink,
+  BrainCircuit
 } from "lucide-react";
 import { getTokenLogoUrl, TOKEN_LOGOS } from "@/lib/near/token-logos";
 import { fetchAllTokens, getAccountBalance, formatBalance } from "@/lib/near/near-utils";
@@ -84,6 +86,8 @@ interface ActiveStrategy {
   market_regime?: string;
   overall_strategy?: string;
   created_at?: string;
+  sources?: any[];
+  research?: any;
 }
 
 const PRESET_STRATEGIES = [
@@ -1318,6 +1322,52 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Research Sub-Agent Sources Section (Depth 1 Second Opinion) */}
+          {Boolean((activeStrategy.sources && activeStrategy.sources.length > 0) || (activeStrategy.research?.sources && activeStrategy.research.sources.length > 0)) && (
+            <div className="p-4 rounded-xl bg-secondary/30 border border-border text-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-bold text-foreground text-xs">
+                  <BrainCircuit size={14} className="text-purple-400" />
+                  Verified Source Links (Depth 1 Macro Research Second Opinion)
+                </span>
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-semibold">
+                  {(activeStrategy.sources || activeStrategy.research?.sources || []).length} Verified Sources
+                </span>
+              </div>
+              {activeStrategy.research?.executive_summary && (
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {activeStrategy.research.executive_summary}
+                </p>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {(activeStrategy.sources || activeStrategy.research?.sources || []).map((src: any, sIdx: number) => (
+                  <a
+                    key={sIdx}
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2.5 rounded-lg border border-border bg-card hover:border-purple-500/40 hover:bg-secondary/40 transition-all flex flex-col justify-between group"
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="font-semibold text-[11px] text-foreground group-hover:text-purple-400 truncate">
+                        {src.title || src.url}
+                      </span>
+                      <ExternalLink size={12} className="text-muted-foreground group-hover:text-purple-400 shrink-0" />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground truncate mt-0.5">
+                      {src.url}
+                    </span>
+                    {(src.snippet || src.description) && (
+                      <p className="text-[10px] text-muted-foreground line-clamp-1 mt-1">
+                        {src.snippet || src.description}
+                      </p>
+                    )}
+                  </a>
+                ))}
               </div>
             </div>
           )}
