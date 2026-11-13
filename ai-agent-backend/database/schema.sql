@@ -421,3 +421,31 @@ LEFT JOIN trader_config t ON u.wallet_address = t.wallet_address
 LEFT JOIN rebalancer_config r ON u.wallet_address = r.wallet_address
 LEFT JOIN research_config res ON u.wallet_address = res.wallet_address
 LEFT JOIN moderator_config m ON u.wallet_address = m.wallet_address;
+
+
+-- ============================================================================
+-- AGENT RUNS & EVENT STREAMING TABLES (Resilient Decoupled Pipeline)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+  run_id        TEXT PRIMARY KEY,
+  wallet        TEXT NOT NULL,
+  agent_type    TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  title         TEXT,
+  params_json   TEXT,
+  result_json   TEXT,
+  cid           TEXT,
+  error         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_runs_wallet_type ON agent_runs(wallet, agent_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_run_events (
+  run_id        TEXT NOT NULL,
+  seq           INTEGER NOT NULL,
+  event_json    TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (run_id, seq)
+);

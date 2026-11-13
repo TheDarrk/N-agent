@@ -14,7 +14,7 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Union
 
-from .connection import get_connection, DB_PATH
+from .connection import get_connection, DB_PATH, normalize_wallet
 from .encryption import get_encryption, WalletEncryption
 
 
@@ -87,6 +87,36 @@ def init_db(db_path: Optional[str] = None):
     except Exception:
         pass
 
+    # Safe migration: ensure agent_runs and agent_run_events exist for resilient pipelines
+    try:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_runs (
+          run_id        TEXT PRIMARY KEY,
+          wallet        TEXT NOT NULL,
+          agent_type    TEXT NOT NULL,
+          status        TEXT NOT NULL,
+          title         TEXT,
+          params_json   TEXT,
+          result_json   TEXT,
+          cid           TEXT,
+          error         TEXT,
+          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+          finished_at   TEXT
+        );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_wallet_type ON agent_runs(wallet, agent_type, created_at DESC);")
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_run_events (
+          run_id        TEXT NOT NULL,
+          seq           INTEGER NOT NULL,
+          event_json    TEXT NOT NULL,
+          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (run_id, seq)
+        );
+        """)
+    except Exception as e:
+        print(f"[DB: agent_runs migration warning] {e}")
+
     conn.commit()
     conn.close()
     print("[DB] Neptune v2.1 database initialized cleanly with 18 tables.")
@@ -103,6 +133,7 @@ def get_user(wallet_address: str) -> Optional[Dict[str, Any]]:
     and moderator_config so callers in main.py, trader_agent, and trade_poller
     receive the exact dictionary structure expected.
     """
+    wallet_address = normalize_wallet(wallet_address)
     if not wallet_address:
         return None
     conn = get_connection()
@@ -206,6 +237,7 @@ def upsert_user(wallet_address: str, settings: Dict[str, Any] = None) -> Dict[st
     Create or update a user and sync their preferences across normalized tables.
     Returns the complete user dictionary.
     """
+    wallet_address = normalize_wallet(wallet_address)
     if not wallet_address:
         return {}
     settings = settings or {}
@@ -482,6 +514,7 @@ def save_rebalancer_strategy(
     min_stable_pct: float = 10.0
 ) -> Dict[str, Any]:
     """Saves a new active rebalancer strategy; supersedes previous active strategy."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     upsert_user(user_wallet)
 
@@ -541,6 +574,9 @@ def save_rebalancer_strategy(
 
 def get_active_rebalancer_strategy(user_wallet: str) -> Optional[Dict[str, Any]]:
     """Fetches the latest ACTIVE rebalancing strategy for a user wallet."""
+    user_wallet = normalize_wallet(user_wallet)
+    if not user_wallet:
+        return None
     conn = get_connection()
     row = conn.execute("""
         SELECT * FROM rebalancer_strategies
@@ -575,6 +611,9 @@ def get_active_rebalancer_strategy(user_wallet: str) -> Optional[Dict[str, Any]]
 
 def get_rebalancer_strategy_history(user_wallet: str, limit: int = 15) -> List[Dict[str, Any]]:
     """Fetches historical rebalancer strategies (both active and superseded/dropped)."""
+    user_wallet = normalize_wallet(user_wallet)
+    if not user_wallet:
+        return []
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM rebalancer_strategies
@@ -1980,6 +2019,7 @@ def count_trades_this_week(user_wallet: str) -> int:
 
 def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confidence: int, trace_payload: Dict[str, Any], chart_image_path: Any = None) -> str:
     """Saves a trader reasoning trace scoped strictly to wallet_address in SQLite."""
+    wallet_address = normalize_wallet(wallet_address)
     trace_uuid = f"trace-{uuid.uuid4().hex[:10]}"
     clean_image_path = None
     if isinstance(chart_image_path, dict):
@@ -1987,7 +2027,7 @@ def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confide
     elif chart_image_path:
         clean_image_path = str(chart_image_path)
 
-    cid = f"bafy{hashlib.sha256(json.dumps(trace_payload, default=str).encode()).hexdigest()[:40]}"
+    cid = f"bafy{hashlib.sha256((json.dumps(trace_payload, default=str) + wallet_address + trace_uuid).encode()).hexdigest()[:40]}"
     conn = get_connection()
     upsert_user(wallet_address)
     conn.execute("""
@@ -2004,12 +2044,15 @@ def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confide
 
 def get_user_reasoning_traces(wallet_address: str, limit: int = 24) -> List[Dict[str, Any]]:
     """Retrieves reasoning traces strictly isolated to the requesting user."""
+    norm_w = normalize_wallet(wallet_address)
+    if not norm_w:
+        return []
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM trader_reasoning_traces
         WHERE wallet_address = ?
         ORDER BY created_at DESC LIMIT ?
-    """, (wallet_address, limit)).fetchall()
+    """, (norm_w, limit)).fetchall()
     conn.close()
     res = []
     for r in rows:
@@ -2025,8 +2068,9 @@ def get_user_reasoning_traces(wallet_address: str, limit: int = 24) -> List[Dict
 
 def save_research_report(wallet_address: str, title: str, query: str, full_report: Dict[str, Any], report_type: str = "comprehensive") -> str:
     """Saves a research agent report scoped strictly to wallet_address in SQLite."""
+    wallet_address = normalize_wallet(wallet_address)
     report_uuid = f"report-{uuid.uuid4().hex[:10]}"
-    cid = f"bafy{hashlib.sha256(json.dumps(full_report).encode()).hexdigest()[:40]}"
+    cid = f"bafy{hashlib.sha256((json.dumps(full_report) + wallet_address + report_uuid).encode()).hexdigest()[:40]}"
     conn = get_connection()
     upsert_user(wallet_address)
     conn.execute("""
@@ -2065,25 +2109,58 @@ def save_research_report(wallet_address: str, title: str, query: str, full_repor
     return cid
 
 def get_user_research_reports(wallet_address: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Retrieves research reports strictly isolated to the requesting user."""
-    if not wallet_address or not str(wallet_address).strip():
+    """Retrieves research reports strictly isolated to the requesting user from agent_runs (with fallback to legacy research_reports)."""
+    norm_w = normalize_wallet(wallet_address)
+    if not norm_w:
         return []
+
+    # 1. First look up runs in agent_runs
+    runs = list_runs(norm_w, agent_type="research", limit=limit)
+    res = []
+    seen_cids = set()
+    for r in runs:
+        if r.get("status") == "completed":
+            full_run = get_run(r["run_id"], norm_w)
+            if full_run and full_run.get("result"):
+                rep = full_run["result"]
+                cid = full_run.get("cid") or rep.get("cid") or ""
+                seen_cids.add(cid)
+                res.append({
+                    "wallet_address": norm_w,
+                    "user_wallet": norm_w,
+                    "report_uuid": r["run_id"],
+                    "cid": cid,
+                    "title": r.get("title") or rep.get("title") or "Research Report",
+                    "research_query": (r.get("params") or {}).get("topic") or rep.get("topic") or "",
+                    "report_type": rep.get("report_type", "comprehensive"),
+                    "executive_summary": rep.get("executive_summary", ""),
+                    "full_report": rep,
+                    "created_at": r.get("created_at")
+                })
+        if len(res) >= limit:
+            return res
+
+    # 2. Also incorporate any legacy reports in research_reports table not already present
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM research_reports
         WHERE wallet_address = ?
         ORDER BY created_at DESC LIMIT ?
-    """, (wallet_address, limit)).fetchall()
+    """, (norm_w, limit)).fetchall()
     conn.close()
-    res = []
     for r in rows:
         d = dict(r)
+        if d.get("cid") and d["cid"] in seen_cids:
+            continue
         d["user_wallet"] = d["wallet_address"]
         try:
             d["full_report"] = json.loads(d["full_report_json"])
         except Exception:
             d["full_report"] = {}
         res.append(d)
+        if len(res) >= limit:
+            break
+
     return res
 
 
@@ -2895,3 +2972,152 @@ def get_moderator_cadence_info(user_wallet: str) -> Dict[str, Any]:
         "is_due": is_due,
         "days_remaining": days_remaining
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. RESILIENT AGENT RUNS & EVENT PERSISTENCE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def create_run(wallet: str, agent_type: str, title: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> str:
+    """Creates a new tracked agent run row in 'running' status."""
+    norm_w = normalize_wallet(wallet)
+    upsert_user(norm_w)
+    run_id = uuid.uuid4().hex
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO agent_runs (
+            run_id, wallet, agent_type, status, title, params_json, created_at
+        ) VALUES (?, ?, ?, 'running', ?, ?, ?)
+    """, (run_id, norm_w, agent_type, title, json.dumps(params or {}), now_iso))
+    conn.commit()
+    conn.close()
+    return run_id
+
+
+def append_run_event(run_id: str, event: Dict[str, Any]) -> int:
+    """Appends a streaming progress event inside a single transaction with auto-incrementing seq."""
+    conn = get_connection()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with conn:
+        cursor = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_run_events WHERE run_id = ?", (run_id,))
+        seq = cursor.fetchone()[0]
+        event_copy = dict(event)
+        event_copy["seq"] = seq
+        conn.execute("""
+            INSERT INTO agent_run_events (run_id, seq, event_json, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (run_id, seq, json.dumps(event_copy), now_iso))
+    conn.close()
+    return seq
+
+
+def get_run_events(run_id: str, after_seq: int = 0) -> List[Dict[str, Any]]:
+    """Retrieves events for a run strictly after a sequence number."""
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT seq, event_json, created_at FROM agent_run_events
+        WHERE run_id = ? AND seq > ?
+        ORDER BY seq ASC
+    """, (run_id, after_seq)).fetchall()
+    conn.close()
+    events = []
+    for r in rows:
+        try:
+            ev = json.loads(r["event_json"])
+            ev["seq"] = r["seq"]
+            events.append(ev)
+        except Exception:
+            events.append({"seq": r["seq"], "raw": r["event_json"]})
+    return events
+
+
+def finish_run(run_id: str, result: Optional[Dict[str, Any]] = None, cid: Optional[str] = None, error: Optional[str] = None):
+    """Marks a run completed or failed and persists the final output. Always succeeds."""
+    status = "failed" if error else "completed"
+    finished_at = datetime.now(timezone.utc).isoformat()
+    result_json = json.dumps(result) if result is not None else None
+    conn = get_connection()
+    conn.execute("""
+        UPDATE agent_runs
+        SET status = ?, result_json = COALESCE(?, result_json), cid = COALESCE(?, cid), error = ?, finished_at = ?
+        WHERE run_id = ?
+    """, (status, result_json, cid, error, finished_at, run_id))
+    conn.commit()
+    conn.close()
+
+
+def get_run(run_id: str, wallet: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Gets a full agent run by run_id, enforcing wallet ownership if wallet is passed."""
+    conn = get_connection()
+    if wallet:
+        norm_w = normalize_wallet(wallet)
+        row = conn.execute("SELECT * FROM agent_runs WHERE run_id = ? AND wallet = ?", (run_id, norm_w)).fetchone()
+    else:
+        row = conn.execute("SELECT * FROM agent_runs WHERE run_id = ?", (run_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["params"] = json.loads(d["params_json"]) if d.get("params_json") else {}
+    except Exception:
+        d["params"] = {}
+    try:
+        d["result"] = json.loads(d["result_json"]) if d.get("result_json") else None
+    except Exception:
+        d["result"] = None
+    return d
+
+
+def list_runs(wallet: str, agent_type: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    """Lists run metadata (excluding heavy result_json) for history views."""
+    norm_w = normalize_wallet(wallet)
+    if not norm_w:
+        return []
+    conn = get_connection()
+    if agent_type:
+        rows = conn.execute("""
+            SELECT run_id, wallet, agent_type, status, title, params_json, cid, error, created_at, finished_at
+            FROM agent_runs
+            WHERE wallet = ? AND agent_type = ?
+            ORDER BY created_at DESC LIMIT ? OFFSET ?
+        """, (norm_w, agent_type, limit, offset)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT run_id, wallet, agent_type, status, title, params_json, cid, error, created_at, finished_at
+            FROM agent_runs
+            WHERE wallet = ?
+            ORDER BY created_at DESC LIMIT ? OFFSET ?
+        """, (norm_w, limit, offset)).fetchall()
+    conn.close()
+    runs = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["params"] = json.loads(d["params_json"]) if d.get("params_json") else {}
+        except Exception:
+            d["params"] = {}
+        runs.append(d)
+    return runs
+
+
+def mark_stale_runs_failed(running_run_ids: Optional[List[str]] = None):
+    """Marks runs that were in 'running' status when the server stopped/restarted as 'failed'."""
+    conn = get_connection()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if running_run_ids:
+        placeholders = ",".join(["?"] * len(running_run_ids))
+        conn.execute(f"""
+            UPDATE agent_runs
+            SET status = 'failed', error = 'server restarted', finished_at = ?
+            WHERE status = 'running' AND run_id NOT IN ({placeholders})
+        """, [now_iso] + running_run_ids)
+    else:
+        conn.execute("""
+            UPDATE agent_runs
+            SET status = 'failed', error = 'server restarted', finished_at = ?
+            WHERE status = 'running'
+        """, (now_iso,))
+    conn.commit()
+    conn.close()
