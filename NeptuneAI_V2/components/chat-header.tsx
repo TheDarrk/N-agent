@@ -14,7 +14,8 @@ import {
   History,
   LogOut,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Flame
 } from "lucide-react";
 import AgentFleetModal from "./agent-fleet-modal";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
