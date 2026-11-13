@@ -693,7 +693,7 @@ export default function TraderSetup(p: Props) {
             onChange={p.setEnableResearcher}
             icon={BrainCircuit}
             label="Second opinion"
-            tip="Consults the Research agent for second opinions on candidate tokens (Free - 0 NEAR). Make sure data source links are configured."
+            tip="Consults the Research agent for second opinions on candidate tokens. Make sure data source links are configured."
           />
           <Switch
             checked={p.allowCrossChain}

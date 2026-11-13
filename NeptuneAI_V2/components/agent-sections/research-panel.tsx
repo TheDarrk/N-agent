@@ -445,12 +445,6 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             <Sparkles size={16} className="text-primary" />
             New research
           </h2>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">Fee:</span>
-            <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20">
-              Free (0 NEAR)
-            </span>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

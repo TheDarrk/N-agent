@@ -95,7 +95,7 @@ export default function SidebarFleetBar({
       active: fleet?.agents?.research?.is_active ?? false,
       metricLabel: fleet?.agents?.research?.metric_label || "Alpha intel",
       metricValue: fleet?.agents?.research?.metric_value || (fleet?.agents?.research?.is_active ? "Intel feed live" : "Inactive"),
-      metricSub: fleet?.agents?.research?.metric_sub || "Free (0 NEAR)",
+      metricSub: fleet?.agents?.research?.metric_sub || "Autonomous Alpha",
       summary: fleet?.agents?.research?.summary || "Standby"
     },
     {

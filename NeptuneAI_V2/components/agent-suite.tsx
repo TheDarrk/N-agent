@@ -654,16 +654,8 @@ function AgentOverviewCard({
         {hired && (
           <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3 text-xs space-y-1">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-purple-300">Rented From:</span>
+              <span className="font-semibold text-purple-300">Purchased From:</span>
               <span className="font-mono text-foreground font-bold truncate max-w-[160px]">{hired.creator_wallet}</span>
-            </div>
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Fee Model:</span>
-              <span className="font-semibold text-foreground">
-                {hired.pricing_model === "profit_share"
-                  ? `${hired.profit_share_percent || 10}% Profit Share`
-                  : `${hired.fixed_fee_tokens || 1} NEAR Fixed`}
-              </span>
             </div>
           </div>
         )}
