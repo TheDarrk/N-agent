@@ -1054,6 +1054,16 @@ async def health_storage_endpoint():
 @app.post("/api/trader/analyze")
 async def trader_analyze(body: TraderScanRequest):
     """Trigger the Trader Agent's 2-node pipeline with LLM-as-a-Judge, visual charts, and research plugin."""
+    norm_w = normalize_wallet(body.user_wallet)
+    if norm_w:
+        upsert_user(norm_w, {
+            "trader_active": 1,
+            "trader_coin_mode": body.coin_mode or "auto",
+            "trader_custom_coins": body.custom_coins or "",
+            "trader_timeframe": body.timeframe or "1h",
+            "trader_min_confidence": body.min_confidence or 75,
+            "trader_enable_researcher": 1 if body.enable_researcher_plugin else 0
+        })
     from autonomous_agents.trader_agent import TraderAgent
     trader = TraderAgent()
     result = await trader.run_pipeline(
@@ -1072,6 +1082,15 @@ async def trader_analyze(body: TraderScanRequest):
 @app.post("/api/trader/start")
 async def trader_start_endpoint(body: TraderScanRequest):
     norm_w = normalize_wallet(body.user_wallet)
+    if norm_w:
+        upsert_user(norm_w, {
+            "trader_active": 1,
+            "trader_coin_mode": body.coin_mode or "auto",
+            "trader_custom_coins": body.custom_coins or "",
+            "trader_timeframe": body.timeframe or "1h",
+            "trader_min_confidence": body.min_confidence or 75,
+            "trader_enable_researcher": 1 if body.enable_researcher_plugin else 0
+        })
     title = f"Trader Scan ({body.symbol or body.coin_mode or 'auto'})"
     params = {
         "symbol": body.symbol,
@@ -1223,6 +1242,12 @@ async def rebalancer_generate_strategy(body: RebalanceStrategyRequest):
     - Automatically supersedes/drops old strategy in Rebalancer DB
     """
     try:
+        norm_w = normalize_wallet(body.user_wallet)
+        if norm_w:
+            upsert_user(norm_w, {
+                "rebalancer_active": 1,
+                "rebalancer_drift_threshold": 5.0,
+            })
         from autonomous_agents.rebalancer_agent import RebalancerAgent
         rebalancer = RebalancerAgent()
         result = await rebalancer.generate_strategy(
@@ -1242,6 +1267,11 @@ async def rebalancer_generate_strategy(body: RebalanceStrategyRequest):
 @app.post("/api/rebalancer/start")
 async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
     norm_w = normalize_wallet(body.user_wallet)
+    if norm_w:
+        upsert_user(norm_w, {
+            "rebalancer_active": 1,
+            "rebalancer_drift_threshold": 5.0,
+        })
     coins_summary = ", ".join((body.selected_coins or [])[:3])
     title = f"Rebalance ({coins_summary})" if coins_summary else "Portfolio Rebalance"
     params = {
@@ -1368,8 +1398,11 @@ async def rebalancer_get_single_execution(execution_id: str):
 async def research_generate(body: ResearchRequest):
     """
     Generate an institutional research report using Chain of Thought reasoning,
-    on-demand web crawler, and ChromaDB vector RAG retrieval (0.1 NEAR fee).
+    on-demand web crawler, and ChromaDB vector RAG retrieval.
     """
+    norm_w = normalize_wallet(body.user_wallet)
+    if norm_w:
+        upsert_user(norm_w, {"research_active": 1})
     from autonomous_agents.research_agent import ResearchAgent
     researcher = ResearchAgent()
     return await researcher.generate_research_report(
@@ -1383,6 +1416,8 @@ async def research_generate(body: ResearchRequest):
 @app.post("/api/research/start")
 async def research_start_endpoint(body: ResearchRequest):
     norm_w = normalize_wallet(body.user_wallet)
+    if norm_w:
+        upsert_user(norm_w, {"research_active": 1})
     title = body.topic or "NEAR Research Report"
     params = {
         "topic": body.topic,
