@@ -1,99 +1,94 @@
 "use client";
 
-import React from "react";
-import Image from "next/image";
+import React, { useState } from "react";
 
 type AvatarProps = {
   size?: number;
   className?: string;
+  fallbackEmoji?: string;
 };
 
-export function TraderAgentAvatar({ size = 32, className = "" }: AvatarProps) {
+const AGENT_CONFIGS: Record<string, { src: string; alt: string; emoji: string }> = {
+  trader: { src: "/agents/trader.svg", alt: "Autonomous Trader", emoji: "📈" },
+  rebalancer: { src: "/agents/rebalancer.svg", alt: "Portfolio Rebalancer", emoji: "⚖️" },
+  research: { src: "/agents/research.svg", alt: "Deep Research", emoji: "🔬" },
+  moderator: { src: "/agents/moderator.svg", alt: "Moderator Watchdog", emoji: "🛡️" },
+  marketplace: { src: "/agents/marketplace.svg", alt: "Agent Marketplace", emoji: "🏪" },
+};
+
+export function AgentLogo({
+  agentId,
+  size = 32,
+  className = "",
+  fallbackEmoji
+}: {
+  agentId: string;
+  size?: number;
+  className?: string;
+  fallbackEmoji?: string;
+}) {
+  const norm = (agentId || "trader").toLowerCase();
+  const config = AGENT_CONFIGS[norm] || AGENT_CONFIGS.trader;
+  const emoji = fallbackEmoji || config.emoji;
+  const [hasError, setHasError] = useState(false);
+
+  if (hasError) {
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center justify-center select-none ${className}`}
+        style={{
+          width: size,
+          height: size,
+          fontSize: Math.max(12, Math.floor(size * 0.65)),
+          lineHeight: 1,
+        }}
+        role="img"
+        aria-label={config.alt}
+      >
+        {emoji}
+      </span>
+    );
+  }
+
   return (
     <span
-  className={`inline-flex shrink-0 items-center justify-center bg-white ${className}`}
-  style={{
-  width: size,
-  height: size,
-  borderRadius: size * 0.28,
-  padding: size * 0.06,
-  }}
-  >
-  <Image
-  src="/images/agent-trader.png"
-  alt="Autonomous Trader"
-  width={size * 2}
-  height={size * 2}
-  className="h-full w-full object-contain"
-  />
-  </span>
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-xl ${className}`}
+      style={{
+        width: size,
+        height: size,
+      }}
+    >
+      <img
+        src={config.src}
+        alt={config.alt}
+        width={size}
+        height={size}
+        onError={() => setHasError(true)}
+        className="h-full w-full object-contain"
+        loading="lazy"
+      />
+    </span>
   );
+}
+
+export function TraderAgentAvatar({ size = 32, className = "" }: AvatarProps) {
+  return <AgentLogo agentId="trader" size={size} className={className} />;
 }
 
 export function ModeratorAgentAvatar({ size = 32, className = "" }: AvatarProps) {
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center justify-center bg-white ${className}`}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size * 0.28,
-        padding: size * 0.1,
-      }}
-    >
-      <Image
-        src="/images/agent-moderator.png"
-        alt="Moderator"
-        width={size * 2}
-        height={size * 2}
-        className="h-full w-full object-contain"
-      />
-    </span>
-  );
+  return <AgentLogo agentId="moderator" size={size} className={className} />;
 }
 
 export function ResearchAgentAvatar({ size = 32, className = "" }: AvatarProps) {
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center justify-center bg-white ${className}`}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size * 0.28,
-        padding: size * 0.1,
-      }}
-    >
-      <Image
-        src="/images/agent-researcher.png"
-        alt="Deep Research"
-        width={size * 2}
-        height={size * 2}
-        className="h-full w-full object-contain"
-      />
-    </span>
-  );
+  return <AgentLogo agentId="research" size={size} className={className} />;
 }
 
 export function RebalancerAgentAvatar({ size = 32, className = "" }: AvatarProps) {
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center justify-center bg-white ${className}`}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size * 0.28,
-        padding: size * 0.08,
-      }}
-    >
-      <Image
-        src="/images/agent-rebalancer.png"
-        alt="Portfolio Rebalancer"
-        width={size * 2}
-        height={size * 2}
-        className="h-full w-full object-contain"
-      />
-    </span>
-  );
+  return <AgentLogo agentId="rebalancer" size={size} className={className} />;
+}
+
+export function MarketplaceAgentAvatar({ size = 32, className = "" }: AvatarProps) {
+  return <AgentLogo agentId="marketplace" size={size} className={className} />;
 }
 
 /**
@@ -104,22 +99,10 @@ export function AgentAvatar({
   size = 32,
   className = ""
 }: {
-  agentId: "trader" | "moderator" | "research" | "rebalancer" | string;
+  agentId: "trader" | "moderator" | "research" | "rebalancer" | "marketplace" | string;
   size?: number;
   className?: string;
 }) {
   const norm = agentId?.toLowerCase();
-  if (norm === "trader") {
-    return <TraderAgentAvatar size={size} className={className} />;
-  }
-  if (norm === "moderator") {
-    return <ModeratorAgentAvatar size={size} className={className} />;
-  }
-  if (norm === "research") {
-    return <ResearchAgentAvatar size={size} className={className} />;
-  }
-  if (norm === "rebalancer") {
-    return <RebalancerAgentAvatar size={size} className={className} />;
-  }
-  return <TraderAgentAvatar size={size} className={className} />;
+  return <AgentLogo agentId={norm} size={size} className={className} />;
 }
