@@ -64,8 +64,13 @@ logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 @asynccontextmanager
 async def lifespan(app):
     """Startup: init database + start autonomy scheduler."""
-    # Initialize SQLite database
+    # Initialize SQLite databases (Core DB + Dedicated Chat History DB)
     init_db()
+    try:
+        from database.chat_db import init_chat_db
+        init_chat_db()
+    except Exception as ce:
+        print(f"[STARTUP] Warning: Failed to init chat database: {ce}")
     print("[STARTUP] Neptune database ready")
     
     # Pre-fetch token list so the autonomy engine can map contracts -> symbols
@@ -299,11 +304,39 @@ async def chat_endpoint(body: ChatRequest, request: Request):
     if len(history) > 20:
         session_data["history"] = history[-20:]
 
+    # Persist the conversational turn to dedicated chat database per wallet
+    target_wallet = str(body.account_id or (wallet_addresses.get("near") if wallet_addresses else "") or "").strip()
+    if target_wallet:
+        try:
+            from database.chat_db import save_chat_turn
+            save_chat_turn(
+                wallet_address=target_wallet,
+                human_message=user_msg,
+                ai_message=ai_text,
+                session_id=session_id
+            )
+        except Exception as ce:
+            print(f"[CHAT DB] Turn persistence notice: {ce}")
+
     return ChatResponse(
         response=ai_text,
         action=result.get("action"),
         payload=result.get("payload")
     )
+
+@app.get("/api/chat/history/{wallet_address}")
+async def get_chat_history_endpoint(wallet_address: str):
+    """Return the 5 most recent chat turns for a user wallet from dedicated chat database."""
+    from database.chat_db import get_recent_chats
+    chats = get_recent_chats(wallet_address, limit=5)
+    return {"status": "success", "wallet": wallet_address, "history": chats}
+
+@app.delete("/api/chat/history/{wallet_address}")
+async def clear_chat_history_endpoint(wallet_address: str):
+    """Clear chat history for a user wallet in dedicated chat database."""
+    from database.chat_db import clear_chat_history
+    cleared = clear_chat_history(wallet_address)
+    return {"status": "success", "cleared": cleared}
 
 @app.get("/health")
 def root_health_check():

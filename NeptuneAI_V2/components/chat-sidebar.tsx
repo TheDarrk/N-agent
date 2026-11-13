@@ -9,6 +9,7 @@ import {
   Plus,
   History,
   ChevronRight,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
@@ -16,6 +17,7 @@ import AgentWalletManagerModal from "./agent-wallet-manager-modal";
 import SidebarAgentFeed from "./sidebar-agent-feed";
 import SidebarFleetBar from "./sidebar-fleet-bar";
 import SidebarEmailSettings from "./sidebar-email-settings";
+import SidebarChatHistory from "./sidebar-chat-history";
 import { getTokenLogoUrl, TOKEN_LOGOS } from "@/lib/near/token-logos";
 
 type Props = {
@@ -30,11 +32,13 @@ type Props = {
   onOpenFleetModal?: () => void;
   onOpenAgentSuite?: () => void;
   onSelectAgent?: (agentId: string) => void;
+  onSelectChat?: (chat: { human_message: string; ai_message: string }) => void;
 };
 
-type TabId = "wallet" | "fleet" | "activity";
+type TabId = "chats" | "wallet" | "fleet" | "activity";
 
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
+  { id: "chats", label: "Chats", icon: MessageSquare },
   { id: "wallet", label: "Wallet", icon: Wallet },
   { id: "fleet", label: "Fleet", icon: Cpu },
   { id: "activity", label: "Activity", icon: History },
@@ -294,8 +298,9 @@ export default function ChatSidebar({
   onOpenFleetModal = () => {},
   onOpenAgentSuite = () => {},
   onSelectAgent,
+  onSelectChat,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>("wallet");
+  const [activeTab, setActiveTab] = useState<TabId>("chats");
   const [isAgentWalletModalOpen, setIsAgentWalletModalOpen] = useState(false);
   const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
   const chains = connectedChains.length > 0 ? connectedChains : accountId ? ["near"] : [];
@@ -346,7 +351,7 @@ export default function ChatSidebar({
         <div
           role="tablist"
           aria-label="Sidebar sections"
-          className="mx-3 mt-3 grid grid-cols-3 gap-1 rounded-lg bg-secondary/60 p-1"
+          className="mx-3 mt-3 grid grid-cols-4 gap-1 rounded-lg bg-secondary/60 p-1"
         >
           {TABS.map(({ id, label, icon: Icon }) => {
             const selected = activeTab === id;
@@ -358,13 +363,13 @@ export default function ChatSidebar({
                 aria-selected={selected}
                 aria-controls={`sidebar-panel-${id}`}
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                className={`flex items-center justify-center gap-1 rounded-md px-1.5 py-1.5 text-[11px] font-medium transition-colors ${
                   selected
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <Icon size={13} className={`shrink-0 ${selected ? "text-primary" : ""}`} />
+                <Icon size={12} className={`shrink-0 ${selected ? "text-primary" : ""}`} />
                 {label}
               </button>
             );
@@ -378,6 +383,17 @@ export default function ChatSidebar({
           aria-labelledby={`sidebar-tab-${activeTab}`}
           className={`min-h-0 flex-1 px-3 pt-4 ${activeTab === "activity" ? "flex flex-col overflow-hidden pb-3" : "overflow-y-auto pb-4"}`}
         >
+          {activeTab === "chats" && (
+            <SidebarChatHistory
+              accountId={accountId}
+              onSelectChat={(chat) => {
+                onSelectChat?.(chat);
+                onClose();
+              }}
+              onConnectWallet={onConnectWallet}
+            />
+          )}
+
           {activeTab === "wallet" && (
             <WalletPanel
               accountId={accountId}

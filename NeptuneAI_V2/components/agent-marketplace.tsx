@@ -178,7 +178,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
               Neptune Agent Marketplace
             </h1>
             <p className="text-xs md:text-sm text-muted-foreground max-w-2xl mt-1 leading-relaxed">
-              Hire proven AI trading and research agents built by top community creators. When a creator’s agent executes a trade or research report, the exact same action is automatically mirrored to your wallet.
+              Rent proven AI trading agents with profit-share mirroring, or buy verified Rebalancer and Research setups to instantly import and run proven community configurations in your own agent suite.
             </p>
           </div>
 
@@ -383,7 +383,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                         ) : isHired ? (
                           <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/40">
                             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                            <span>Hired (Copying)</span>
+                            <span>{agent.agent_type === "trader" ? "Rented (Mirroring)" : "Setup Purchased & Applied"}</span>
                           </span>
                         ) : (
                           <button
@@ -396,7 +396,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                             ) : (
                               <UserCheck size={13} />
                             )}
-                            <span>Hire &amp; Mirror</span>
+                            <span>{agent.agent_type === "trader" ? "Rent Agent" : "Buy Setup"}</span>
                           </button>
                         )}
                       </div>

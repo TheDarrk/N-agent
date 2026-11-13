@@ -7,7 +7,7 @@ market conditions, and execution details.
 
 import os
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from glm_transport import invoke_glm
@@ -19,25 +19,26 @@ from database import get_user
 #   System Prompt for Email Drafting  
 
 NOTIFICATION_PROMPT = """You are Neptune AI's Notification Agent. Your ONLY job is to draft premium,
-stylish email notifications when a trading strategy triggers.
+stylish, institutional-grade email notifications when a trading strategy triggers.
 
 You receive strategy and execution context and must generate:
-1. A clear **email subject line** with a relevant emoji
+1. A clear, executive **email subject line** (clean text, NO emojis)
 2. A beautifully **styled HTML email body**
 
 **Email Design Rules:**
-- Use a dark, premium design: background #0F172A, card background #1E293B, rounded corners 12px
+- Zero emojis: Do NOT include any emojis (no lightning bolts, robots, warning icons, etc.). Keep it strictly institutional and clean.
+- Use a dark, premium fintech design: background #0F172A, card background #1E293B, rounded corners 8px
 - Accent color: #00D4AA (emerald green) for success, #F59E0B for warnings, #EF4444 for blocks
 - Font: system sans-serif, clean and modern
 - Structure the email as:
-  1. Header with Neptune AI logo text and a status emoji (       )
-  2. A brief summary sentence in large text
-  3. Details card with key-value rows (Strategy, Token, Action, Result, etc.)
+  1. Header with Neptune AI logo text and category
+  2. A brief executive summary sentence in large text
+  3. Mobile-responsive key-value cards (Strategy, Token, Action, Result, etc.) with overflow-wrap
   4. Transaction hash link if available (shortened display)
-  5. Footer with timestamp and "  Neptune AI" signature in muted text
+  5. Footer with timestamp and "Neptune AI Autonomous Trading Infrastructure" in muted text
 - Use inline CSS only, no external stylesheets
-- Keep it concise   professionals don't read fluff
-- Make the email look like it came from a premium fintech product
+- Keep it concise — professionals don't read fluff
+- Make the email look like it came from an institutional hedge fund or prime broker fintech platform
 
 **Format your response as JSON:**
 ```
@@ -88,7 +89,7 @@ async def notify_strategy_trigger(
     exec_message = execution_result.get("message", "")
     autonomy_level = user.get("autonomy_level", 0)
     agent_wallet = user.get("agent_wallet", "")
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     context = f"""Strategy Trigger Details:
 - Wallet: {user_wallet}
@@ -221,47 +222,62 @@ async def send_agent_action_email(
             print(f"[NOTIFY] User {user_wallet} has email configured ({user_email}), but SMTP credentials are not set in .env. Skipping email.")
             return False
 
-        now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         agent_clean = agent_name.upper().strip()
 
-        # Accent colors by agent persona
+        # Accent colors by agent persona (Institutional styling, zero emojis)
         accent_color = "#00D4AA"  # Default Neptune Emerald
-        agent_emoji = "🤖"
-        avatar_key = "trader"
         if "TRADE" in agent_clean:
             accent_color = "#10B981"
-            agent_emoji = "⚡"
-            avatar_key = "trader"
         elif "REBALANC" in agent_clean:
             accent_color = "#06B6D4"
-            agent_emoji = "⚖️"
-            avatar_key = "rebalancer"
         elif "RESEARCH" in agent_clean:
             accent_color = "#8B5CF6"
-            agent_emoji = "🔬"
-            avatar_key = "researcher"
         elif "MODERAT" in agent_clean or "WATCHDOG" in agent_clean:
             accent_color = "#F59E0B"
-            agent_emoji = "🛡️"
-            avatar_key = "moderator"
 
-        # Resolve avatar path for exact visual brand consistency across frontend and email
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        avatar_path = os.path.join(base_dir, "assets", "avatars", f"{avatar_key}.png")
         inline_images = {}
-        if os.path.exists(avatar_path):
-            inline_images["agent_avatar"] = avatar_path
 
-        # Build metric rows
-        metric_rows_html = ""
+        # Helper to format values cleanly without raw Python dict slop
+        def _format_metric_val(val: Any) -> str:
+            if isinstance(val, dict):
+                parts = []
+                for sub_k, sub_v in val.items():
+                    sub_label = str(sub_k).replace("_", " ").title()
+                    parts.append(f"""
+                        <div style="margin-top: 4px; padding-left: 8px; border-left: 2px solid #334155;">
+                            <span style="color: #94A3B8; font-weight: 600; font-size: 11px;">{sub_label}:</span> 
+                            <span style="color: #F8FAFC; font-weight: 500; font-size: 12px;">{sub_v}</span>
+                        </div>
+                    """)
+                return "".join(parts)
+            val_str = str(val).strip()
+            # If stringified dict, attempt safe JSON or ast parsing
+            if val_str.startswith("{") and val_str.endswith("}"):
+                try:
+                    import ast
+                    parsed_dict = ast.literal_eval(val_str)
+                    if isinstance(parsed_dict, dict):
+                        return _format_metric_val(parsed_dict)
+                except Exception:
+                    pass
+            return val_str
+
+        # Build metric cards (mobile-responsive card layout with zero overflow clipping)
+        metric_cards_html = ""
         metric_rows_text = ""
+        seen_cid = str(cid_reference or "").strip()
         if metrics:
             for k, v in metrics.items():
-                metric_rows_html += f"""
-                <tr style="border-bottom: 1px solid #1F293D;">
-                    <td style="padding: 10px 14px; color: #94A3B8; font-size: 13px; font-weight: 500;">{k}</td>
-                    <td style="padding: 10px 14px; color: #F1F5F9; font-size: 13px; font-weight: 600; text-align: right;">{v}</td>
-                </tr>
+                # Avoid duplicating CID if already in cid_reference
+                if str(k).lower() in ("decentralized cid", "decentralized trace", "audit trace cid", "cid") and seen_cid:
+                    continue
+                val_rendered = _format_metric_val(v)
+                metric_cards_html += f"""
+                <div style="padding: 12px 14px; background: #0B0F19; border: 1px solid #1E293B; border-radius: 8px; margin-bottom: 8px;">
+                    <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">{k}</div>
+                    <div style="font-size: 13px; font-weight: 600; color: #F1F5F9; line-height: 1.4; word-break: break-word; overflow-wrap: anywhere;">{val_rendered}</div>
+                </div>
                 """
                 metric_rows_text += f"  • {k}: {v}\n"
 
@@ -270,87 +286,87 @@ async def send_agent_action_email(
             clean_hash = tx_hash.strip()
             if clean_hash.startswith("PENDING") or "LIMIT" in clean_hash:
                 tx_section_html = f"""
-                <div style="margin-top: 16px; padding: 10px 14px; background: #131D31; border: 1px solid #1E293B; border-radius: 8px; text-align: center;">
+                <div style="margin-top: 14px; padding: 12px 14px; background: #0B0F19; border: 1px solid #1E293B; border-radius: 8px;">
                     <span style="font-size: 11px; color: #10B981; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Solver Network Trigger Status</span>
-                    <div style="font-family: monospace; font-size: 12px; color: #94A3B8; margin-top: 4px;">{clean_hash}</div>
+                    <div style="font-family: ui-monospace, monospace; font-size: 12px; color: #94A3B8; margin-top: 4px; word-break: break-all;">{clean_hash}</div>
                 </div>
                 """
             else:
                 tx_url = f"https://nearblocks.io/txns/{clean_hash}"
                 tx_section_html = f"""
-                <div style="margin-top: 18px; text-align: center;">
-                    <a href="{tx_url}" target="_blank" style="display: inline-block; background: {accent_color}; color: #0B0F19; font-weight: 700; font-size: 13px; padding: 10px 20px; border-radius: 8px; text-decoration: none; letter-spacing: 0.3px;">
-                        View Transaction on NearBlocks ↗
+                <div style="margin-top: 16px; text-align: center;">
+                    <a href="{tx_url}" target="_blank" style="display: inline-block; background: {accent_color}; color: #0B0F19; font-weight: 700; font-size: 12px; padding: 10px 22px; border-radius: 8px; text-decoration: none; letter-spacing: 0.5px; text-transform: uppercase;">
+                        View Transaction on NearBlocks
                     </a>
-                    <div style="margin-top: 6px; font-size: 11px; color: #64748B; font-family: monospace;">
-                        Tx: {clean_hash[:16]}...{clean_hash[-8:]}
+                    <div style="margin-top: 6px; font-size: 11px; color: #64748B; font-family: ui-monospace, monospace; word-break: break-all;">
+                        Tx: {clean_hash}
                     </div>
                 </div>
                 """
 
         cid_section_html = ""
-        if cid_reference:
-            clean_cid = str(cid_reference).strip()
+        effective_cid = seen_cid or (str(metrics.get("Decentralized CID") or metrics.get("Decentralized Trace") or "").strip() if metrics else "")
+        if effective_cid:
             cid_section_html = f"""
-            <div style="margin-top: 12px; padding: 10px 14px; background: #131D31; border: 1px solid #1E293B; border-radius: 8px; text-align: center;">
-                <span style="font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Decentralized Audit CID:</span>
-                <div style="font-family: monospace; font-size: 12px; color: #38BDF8; font-weight: 600; margin-top: 4px; word-break: break-all;">{clean_cid}</div>
+            <div style="margin-top: 14px; padding: 12px 14px; background: #0B0F19; border: 1px solid #1E293B; border-radius: 8px;">
+                <div style="font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; margin-bottom: 4px;">Decentralized Audit CID</div>
+                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; color: #38BDF8; font-weight: 600; word-break: break-all; overflow-wrap: anywhere; line-height: 1.4;">{effective_cid}</div>
             </div>
             """
 
         reasoning_html = ""
         if reasoning:
             reasoning_html = f"""
-            <div style="margin-top: 18px; background: #0B1120; border-left: 3px solid {accent_color}; padding: 12px 16px; border-radius: 4px;">
-                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Agent Rationale & Evidence</div>
-                <div style="color: #CBD5E1; font-size: 13px; line-height: 1.5;">{reasoning}</div>
+            <div style="margin-top: 14px; background: #0B0F19; border-left: 3px solid {accent_color}; padding: 12px 16px; border-radius: 0 8px 8px 0; border: 1px solid #1E293B; border-left-width: 3px;">
+                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Agent Rationale &amp; Evidence</div>
+                <div style="color: #CBD5E1; font-size: 13px; line-height: 1.6; word-break: break-word; overflow-wrap: anywhere;">{reasoning}</div>
             </div>
             """
-
-        avatar_tag = '<img src="cid:agent_avatar" width="40" height="40" style="border-radius: 10px; display: block; border: 1px solid #334155; background: #FFFFFF; padding: 2px;" alt="' + agent_clean + '" />' if inline_images else ''
 
         html_body = f"""
         <!DOCTYPE html>
         <html>
-        <head><meta charset="utf-8"></head>
-        <body style="margin: 0; padding: 0; background-color: #070B14; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-            <div style="max-width: 580px; margin: 30px auto; background-color: #0F172A; border: 1px solid #1E293B; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-                <!-- Header with Exact Persona Avatar -->
-                <div style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); padding: 20px 24px; border-bottom: 1px solid #1E293B;">
-                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px;">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #070B14; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+            <div style="max-width: 580px; margin: 24px auto; background-color: #0F172A; border: 1px solid #1E293B; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+                <!-- Header (Zero emojis, clean institutional design) -->
+                <div style="background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%); padding: 20px 22px; border-bottom: 1px solid #1E293B;">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
                         <tr>
-                            {f'<td style="width: 46px; vertical-align: middle;">{avatar_tag}</td>' if avatar_tag else ''}
-                            <td style="vertical-align: middle; padding-left: 10px;">
-                                <div style="font-size: 11px; font-weight: 800; color: {accent_color}; text-transform: uppercase; letter-spacing: 1px;">
-                                    {agent_emoji} NEPTUNE AI • {agent_clean} AGENT
-                                </div>
-                                <div style="font-size: 11px; color: #64748B;">{now_utc}</div>
+                            <td style="text-align: left; vertical-align: middle;">
+                                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: {accent_color}; margin-right: 6px;"></span>
+                                <span style="font-size: 11px; font-weight: 800; color: {accent_color}; text-transform: uppercase; letter-spacing: 1.2px;">NEPTUNE AI &bull; {agent_clean} AGENT</span>
+                            </td>
+                            <td style="text-align: right; vertical-align: middle; font-size: 11px; color: #64748B; font-family: ui-monospace, monospace;">
+                                {now_utc}
                             </td>
                         </tr>
                     </table>
-                    <h1 style="color: #F8FAFC; font-size: 18px; font-weight: 700; margin: 0 0 6px 0; line-height: 1.3;">
+                    <h1 style="color: #F8FAFC; font-size: 17px; font-weight: 700; margin: 0 0 6px 0; line-height: 1.35; word-break: break-word;">
                         {title}
                     </h1>
-                    <p style="color: #94A3B8; font-size: 13px; margin: 0; line-height: 1.4;">
+                    <p style="color: #94A3B8; font-size: 13px; margin: 0; line-height: 1.5; word-break: break-word;">
                         {summary}
                     </p>
                 </div>
 
-                <!-- Content Card -->
-                <div style="padding: 24px 26px;">
-                    {f'<table style="width: 100%; border-collapse: collapse; background: #0B0F19; border-radius: 8px; overflow: hidden; border: 1px solid #1E293B;">{metric_rows_html}</table>' if metric_rows_html else ''}
-
+                <!-- Content Body with Mobile-Responsive Cards -->
+                <div style="padding: 20px 22px;">
+                    {metric_cards_html}
                     {reasoning_html}
                     {tx_section_html}
                     {cid_section_html}
                 </div>
 
                 <!-- Footer -->
-                <div style="background: #0B0F19; padding: 16px 26px; border-top: 1px solid #1E293B; text-align: center;">
+                <div style="background: #0B0F19; padding: 14px 22px; border-top: 1px solid #1E293B; text-align: center;">
                     <div style="font-size: 12px; color: #64748B;">
-                        Connected Wallet: <span style="font-family: monospace; color: #94A3B8;">{user_wallet}</span>
+                        Connected Wallet: <span style="font-family: ui-monospace, monospace; color: #94A3B8;">{user_wallet}</span>
                     </div>
-                    <div style="font-size: 11px; color: #475569; margin-top: 6px;">
+                    <div style="font-size: 11px; color: #475569; margin-top: 4px;">
                         Automated alert dispatched by Neptune AI Autonomous Trading Infrastructure.
                     </div>
                 </div>
@@ -372,11 +388,11 @@ RATIONALE:
 {reasoning}
 
 {f'NearBlocks Tx: https://nearblocks.io/txns/{tx_hash}' if tx_hash and not str(tx_hash).startswith('PENDING') else ''}
-{f'Decentralized Audit CID: {cid_reference}' if cid_reference else ''}
+{f'Decentralized Audit CID: {effective_cid}' if effective_cid else ''}
 """
 
         clean_title = title.replace("Trader Agent: ", "").replace("Rebalancer: ", "").replace("Research: ", "").replace("Watchdog: ", "")
-        subject = f"Neptune AI | {agent_emoji} {agent_clean}: {clean_title}"
+        subject = f"Neptune AI | {agent_clean}: {clean_title}"
         sent = send_email(
             to_email=user_email,
             subject=subject,

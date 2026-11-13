@@ -28,8 +28,11 @@ import sys
 import time
 import urllib.robotparser
 from collections import deque, Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+import threading
+from typing import Any, Dict, List, Optional, Tuple, Set
 from urllib.parse import urljoin, urlparse, urldefrag, parse_qsl, urlencode
 
 import chromadb
@@ -521,34 +524,32 @@ def crawl_topic(topic: str, min_date_override: str = None):
     print(f"\n[{topic}] indexed {indexed} pages, skipped {skipped} (outdated or irrelevant)")
 
 
-def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, max_pages_per_seed: int = 30, max_depth: int = 4):
-    """
-    On-demand crawler for user-provided URLs/links.
-    Crawls seeds, indexes relevant content with dates into ChromaDB, and respects date boundaries.
-    """
-    col = get_collection()
-    state = load_state()
+def _crawl_single_seed_worker(
+    raw_url: str,
+    topic: str,
+    topic_cfg: dict,
+    effective_min_date: str,
+    max_pages_per_seed: int,
+    max_depth: int,
+    col: Any,
+    state: dict,
+    db_lock: threading.Lock
+) -> dict:
+    """Crawl a single seed URL tree concurrently in a dedicated worker thread."""
+    if not raw_url or not raw_url.strip():
+        return {"indexed": 0, "skipped": 0, "urls_processed": []}
+
+    seed = normalize(raw_url.strip())
+    domain = urlparse(seed).netloc
+    queue = deque([(seed, 0)])
+    visited = {seed}
+    pages = 0
+    sub_indexed = 0
+    sub_skipped = 0
+    urls_processed = []
+
     client = httpx.Client(timeout=15.0, follow_redirects=False, headers={"User-Agent": USER_AGENT})
-    indexed = skipped = 0
-    effective_min_date = min_date_override or "2024-01-01"
-    # User-provided research is not silently redirected to a seed topic.
-    # Use a neutral config for unknown collections and preserve the supplied URL.
-    topic_cfg = TOPICS.get(topic) or {
-        "patterns": [], "min_hits": 0, "link_must_contain": [],
-        "max_depth": 4, "max_pages": 30, "min_date": "2024-01-01"
-    }
-
-    results_summary = {"indexed": 0, "skipped": 0, "urls_processed": []}
-
-    for raw_url in urls:
-        if not raw_url or not raw_url.strip():
-            continue
-        seed = normalize(raw_url.strip())
-        domain = urlparse(seed).netloc
-        queue = deque([(seed, 0)])
-        visited = {seed}
-        pages = 0
-
+    try:
         while queue and pages < max_pages_per_seed:
             url, depth = queue.popleft()
             if not allowed_by_robots(url):
@@ -573,14 +574,39 @@ def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, m
             if is_listing_page:
                 pass
             elif is_old:
-                skipped += 1
+                sub_skipped += 1
                 print(f"  - skip (older than {effective_min_date}: {pub_date}) d{depth} {url}")
             elif not is_relevant(text, topic_cfg):
-                # For direct user-submitted URLs, if page has at least 1 hit or > 200 words, still index it
+                # For direct user-submitted URLs, if page has at least 1 hit or > 100 words, still index it
                 if len(text.split()) > 100:
                     chunks = list(chunk(text))
                     if chunks:
                         now = datetime.now(timezone.utc).isoformat()
+                        with db_lock:
+                            col.upsert(
+                                ids=[hashlib.md5(f"{url}#{i}".encode()).hexdigest() for i in range(len(chunks))],
+                                documents=chunks,
+                                metadatas=[{
+                                    "url": url,
+                                    "title": title,
+                                    "topic": topic,
+                                    "depth": depth,
+                                    "published_date": pub_date,
+                                    "year": year_str,
+                                    "classification": classification,
+                                    "crawled_at": now
+                                } for _ in chunks],
+                            )
+                            state[url] = h
+                        sub_indexed += 1
+                        urls_processed.append({"url": url, "title": title, "chunks": len(chunks), "date": pub_date})
+            elif state.get(url) == h:
+                print(f"  = unchanged d{depth} {url}")
+            else:
+                chunks = list(chunk(text))
+                if chunks:
+                    now = datetime.now(timezone.utc).isoformat()
+                    with db_lock:
                         col.upsert(
                             ids=[hashlib.md5(f"{url}#{i}".encode()).hexdigest() for i in range(len(chunks))],
                             documents=chunks,
@@ -596,31 +622,8 @@ def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, m
                             } for _ in chunks],
                         )
                         state[url] = h
-                        indexed += 1
-                        results_summary["urls_processed"].append({"url": url, "title": title, "chunks": len(chunks), "date": pub_date})
-            elif state.get(url) == h:
-                print(f"  = unchanged d{depth} {url}")
-            else:
-                chunks = list(chunk(text))
-                if chunks:
-                    now = datetime.now(timezone.utc).isoformat()
-                    col.upsert(
-                        ids=[hashlib.md5(f"{url}#{i}".encode()).hexdigest() for i in range(len(chunks))],
-                        documents=chunks,
-                        metadatas=[{
-                            "url": url,
-                            "title": title,
-                            "topic": topic,
-                            "depth": depth,
-                            "published_date": pub_date,
-                            "year": year_str,
-                            "classification": classification,
-                            "crawled_at": now
-                        } for _ in chunks],
-                    )
-                    state[url] = h
-                    indexed += 1
-                    results_summary["urls_processed"].append({"url": url, "title": title, "chunks": len(chunks), "date": pub_date})
+                    sub_indexed += 1
+                    urls_processed.append({"url": url, "title": title, "chunks": len(chunks), "date": pub_date})
 
             if depth < max_depth:
                 for link in links:
@@ -630,10 +633,70 @@ def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, m
                         continue
                     visited.add(link)
                     queue.append((link, depth + 1))
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
 
-    save_state(state)
+    return {"indexed": sub_indexed, "skipped": sub_skipped, "urls_processed": urls_processed}
+
+
+def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, max_pages_per_seed: int = 30, max_depth: int = 4):
+    """
+    On-demand multi-threaded parallel crawler for user-provided URLs/links.
+    If a user provides up to 10 links, up to 10 threads crawl concurrently in parallel!
+    Indexes relevant content with dates into ChromaDB, and respects date boundaries.
+    """
+    col = get_collection()
+    state = load_state()
+    indexed = skipped = 0
+    effective_min_date = min_date_override or "2024-01-01"
+    topic_cfg = TOPICS.get(topic) or {
+        "patterns": [], "min_hits": 0, "link_must_contain": [],
+        "max_depth": 4, "max_pages": 30, "min_date": "2024-01-01"
+    }
+
+    results_summary = {"indexed": 0, "skipped": 0, "urls_processed": []}
+    valid_urls = [u.strip() for u in urls if u and u.strip().startswith("http")]
+    if not valid_urls:
+        return results_summary
+
+    db_lock = threading.Lock()
+    num_workers = min(len(valid_urls), 10)
+    print(f"\n[PARALLEL CRAWLER] Spawning {num_workers} parallel crawler threads for {len(valid_urls)} seed URLs...")
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        futures = {
+            executor.submit(
+                _crawl_single_seed_worker,
+                raw_url,
+                topic,
+                topic_cfg,
+                effective_min_date,
+                max_pages_per_seed,
+                max_depth,
+                col,
+                state,
+                db_lock
+            ): raw_url for raw_url in valid_urls
+        }
+        for future in as_completed(futures):
+            seed_url = futures[future]
+            try:
+                sub_res = future.result()
+                indexed += sub_res.get("indexed", 0)
+                skipped += sub_res.get("skipped", 0)
+                results_summary["urls_processed"].extend(sub_res.get("urls_processed", []))
+            except Exception as e:
+                print(f"[PARALLEL CRAWLER] Seed crawl error for {seed_url}: {e}")
+
+    with db_lock:
+        save_state(state)
+
     results_summary["indexed"] = indexed
     results_summary["skipped"] = skipped
+    print(f"[PARALLEL CRAWLER] Finished parallel crawl: {indexed} indexed, {skipped} skipped across {len(valid_urls)} sources.")
     return results_summary
 
 

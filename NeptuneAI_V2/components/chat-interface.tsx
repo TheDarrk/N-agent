@@ -363,6 +363,16 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
     setSessionId(uid());
   };
 
+  const handleSelectRecentChat = (chat: { human_message: string; ai_message: string }) => {
+    setMessages([
+      { id: uid(), role: "user", content: chat.human_message },
+      { id: uid(), role: "ai", content: chat.ai_message },
+    ]);
+    if (activeTab !== "chat") {
+      navigateTab("chat");
+    }
+  };
+
   const isEmpty = messages.length === 0;
 
   return (
@@ -379,6 +389,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
         onOpenFleetModal={() => setIsFleetModalOpen(true)}
         onOpenAgentSuite={() => navigateTab("agent-suite", null)}
         onSelectAgent={(agentId) => navigateTab("agent-suite", agentId)}
+        onSelectChat={handleSelectRecentChat}
       />
 
       <div className="flex flex-1 flex-col min-w-0">

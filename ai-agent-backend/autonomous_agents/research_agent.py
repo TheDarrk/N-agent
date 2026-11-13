@@ -1492,7 +1492,7 @@ class ResearchAgent:
                 metrics={
                     "Topic": topic,
                     "Regime": report.regime or "ACCUMULATION",
-                    "Actionable Signal": str(actionable_compat),
+                    "Actionable Signal": actionable_compat,
                     "Decentralized CID": cid
                 },
                 reasoning=llm_output.reasoning if llm_output.reasoning else "Synthesized via multi-node deep research and citations retrieval.",

@@ -71,6 +71,22 @@ def init_db(db_path: Optional[str] = None):
     except Exception:
         pass
 
+    # Safe migration: ensure agent_wallet columns exist in core_user_wallets for assignment persistence
+    try:
+        u_cols = [c["name"] for c in conn.execute("PRAGMA table_info(core_user_wallets)").fetchall()]
+        user_agent_cols = {
+            "agent_wallet": "TEXT DEFAULT ''",
+            "trader_agent_wallet": "TEXT DEFAULT ''",
+            "rebalancer_agent_wallet": "TEXT DEFAULT ''",
+            "research_agent_wallet": "TEXT DEFAULT ''",
+            "moderator_agent_wallet": "TEXT DEFAULT ''"
+        }
+        for col_name, col_type in user_agent_cols.items():
+            if col_name not in u_cols:
+                conn.execute(f"ALTER TABLE core_user_wallets ADD COLUMN {col_name} {col_type}")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
     print("[DB] Neptune v2.1 database initialized cleanly with 18 tables.")
@@ -1057,12 +1073,25 @@ def get_user_agent_wallet_config(user_wallet: str) -> Dict[str, Any]:
             d["agent_wallet_address"] = d.get("public_key", "")
         wallets.append(d)
 
-    assignments = {
-        "trader": str(user.get("trader_agent_wallet") or ""),
-        "rebalancer": str(user.get("rebalancer_agent_wallet") or ""),
-        "research": str(user.get("research_agent_wallet") or ""),
-        "moderator": str(user.get("moderator_agent_wallet") or "")
-    }
+    # Reconstruct assignments from assigned_agents_json across all user wallets
+    agent_map = {"trader": [], "rebalancer": [], "research": [], "moderator": []}
+    for w in wallets:
+        raw = w.get("assigned_agents_json")
+        if raw:
+            try:
+                assigned_list = json.loads(raw) if isinstance(raw, str) else raw
+                for ag in assigned_list:
+                    ag_key = str(ag).lower().strip()
+                    if ag_key in agent_map:
+                        agent_map[ag_key].append(str(w["id"]))
+            except Exception:
+                pass
+
+    assignments = {}
+    for ag in ["trader", "rebalancer", "research", "moderator"]:
+        from_keys = ",".join(agent_map[ag])
+        from_user = str(user.get(f"{ag}_agent_wallet") or "").strip()
+        assignments[ag] = from_keys or from_user
 
     return {
         "user_wallet": user_wallet,
@@ -1186,6 +1215,19 @@ def activate_agent_wallet(user_wallet: str, key_id: int, tx_hash: str = "", assi
             "UPDATE core_agent_wallets SET status = 'active', funding_tx_hash = ?, assigned_agents_json = ? WHERE id = ? AND wallet_address = ?",
             (tx_hash, assigned_json, key_id, user_wallet)
         )
+        # Update user wallet assignment and config
+        agent_clean = str(assigned_agent).lower().strip()
+        try:
+            conn.execute(
+                f"UPDATE core_user_wallets SET {agent_clean}_agent_wallet = ?, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?",
+                (str(key_id), user_wallet)
+            )
+            if agent_clean == "trader":
+                conn.execute("UPDATE trader_config SET assigned_wallet_id = ? WHERE wallet_address = ?", (key_id, user_wallet))
+            elif agent_clean == "rebalancer":
+                conn.execute("UPDATE rebalancer_config SET assigned_wallet_id = ? WHERE wallet_address = ?", (key_id, user_wallet))
+        except Exception:
+            pass
     else:
         cursor = conn.execute(
             "UPDATE core_agent_wallets SET status = 'active', funding_tx_hash = ? WHERE id = ? AND wallet_address = ?",
@@ -1394,6 +1436,53 @@ def assign_agent_wallets(user_wallet: str, assignments: dict) -> dict:
             if row_id_str in [x.strip() for x in assigned_val.split(",") if x.strip()]:
                 agents_for_key.append(agent_name)
         conn.execute("UPDATE core_agent_wallets SET assigned_agents_json = ? WHERE id = ?", (json.dumps(agents_for_key), row["id"]))
+
+    # Derive primary active agent wallet address
+    primary_agent_wallet = ""
+    trader_key_id = normalized.get("trader", "").split(",")[0].strip() if normalized.get("trader") else ""
+    if trader_key_id and trader_key_id in keys_by_id:
+        k = keys_by_id[trader_key_id]
+        primary_agent_wallet = k.get("agent_account_id") or k.get("public_key", "")
+    elif all_keys:
+        k = dict(all_keys[0])
+        primary_agent_wallet = k.get("agent_account_id") or k.get("public_key", "")
+
+    # Persist in core_user_wallets so assignments survive tab switches and refreshes
+    try:
+        conn.execute("""
+            UPDATE core_user_wallets
+            SET trader_agent_wallet = ?,
+                rebalancer_agent_wallet = ?,
+                research_agent_wallet = ?,
+                moderator_agent_wallet = ?,
+                agent_wallet = CASE WHEN ? != '' THEN ? ELSE agent_wallet END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE wallet_address = ?
+        """, (
+            normalized["trader"],
+            normalized["rebalancer"],
+            normalized["research"],
+            normalized["moderator"],
+            primary_agent_wallet,
+            primary_agent_wallet,
+            user_wallet
+        ))
+    except Exception as ue:
+        print(f"[DAL WARN] core_user_wallets assignment update: {ue}")
+
+    # Also link to trader_config and rebalancer_config tables
+    try:
+        trader_wid = int(trader_key_id) if trader_key_id.isdigit() else None
+        conn.execute("UPDATE trader_config SET assigned_wallet_id = ? WHERE wallet_address = ?", (trader_wid, user_wallet))
+    except Exception:
+        pass
+
+    try:
+        rebal_key_id = normalized.get("rebalancer", "").split(",")[0].strip() if normalized.get("rebalancer") else ""
+        rebal_wid = int(rebal_key_id) if rebal_key_id.isdigit() else None
+        conn.execute("UPDATE rebalancer_config SET assigned_wallet_id = ? WHERE wallet_address = ?", (rebal_wid, user_wallet))
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -1624,6 +1713,28 @@ def validate_agent_execution_wallet(
         return {"valid": False, "reason": "Cross-chain trade blocked: 'Allow Cross-Chain Trades' is disabled.", "agent_wallet": ""}
 
     assigned_ref = str(user.get(f"{agent_id.lower()}_agent_wallet") or "").strip()
+    if not assigned_ref:
+        # Fallback: check core_agent_wallets assigned_agents_json directly
+        conn = get_connection()
+        candidate_rows = conn.execute(
+            "SELECT id, assigned_agents_json, status FROM core_agent_wallets WHERE wallet_address = ? AND status = 'active'",
+            (user_wallet,)
+        ).fetchall()
+        conn.close()
+        matched = []
+        for cr in candidate_rows:
+            try:
+                ag_list = json.loads(cr["assigned_agents_json"] or "[]")
+                if agent_id.lower() in [str(a).lower() for a in ag_list]:
+                    matched.append(str(cr["id"]))
+            except Exception:
+                pass
+        if matched:
+            assigned_ref = ",".join(matched)
+        elif candidate_rows:
+            # Automatic fallback: use the user's first active agent wallet so execution never halts
+            assigned_ref = str(candidate_rows[0]["id"])
+
     if not assigned_ref:
         return {"valid": False, "reason": f"No Agent Execution Wallet assigned to {agent_id.capitalize()} Agent.", "agent_wallet": ""}
 
@@ -2182,20 +2293,29 @@ def get_marketplace_agents(agent_type: str = None) -> List[Dict[str, Any]]:
         }
         pt = d.get("pricing_type", "")
         pv = d.get("pricing_value", 0.0)
-        if pt == "profit_share":
-            d["fee_display"] = f"{pv:.0f}% Profit Share"
-        elif pt == "fee_per_trade":
-            d["fee_display"] = f"{pv:.2f} NEAR / Trade"
-        elif pt == "fee_per_report":
-            d["fee_display"] = f"{pv:.2f} NEAR / Report"
+        ag_type = str(d.get("agent_type", "")).lower()
+        if ag_type == "trader":
+            d["pricing_model"] = "rental"
+            d["action_label"] = "Rent Agent (Profit Share)"
+            if pt == "profit_share":
+                d["fee_display"] = f"{pv:.0f}% Profit Share"
+            else:
+                d["fee_display"] = f"{pv} NEAR"
         else:
-            d["fee_display"] = f"{pv} NEAR"
+            d["pricing_model"] = "buy_setup"
+            d["action_label"] = "Buy Setup (One-Time)"
+            d["fee_display"] = f"{pv:.1f} NEAR (One-Time)" if pv > 0 else "Free Setup"
         results.append(d)
     return results
 
 
 def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
-    """Hire a shared agent from the marketplace. Trades/actions will mirror for subscriber."""
+    """
+    Hire or purchase a shared agent setup from the marketplace.
+    - Trader: Rented with profit-share mirroring.
+    - Rebalancer & Research: One-time setup purchase that automatically imports
+      and implements the creator's curated settings into the buyer's agent suite!
+    """
     conn = get_connection()
     upsert_user(subscriber_wallet)
     listing = conn.execute(
@@ -2209,7 +2329,10 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
 
     if listing["creator_wallet"] == subscriber_wallet:
         conn.close()
-        raise ValueError("You cannot hire your own agent.")
+        raise ValueError("You cannot hire or purchase your own agent setup.")
+
+    ag_type = str(listing["agent_type"]).lower()
+    is_setup_purchase = ag_type in ("rebalancer", "research")
 
     # Idempotency check
     existing = conn.execute(
@@ -2217,39 +2340,101 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
         (listing_id, subscriber_wallet)
     ).fetchone()
     if existing:
-        if existing["status"] == "active":
+        if existing["status"] in ("active", "purchased"):
             conn.close()
-            return {"success": True, "hire_id": existing["hire_id"], "message": "Already hired.", "is_new": False}
-        else:
-            conn.execute("""
-                UPDATE marketplace_subscriptions 
-                SET status = 'active', subscribed_at = CURRENT_TIMESTAMP, cancelled_at = NULL 
-                WHERE id = ?
-            """, (existing["id"],))
-            conn.execute("UPDATE marketplace_listings SET total_subscribers = total_subscribers + 1 WHERE listing_id = ?", (listing_id,))
-            conn.commit()
-            conn.close()
+            msg = (
+                f"Strategy setup for {listing['name']} already purchased and applied."
+                if is_setup_purchase
+                else "Already hired."
+            )
             return {
                 "success": True,
                 "hire_id": existing["hire_id"],
                 "listing_id": listing_id,
                 "agent_name": listing["name"],
-                "is_new": True
+                "agent_type": ag_type,
+                "action_type": "setup_purchased" if is_setup_purchase else "rental_active",
+                "message": msg,
+                "is_new": False
             }
+        else:
+            conn.execute("""
+                UPDATE marketplace_subscriptions 
+                SET status = ?, subscribed_at = CURRENT_TIMESTAMP, cancelled_at = NULL 
+                WHERE id = ?
+            """, ("purchased" if is_setup_purchase else "active", existing["id"]))
+            conn.execute("UPDATE marketplace_listings SET total_subscribers = total_subscribers + 1 WHERE listing_id = ?", (listing_id,))
+            conn.commit()
+
+    # Parse creator configuration snapshot
+    config_snapshot = {}
+    listing_dict = dict(listing)
+    if listing_dict.get("config_snapshot_json"):
+        try:
+            config_snapshot = json.loads(listing_dict["config_snapshot_json"])
+        except Exception:
+            config_snapshot = {}
+
+    # BUY SETUP IMPLEMENTATION: Fetch creator settings and implement directly into buyer's agent
+    if is_setup_purchase:
+        if ag_type == "rebalancer":
+            target_stables = float(config_snapshot.get("target_stables_pct") or config_snapshot.get("target_stables", 70.0))
+            target_near = float(config_snapshot.get("target_near_pct") or config_snapshot.get("target_near", 30.0))
+            drift_thresh = float(config_snapshot.get("drift_threshold_pct") or config_snapshot.get("drift_threshold", 5.0))
+            min_stables = float(config_snapshot.get("min_stable_pct", 10.0))
+            conn.execute("""
+                UPDATE rebalancer_config 
+                SET target_stables_pct = ?, target_near_pct = ?, drift_threshold_pct = ?, min_stable_pct = ?, agent_active = 1, updated_at = CURRENT_TIMESTAMP
+                WHERE wallet_address = ?
+            """, (target_stables, target_near, drift_thresh, min_stables, subscriber_wallet))
+
+            selected_coins = config_snapshot.get("selected_coins") or []
+            allocations = config_snapshot.get("allocations") or {}
+            if selected_coins or allocations:
+                conn.execute("""
+                    UPDATE rebalancer_strategies
+                    SET status = 'DROPPED', dropped_at = CURRENT_TIMESTAMP, drop_reason = 'Superseded by purchased marketplace strategy'
+                    WHERE wallet_address = ? AND status = 'ACTIVE'
+                """, (subscriber_wallet,))
+                conn.execute("""
+                    INSERT INTO rebalancer_strategies (
+                        wallet_address, selected_coins_json, user_expectation_text, cadence_days,
+                        status, allocations_json, tp_sl_rules_json, market_regime,
+                        overall_strategy_text, raw_pydantic_output_json, min_stable_pct, user_config_snapshot_json
+                    ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    subscriber_wallet, json.dumps(selected_coins), f"Purchased Setup: {listing['name']} from {listing['creator_wallet']}",
+                    int(config_snapshot.get("cadence_days", 7)), json.dumps(allocations), json.dumps(config_snapshot.get("tp_sl_rules") or []),
+                    config_snapshot.get("market_regime", "BALANCED"), f"Imported strategy configuration from marketplace listing {listing_id}",
+                    json.dumps(config_snapshot), min_stables, json.dumps(config_snapshot)
+                ))
+
+        elif ag_type == "research":
+            focus_areas = config_snapshot.get("focus_areas") or config_snapshot.get("focus_areas_json") or ["DeFi Yields", "Protocol Ecosystem"]
+            source_links = config_snapshot.get("source_links") or config_snapshot.get("source_links_json") or ["https://docs.near.org", "https://near.org/blog"]
+            freq_days = int(config_snapshot.get("report_frequency_days", 7))
+            conn.execute("""
+                UPDATE research_config 
+                SET focus_areas_json = ?, source_links_json = ?, report_frequency_days = ?, agent_active = 1, updated_at = CURRENT_TIMESTAMP
+                WHERE wallet_address = ?
+            """, (json.dumps(focus_areas), json.dumps(source_links), freq_days, subscriber_wallet))
 
     clean_sub = subscriber_wallet.replace(".", "_")[:12]
     hire_id = f"hire-{clean_sub}-{uuid.uuid4().hex[:6]}"
     sub_uuid = f"sub-{uuid.uuid4().hex[:12]}"
+    sub_status = "purchased" if is_setup_purchase else "active"
+    sub_pricing = "one_time_buy" if is_setup_purchase else listing["pricing_type"]
 
-    conn.execute("""
-        INSERT INTO marketplace_subscriptions (
-            hire_id, subscription_uuid, listing_id, creator_wallet, subscriber_wallet,
-            agent_type, pricing_type, pricing_value, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
-    """, (hire_id, sub_uuid, listing_id, listing["creator_wallet"], subscriber_wallet, listing["agent_type"], listing["pricing_type"], listing["pricing_value"]))
+    if not existing:
+        conn.execute("""
+            INSERT INTO marketplace_subscriptions (
+                hire_id, subscription_uuid, listing_id, creator_wallet, subscriber_wallet,
+                agent_type, pricing_type, pricing_value, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (hire_id, sub_uuid, listing_id, listing["creator_wallet"], subscriber_wallet, listing["agent_type"], sub_pricing, listing["pricing_value"], sub_status))
+        conn.execute("UPDATE marketplace_listings SET total_subscribers = total_subscribers + 1 WHERE listing_id = ?", (listing_id,))
+        conn.commit()
 
-    conn.execute("UPDATE marketplace_listings SET total_subscribers = total_subscribers + 1 WHERE listing_id = ?", (listing_id,))
-    conn.commit()
     conn.close()
 
     return {
@@ -2259,6 +2444,12 @@ def hire_marketplace_agent(subscriber_wallet: str, listing_id: str) -> dict:
         "agent_name": listing["name"],
         "agent_type": listing["agent_type"],
         "creator_wallet": listing["creator_wallet"],
+        "action_type": "setup_purchased" if is_setup_purchase else "rental_active",
+        "message": (
+            f"Successfully purchased and implemented {listing['name']} strategy into your {listing['agent_type'].capitalize()} agent!"
+            if is_setup_purchase
+            else f"Agent {listing['name']} hired! Real-time signals will be mirrored to your wallet."
+        ),
         "is_new": True
     }
 
@@ -2270,7 +2461,7 @@ def get_user_hires(user_wallet: str) -> dict:
         SELECT s.*, m.name as agent_name, m.description, m.win_rate_pct, m.sharpe_ratio, m.config_snapshot_json
         FROM marketplace_subscriptions s
         JOIN marketplace_listings m ON s.listing_id = m.listing_id
-        WHERE s.subscriber_wallet = ? AND s.status = 'active'
+        WHERE s.subscriber_wallet = ? AND (s.status = 'active' OR s.status = 'purchased')
         ORDER BY s.subscribed_at DESC
     """, (user_wallet,)).fetchall()
 
@@ -2278,7 +2469,7 @@ def get_user_hires(user_wallet: str) -> dict:
         SELECT s.*, m.name as agent_name
         FROM marketplace_subscriptions s
         JOIN marketplace_listings m ON s.listing_id = m.listing_id
-        WHERE s.creator_wallet = ? AND s.status = 'active'
+        WHERE s.creator_wallet = ? AND (s.status = 'active' OR s.status = 'purchased')
         ORDER BY s.subscribed_at DESC
     """, (user_wallet,)).fetchall()
     conn.close()
@@ -2287,6 +2478,13 @@ def get_user_hires(user_wallet: str) -> dict:
     for r in hired_rows:
         d = dict(r)
         d["config_snapshot"] = {"strategy_type": d.get("agent_type"), "is_proprietary": True}
+        ag_type = str(d.get("agent_type", "")).lower()
+        if ag_type in ("rebalancer", "research"):
+            d["pricing_model"] = "buy_setup"
+            d["action_type"] = "setup_purchased"
+        else:
+            d["pricing_model"] = "rental"
+            d["action_type"] = "rental_active"
         my_hires.append(d)
 
     return {"my_hires": my_hires, "my_subscribers": [dict(r) for r in sub_rows]}

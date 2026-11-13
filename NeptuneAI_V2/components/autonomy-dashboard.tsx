@@ -394,7 +394,14 @@ export default function AutonomyDashboard({ accountId }: Props) {
     const [emailSaved, setEmailSaved] = useState(false);
 
     // -- Separate Agent Wallet Connector (Local HotKit) --
-    const [agentSourceId, setAgentSourceId] = useState<string | null>(null);
+    const [agentSourceId, setAgentSourceId] = useState<string | null>(() => {
+        if (typeof window !== "undefined") {
+            try {
+                return localStorage.getItem("neptune_agent_source_id") || null;
+            } catch {}
+        }
+        return null;
+    });
     const [isConnectingAgent, setIsConnectingAgent] = useState(false);
     const hotKitRef = useRef<any>(null);
     const unsubscribersRef = useRef<(() => void)[]>([]);
@@ -412,11 +419,52 @@ export default function AutonomyDashboard({ accountId }: Props) {
                 String(w.type).toLowerCase().includes("near") || w.type === 1010
             );
             const addr = nearWallet ? (nearWallet.address || nearWallet.omniAddress || nearWallet.publicKey) : null;
-            if (addr) setAgentSourceId(addr);
+            if (addr) {
+                setAgentSourceId(addr);
+                try { localStorage.setItem("neptune_agent_source_id", addr); } catch {}
+            }
         } catch (e) {
             console.warn("[Agent Wallet] Sync error:", e);
         }
     }, []);
+
+    // Auto-restore agent wallet connection across browser refreshes
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const saved = localStorage.getItem("neptune_agent_source_id");
+        if (saved && !hotKitRef.current) {
+            (async () => {
+                try {
+                    const kitModule = await import("@hot-labs/kit");
+                    const HotKitClass = kitModule.HotConnector || kitModule.HotKit || (kitModule as any).default;
+                    const isolatedStorage = new PrefixedLocalStorage("v2:agent:");
+                    const kit = new HotKitClass({
+                        storage: isolatedStorage,
+                        apiKey: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-agent-v2",
+                        walletConnect: {
+                            projectId: process.env.NEXT_PUBLIC_HOT_API_KEY || "neptune-ai-agent-v2",
+                            metadata: {
+                                name: "Neptune Agent",
+                                description: "Authorize Agent",
+                                url: typeof window !== "undefined" ? window.location.origin : "",
+                                icons: ["https://avatars.githubusercontent.com/u/100000000?s=200&v=4"],
+                            }
+                        }
+                    });
+                    hotKitRef.current = kit;
+                    kit.onConnect?.(() => syncAgentWallets(kit));
+                    kit.onDisconnect?.(() => {
+                        setAgentSourceId(null);
+                        try { localStorage.removeItem("neptune_agent_source_id"); } catch {}
+                        isolatedStorage.clear();
+                    });
+                    syncAgentWallets(kit);
+                } catch (e) {
+                    console.warn("[Agent Wallet] Auto-restore notice:", e);
+                }
+            })();
+        }
+    }, [syncAgentWallets]);
 
     // Handle return from Web Wallet authorization
     useEffect(() => {
@@ -480,6 +528,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
                 kit.onConnect?.(() => syncAgentWallets(kit));
                 kit.onDisconnect?.(() => {
                     setAgentSourceId(null);
+                    try { localStorage.removeItem("neptune_agent_source_id"); } catch {}
                     isolatedStorage.clear();
                 });
                 syncAgentWallets(kit);
@@ -511,6 +560,7 @@ export default function AutonomyDashboard({ accountId }: Props) {
         } catch (e) {
             console.error("[Agent Wallet] Storage clear error:", e);
         }
+        try { localStorage.removeItem("neptune_agent_source_id"); } catch {}
         setAgentSourceId(null);
     }, []);
 

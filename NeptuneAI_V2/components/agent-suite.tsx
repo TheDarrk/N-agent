@@ -290,8 +290,8 @@ export default function NeptuneAgentSuite({
                 <span className="hidden md:inline">Share to Marketplace</span>
               </button>
             )}
-            {/* Active Toggle or Rented Badge */}
-            {activeHired ? (
+            {/* Active Toggle, Rented Badge (Trader), or Setup Purchased Badge (Rebalancer/Research) */}
+            {activeHired && activeHired.agent_type === "trader" ? (
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
                   <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
@@ -305,24 +305,32 @@ export default function NeptuneAgentSuite({
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => handleToggleAgentActive(activeAgentSubView, agentActive)}
-                disabled={isUpdating === activeAgentSubView}
-                aria-pressed={agentActive}
-                className={`suite-press flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
-                  agentActive
-                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
-                    : "bg-secondary border-border text-muted-foreground hover:bg-secondary"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/60"}`} />
-                <span>{agentActive ? "AGENT ACTIVE" : "AGENT INACTIVE"}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {activeHired && (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    <CheckCircle2 size={13} className="text-emerald-400" />
+                    SETUP IMPORTED
+                  </span>
+                )}
+                <button
+                  onClick={() => handleToggleAgentActive(activeAgentSubView, agentActive)}
+                  disabled={isUpdating === activeAgentSubView}
+                  aria-pressed={agentActive}
+                  className={`suite-press flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                    agentActive
+                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
+                      : "bg-secondary border-border text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/60"}`} />
+                  <span>{agentActive ? "AGENT ACTIVE" : "AGENT INACTIVE"}</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Rented Notice Banner if Hired */}
+        {/* Marketplace Notice Banner if Rented (Trader) or Setup Purchased (Rebalancer/Research) */}
         {activeHired && (
           <div className="suite-rise mx-3 sm:mx-5 mt-3 px-3 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -331,21 +339,27 @@ export default function NeptuneAgentSuite({
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-bold text-foreground">
-                  Renting from Creator: <span className="font-mono text-purple-300">{activeHired.creator_wallet}</span>
+                  {activeHired.agent_type === "trader" ? (
+                    <>Renting from Creator: <span className="font-mono text-purple-300">{activeHired.creator_wallet}</span></>
+                  ) : (
+                    <>Imported Strategy Setup: <span className="font-mono text-purple-300">{activeHired.agent_name || activeHired.creator_wallet}</span></>
+                  )}
                 </p>
                 <p className="text-[11px] text-muted-foreground leading-snug">
-                  {activeHired.pricing_model === "profit_share"
+                  {activeHired.agent_type === "trader"
                     ? `Trades will be mirrored directly into your wallet. Creator receives ${activeHired.profit_share_percent || 10}% profit share on winning trades.`
-                    : `Operations and reports are automatically mirrored to your wallet.`}
+                    : `Verified creator setup has been imported into your agent settings. Your agent is running with these parameters.`}
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => handleCancelHire(activeHired.id)}
-              className="suite-press px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-bold text-xs shrink-0 transition-colors"
-            >
-              Stop Renting (Unhire)
-            </button>
+            {activeHired.agent_type === "trader" && (
+              <button
+                onClick={() => handleCancelHire(activeHired.id)}
+                className="suite-press px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-bold text-xs shrink-0 transition-colors"
+              >
+                Stop Renting
+              </button>
+            )}
           </div>
         )}
 

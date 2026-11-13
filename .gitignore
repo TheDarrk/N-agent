@@ -22,6 +22,10 @@ env/
 .env
 *.egg-info/
 .pytest_cache/
+*.tsbuildinfo
+*.db-wal
+*.db-shm
+chat_history.db
 
 # IDEs
 .vscode/

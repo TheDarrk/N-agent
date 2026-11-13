@@ -1,0 +1,59 @@
+import { NextRequest, NextResponse } from "next/server";
+
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ wallet: string }> }
+) {
+  try {
+    const { wallet } = await context.params;
+    if (!wallet) {
+      return NextResponse.json({ status: "error", detail: "Wallet address required" }, { status: 400 });
+    }
+
+    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const res = await fetch(`${backendUrl}/api/chat/history/${encodeURIComponent(wallet)}`, {
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return NextResponse.json({ status: "error", detail: err.detail || "Backend error" }, { status: res.status });
+    }
+
+    const data = await res.json();
+    return NextResponse.json(data);
+  } catch (error: any) {
+    console.error("[API] Chat history fetch error:", error);
+    return NextResponse.json({ status: "error", detail: error?.message || "Internal error", history: [] }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  context: { params: Promise<{ wallet: string }> }
+) {
+  try {
+    const { wallet } = await context.params;
+    if (!wallet) {
+      return NextResponse.json({ status: "error", detail: "Wallet address required" }, { status: 400 });
+    }
+
+    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const res = await fetch(`${backendUrl}/api/chat/history/${encodeURIComponent(wallet)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return NextResponse.json({ status: "error", detail: err.detail || "Backend error" }, { status: res.status });
+    }
+
+    const data = await res.json();
+    return NextResponse.json(data);
+  } catch (error: any) {
+    console.error("[API] Chat history delete error:", error);
+    return NextResponse.json({ status: "error", detail: error?.message || "Internal error" }, { status: 500 });
+  }
+}
