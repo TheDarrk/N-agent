@@ -498,7 +498,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
                   ) : (
                     <>
                       <Send size={14} />
-                      <span>Start research</span>
+                      <span>Save my setup and Run</span>
                     </>
                   )}
                 </button>

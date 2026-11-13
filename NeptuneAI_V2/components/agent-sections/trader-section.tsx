@@ -555,6 +555,13 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
     }
   };
 
+  const handleSaveSettingsAndRun = async () => {
+    await handleSaveSettings();
+    if (!isScanning) {
+      handleRunScan();
+    }
+  };
+
   const handleToggleCrossChain = async (enabled: boolean) => {
     setAllowCrossChain(enabled);
     if (!accountId) return;
@@ -680,7 +687,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           onToggleCrossChain={handleToggleCrossChain}
           isSaving={isSavingSettings}
           isSaved={isSaved}
-          onSave={handleSaveSettings}
+          onSave={handleSaveSettingsAndRun}
           minVolumeUsd={minVolumeUsd}
           setMinVolumeUsd={setMinVolumeUsd}
           minPriceMovePct={minPriceMovePct}

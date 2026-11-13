@@ -991,7 +991,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               ) : (
                 <>
                   <Sparkles size={15} />
-                  <span>Generate my rebalance plan</span>
+                  <span>Save my setup and Run</span>
                 </>
               )}
             </button>

@@ -11,6 +11,7 @@ import {
   Minus,
   X,
   Save,
+  Play,
   RotateCw,
   CheckCircle2,
   BrainCircuit,
@@ -734,7 +735,7 @@ export default function TraderSetup(p: Props) {
             </>
           ) : (
             <>
-              <Save size={14} /> Save my setup
+              <Play size={14} className="fill-current" /> Save my setup and Run
             </>
           )}
         </button>
