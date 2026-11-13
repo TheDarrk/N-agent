@@ -3,7 +3,7 @@
 import { tilt3d } from "./trader/tilt-3d";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { setVisibleInterval } from "@/lib/visible-interval";
 import {
   startRun,
