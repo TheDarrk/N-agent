@@ -78,7 +78,7 @@ export default function AgentFleetModal({
   const agentsList = [
     {
       id: "trader",
-      name: "Quantitative Trader Agent",
+      name: "Autonomous Trader Agent",
       role: "Multi-Asset Momentum, Vision Charts & Defuse Execution",
       avatarBg: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
       icon: TrendingUp,

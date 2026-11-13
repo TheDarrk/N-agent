@@ -582,7 +582,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg font-semibold tracking-tight text-foreground">Trader Agent</h1>
+              <h1 className="text-lg font-semibold tracking-tight text-foreground">Autonomous Trader Agent</h1>
               <InfoTip label="About the Trader agent" side="bottom">
                 Finds a setup, double-checks it, trades inside your limits, and reports the result.
               </InfoTip>
