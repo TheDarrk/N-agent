@@ -67,6 +67,8 @@ logging.getLogger("uvicorn.access").addFilter(_PollFilter())
 logging.getLogger("apscheduler").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 
+GLOBAL_SCHEDULER: Optional[Any] = None
+
 # -- App Lifespan (init DB + autonomy scheduler) ------------------
 @asynccontextmanager
 async def lifespan(app):
@@ -197,8 +199,44 @@ async def lifespan(app):
             print(f"[STARTUP] Marketplace order expiry registration error: {exp_err}")
 
         scheduler.start()
+        GLOBAL_SCHEDULER = scheduler
         active_jobs = [j.id for j in scheduler.get_jobs()]
         print(f"[STARTUP] Autonomy engine started with active jobs: {active_jobs}")
+
+        # Task 3.2: Re-register enabled schedules in APScheduler on startup & fire overdue jobs once immediately
+        try:
+            from database import list_enabled_jobs
+            enabled_jobs = list_enabled_jobs()
+            print(f"[STARTUP: SCHEDULER] Recovering {len(enabled_jobs)} persistent scheduled jobs from database...")
+            now_utc = datetime.now(timezone.utc)
+            for job in enabled_jobs:
+                try:
+                    next_run_str = job.get("next_run_at", "")
+                    if next_run_str.endswith("Z"):
+                        next_run_str = next_run_str[:-1] + "+00:00"
+                    next_run_dt = datetime.fromisoformat(next_run_str)
+                    if next_run_dt.tzinfo is None:
+                        next_run_dt = next_run_dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    next_run_dt = now_utc
+
+                if next_run_dt <= now_utc:
+                    print(f"[STARTUP: SCHEDULER] Job {job['job_id']} is overdue ({job['next_run_at']}). Firing catch-up run immediately.")
+                    asyncio.create_task(execute_persisted_job(job))
+
+                scheduler.add_job(
+                    execute_persisted_job,
+                    'interval',
+                    seconds=max(30, job["interval_seconds"]),
+                    args=[job],
+                    id=f"persisted_{job['job_id']}",
+                    misfire_grace_time=3600,
+                    coalesce=True,
+                    replace_existing=True
+                )
+            print(f"[STARTUP: SCHEDULER] Successfully restored all scheduled jobs: {[j.id for j in scheduler.get_jobs() if j.id.startswith('persisted_')]}")
+        except Exception as p_err:
+            print(f"[STARTUP: SCHEDULER] Warning restoring persisted jobs: {p_err}")
     except ImportError:
         print("[STARTUP] APScheduler not installed   autonomy engine disabled")
     except Exception as e:
@@ -209,6 +247,7 @@ async def lifespan(app):
     # Shutdown
     if scheduler:
         scheduler.shutdown()
+        GLOBAL_SCHEDULER = None
         print("[SHUTDOWN] Autonomy engine stopped")
 
 
@@ -950,6 +989,135 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
         RUNNING_TASKS.pop(run_id, None)
 
 
+async def execute_persisted_job(job: Dict[str, Any]):
+    """
+    Executes a persisted scheduled job for a user wallet (Tasks 3.2, 3.3, 3.4).
+    Skips if user has been inactive for >14 days (Task 3.4).
+    Updates next_run_at, executes run stream via _execute_run, and records run in history.
+    """
+    job_id = job.get("job_id")
+    wallet = normalize_wallet(job.get("wallet", ""))
+    agent_type = (job.get("agent_type") or "").lower()
+    config = job.get("config") or {}
+    interval_seconds = job.get("interval_seconds") or 3600
+
+    if not wallet or not job_id:
+        return
+
+    from database import is_user_active_recently, mark_job_run
+    # Check 14-day user activity (Task 3.4)
+    if not is_user_active_recently(wallet, days=14):
+        next_run_iso = (datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)).isoformat()
+        mark_job_run(job_id, next_run_iso)
+        logger.info(f"[SCHEDULER] User {wallet} inactive for >14 days. Skipped scheduled cadence for {job_id}.")
+        return
+
+    next_run_iso = (datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)).isoformat()
+    mark_job_run(job_id, next_run_iso)
+
+    try:
+        if agent_type == "trader":
+            from autonomous_agents.trader_agent import TraderAgent
+            trader = TraderAgent()
+            symbol = config.get("symbol")
+            coin_mode = config.get("coin_mode", "auto")
+            title = f"Autonomous Trader Scan ({symbol or coin_mode or 'auto'})"
+            params = {"source": "scheduler_cadence", **config}
+            run_id = create_run(wallet, "trader", title=title, params=params)
+            gen_factory = lambda: trader.run_pipeline_stream(
+                user_wallet=wallet,
+                symbol=symbol,
+                coin_mode=coin_mode,
+                custom_coins=config.get("custom_coins", ""),
+                force_timeframe=config.get("timeframe", "1h"),
+                force_min_confidence=config.get("min_confidence", 75),
+                enable_researcher_plugin=bool(config.get("enable_researcher", True))
+            )
+            task = asyncio.create_task(_execute_run(run_id, "trader", wallet, gen_factory))
+            RUNNING_TASKS[run_id] = task
+            logger.info(f"[SCHEDULER] Launched scheduled trader run {run_id} for wallet {wallet}")
+        elif agent_type == "rebalancer":
+            from autonomous_agents.rebalancer_agent import RebalancerAgent
+            rebalancer = RebalancerAgent()
+            title = "Autonomous Rebalance Strategy"
+            params = {"source": "scheduler_cadence", **config}
+            run_id = create_run(wallet, "rebalancer", title=title, params=params)
+            gen_factory = lambda: rebalancer.generate_strategy_stream(
+                user_wallet=wallet,
+                selected_coins=config.get("selected_coins", ["NEAR", "USDC", "USDT"]),
+                user_expectation=config.get("user_expectation", "Portfolio rebalance"),
+                current_holdings=config.get("current_holdings", {}),
+                cadence_days=config.get("cadence_days", 7),
+                min_stable_pct=config.get("min_stable_pct", 10.0)
+            )
+            task = asyncio.create_task(_execute_run(run_id, "rebalancer", wallet, gen_factory))
+            RUNNING_TASKS[run_id] = task
+            logger.info(f"[SCHEDULER] Launched scheduled rebalancer run {run_id} for wallet {wallet}")
+        elif agent_type == "moderator":
+            from autonomous_agents.moderator_agent import ModeratorAgent
+            moderator = ModeratorAgent()
+            mod_res = await moderator.run_cadence_check(wallet)
+            if mod_res and isinstance(mod_res, dict):
+                m_run_id = create_run(wallet, "moderator", title="Autonomous Fleet Deliberation", params={"source": "scheduler_cadence"})
+                cid_val = mod_res.get("cid")
+                finish_run(m_run_id, result=mod_res, cid=cid_val, error=None)
+                logger.info(f"[SCHEDULER] Completed moderator deliberation run {m_run_id} for wallet {wallet}")
+    except Exception as exc:
+        logger.error(f"[SCHEDULER] Error executing persisted job {job_id}: {exc}")
+
+
+def schedule_or_update_persisted_job(
+    wallet: str,
+    agent_type: str,
+    purpose: str,
+    interval_seconds: int,
+    config: Optional[Dict[str, Any]] = None,
+    enabled: int = 1
+) -> Dict[str, Any]:
+    """
+    Upsert job into scheduled_jobs table and register/remove from active APScheduler instance.
+    """
+    from database import upsert_scheduled_job, disable_job
+    clean_w = normalize_wallet(wallet)
+    if not clean_w:
+        return {}
+    job_id = f"{clean_w}:{agent_type.lower()}:{purpose.lower()}"
+    if enabled == 0:
+        disable_job(job_id)
+        if GLOBAL_SCHEDULER:
+            try:
+                if GLOBAL_SCHEDULER.get_job(f"persisted_{job_id}"):
+                    GLOBAL_SCHEDULER.remove_job(f"persisted_{job_id}")
+            except Exception:
+                pass
+        return {"job_id": job_id, "enabled": 0}
+
+    job = upsert_scheduled_job(
+        wallet=clean_w,
+        agent_type=agent_type,
+        purpose=purpose,
+        interval_seconds=interval_seconds,
+        config=config,
+        enabled=1,
+        job_id=job_id
+    )
+    if GLOBAL_SCHEDULER:
+        try:
+            GLOBAL_SCHEDULER.add_job(
+                execute_persisted_job,
+                'interval',
+                seconds=max(30, interval_seconds),
+                args=[job],
+                id=f"persisted_{job_id}",
+                misfire_grace_time=3600,
+                coalesce=True,
+                replace_existing=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to add job to GLOBAL_SCHEDULER: {e}")
+    return job
+
+
 async def _stream_run_events(run_id: str, wallet: Optional[str], after: int, request: Request):
     """
     NDJSON event stream generator reading committed events from DB.
@@ -1091,6 +1259,21 @@ async def trader_start_endpoint(body: TraderScanRequest):
             "trader_min_confidence": body.min_confidence or 75,
             "trader_enable_researcher": 1 if body.enable_researcher_plugin else 0
         })
+        schedule_or_update_persisted_job(
+            wallet=norm_w,
+            agent_type="trader",
+            purpose="trade_poll",
+            interval_seconds=3600,
+            config={
+                "symbol": body.symbol,
+                "coin_mode": body.coin_mode or "auto",
+                "custom_coins": body.custom_coins or "",
+                "timeframe": body.timeframe or "1h",
+                "min_confidence": body.min_confidence or 75,
+                "enable_researcher": bool(body.enable_researcher_plugin)
+            },
+            enabled=1
+        )
     title = f"Trader Scan ({body.symbol or body.coin_mode or 'auto'})"
     params = {
         "symbol": body.symbol,
@@ -1184,6 +1367,20 @@ async def update_trader_settings(body: TraderSettingsRequest):
         settings["rsi_sweet_max"] = body.trader_rsi_sweet_max
 
     user = upsert_user(body.user_wallet, settings)
+    schedule_or_update_persisted_job(
+        wallet=body.user_wallet,
+        agent_type="trader",
+        purpose="trade_poll",
+        interval_seconds=3600,
+        config={
+            "coin_mode": body.trader_coin_mode or "auto",
+            "custom_coins": body.trader_custom_coins or "",
+            "timeframe": body.trader_timeframe or "1h",
+            "min_confidence": body.trader_min_confidence or 75,
+            "enable_researcher": bool(body.trader_enable_researcher)
+        },
+        enabled=1
+    )
     return {"status": "updated", "user": user}
 
 @app.get("/api/trader/scanner")
@@ -1272,6 +1469,21 @@ async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
             "rebalancer_active": 1,
             "rebalancer_drift_threshold": 5.0,
         })
+        cad_days = body.cadence_days or 7
+        schedule_or_update_persisted_job(
+            wallet=norm_w,
+            agent_type="rebalancer",
+            purpose="rebalance_cadence",
+            interval_seconds=int(cad_days * 86400),
+            config={
+                "selected_coins": body.selected_coins,
+                "user_expectation": body.user_expectation or "",
+                "current_holdings": body.current_holdings,
+                "cadence_days": cad_days,
+                "min_stable_pct": body.min_stable_pct or 10.0
+            },
+            enabled=1
+        )
     coins_summary = ", ".join((body.selected_coins or [])[:3])
     title = f"Rebalance ({coins_summary})" if coins_summary else "Portfolio Rebalance"
     params = {
@@ -1524,12 +1736,27 @@ class AgentFleetConfigRequest(BaseModel):
 async def save_agent_fleet_config(body: AgentFleetConfigRequest):
     """Activate/deactivate and configure an agent in the fleet."""
     from database import update_agent_fleet_config
-    return update_agent_fleet_config(
+    res = update_agent_fleet_config(
         user_wallet=body.user_wallet,
         agent_id=body.agent_id,
         is_active=body.is_active,
         config=body.config or {}
     )
+    # Task 3.3: Lifecycle hook - enable or disable persistent scheduler job
+    clean_w = normalize_wallet(body.user_wallet)
+    if clean_w:
+        agent_key = body.agent_id.lower()
+        purpose = "trade_poll" if agent_key == "trader" else ("rebalance_cadence" if agent_key == "rebalancer" else "fleet_deliberation")
+        interval = 3600 if agent_key == "trader" else (604800 if agent_key == "rebalancer" else 300)
+        schedule_or_update_persisted_job(
+            wallet=clean_w,
+            agent_type=agent_key,
+            purpose=purpose,
+            interval_seconds=interval,
+            config=body.config or {},
+            enabled=1 if body.is_active else 0
+        )
+    return res
 
 @app.get("/api/network")
 async def get_current_network():

@@ -232,6 +232,27 @@ def init_db(db_path: Optional[str] = None):
     except Exception as e:
         print(f"[DB: chat_messages migration warning] {e}")
 
+    # Safe migration: ensure scheduled_jobs exists for persistent background runs
+    try:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS scheduled_jobs (
+            job_id TEXT PRIMARY KEY,
+            wallet TEXT NOT NULL,
+            agent_type TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            interval_seconds INTEGER NOT NULL,
+            next_run_at TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            config_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_wallet ON scheduled_jobs(wallet, agent_type);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_enabled ON scheduled_jobs(enabled, next_run_at);")
+    except Exception as e:
+        print(f"[DB: scheduled_jobs migration warning] {e}")
+
     conn.commit()
     conn.close()
     print("[DB] Neptune v2.1 database initialized cleanly with 18 tables.")
@@ -335,6 +356,193 @@ def clear_chat_history(
         _debounced_sync(conn._raw_conn)
     conn.close()
     return deleted
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PERSISTENT SCHEDULER & AUTONOMY CADENCE (Task 3.1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def upsert_scheduled_job(
+    wallet: str,
+    agent_type: str,
+    purpose: str,
+    interval_seconds: int,
+    config: Optional[Dict[str, Any]] = None,
+    enabled: int = 1,
+    job_id: Optional[str] = None,
+    next_run_at: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Persist or update an autonomy scheduled job with normalized wallet isolation.
+    """
+    clean_wallet = normalize_wallet(wallet)
+    if not clean_wallet:
+        return {}
+
+    jid = job_id or f"{clean_wallet}:{agent_type.lower()}:{purpose.lower()}"
+    now_utc = datetime.now(timezone.utc)
+    target_next_run = next_run_at or (now_utc + timedelta(seconds=interval_seconds)).isoformat()
+    config_str = json.dumps(config) if isinstance(config, (dict, list)) else (config or "{}")
+
+    conn = get_connection(db_path)
+    now_iso = now_utc.isoformat()
+    conn.execute("""
+        INSERT INTO scheduled_jobs (
+            job_id, wallet, agent_type, purpose, interval_seconds,
+            next_run_at, enabled, config_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+            interval_seconds = excluded.interval_seconds,
+            next_run_at = excluded.next_run_at,
+            enabled = excluded.enabled,
+            config_json = excluded.config_json,
+            updated_at = excluded.updated_at
+    """, (
+        jid, clean_wallet, agent_type.lower(), purpose.lower(), int(interval_seconds),
+        target_next_run, int(enabled), config_str, now_iso, now_iso
+    ))
+    conn.commit()
+    if hasattr(conn, "_raw_conn"):
+        _debounced_sync(conn._raw_conn)
+    conn.close()
+
+    return {
+        "job_id": jid,
+        "wallet": clean_wallet,
+        "agent_type": agent_type.lower(),
+        "purpose": purpose.lower(),
+        "interval_seconds": int(interval_seconds),
+        "next_run_at": target_next_run,
+        "enabled": int(enabled),
+        "config": config or {}
+    }
+
+
+def list_enabled_jobs(
+    agent_type: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    List all enabled scheduled jobs awaiting execution or recovery.
+    """
+    conn = get_connection(db_path)
+    if agent_type:
+        rows = conn.execute("""
+            SELECT job_id, wallet, agent_type, purpose, interval_seconds,
+                   next_run_at, enabled, config_json, created_at, updated_at
+            FROM scheduled_jobs
+            WHERE enabled = 1 AND agent_type = ?
+            ORDER BY next_run_at ASC
+        """, (agent_type.lower(),)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT job_id, wallet, agent_type, purpose, interval_seconds,
+                   next_run_at, enabled, config_json, created_at, updated_at
+            FROM scheduled_jobs
+            WHERE enabled = 1
+            ORDER BY next_run_at ASC
+        """).fetchall()
+    conn.close()
+
+    jobs = []
+    for r in rows:
+        cfg = {}
+        try:
+            cfg = json.loads(r["config_json"] or "{}")
+        except Exception:
+            pass
+        jobs.append({
+            "job_id": r["job_id"],
+            "wallet": r["wallet"],
+            "agent_type": r["agent_type"],
+            "purpose": r["purpose"],
+            "interval_seconds": int(r["interval_seconds"]),
+            "next_run_at": r["next_run_at"],
+            "enabled": int(r["enabled"]),
+            "config": cfg,
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"]
+        })
+    return jobs
+
+
+def mark_job_run(
+    job_id: str,
+    next_run_at: str,
+    db_path: Optional[str] = None
+) -> bool:
+    """
+    Update next_run_at after a scheduled cadence cycle has executed.
+    """
+    conn = get_connection(db_path)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        UPDATE scheduled_jobs
+        SET next_run_at = ?, updated_at = ?
+        WHERE job_id = ?
+    """, (next_run_at, now_iso, job_id))
+    conn.commit()
+    if hasattr(conn, "_raw_conn"):
+        _debounced_sync(conn._raw_conn)
+    conn.close()
+    return True
+
+
+def disable_job(
+    job_id: str,
+    db_path: Optional[str] = None
+) -> bool:
+    """
+    Disable a scheduled job (e.g. when agent is toggled off).
+    """
+    conn = get_connection(db_path)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        UPDATE scheduled_jobs
+        SET enabled = 0, updated_at = ?
+        WHERE job_id = ?
+    """, (now_iso, job_id))
+    conn.commit()
+    if hasattr(conn, "_raw_conn"):
+        _debounced_sync(conn._raw_conn)
+    conn.close()
+    return True
+
+
+def is_user_active_recently(
+    wallet: str,
+    days: int = 14,
+    db_path: Optional[str] = None
+) -> bool:
+    """
+    Check if user had any agent_runs or chat_messages in the last `days`.
+    Prevents running expensive cadences for abandoned accounts.
+    """
+    clean_wallet = normalize_wallet(wallet)
+    if not clean_wallet:
+        return False
+
+    cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    conn = get_connection(db_path)
+
+    r_runs = conn.execute("""
+        SELECT COUNT(*) as cnt FROM agent_runs
+        WHERE wallet = ? AND created_at >= ?
+    """, (clean_wallet, cutoff_iso)).fetchone()
+    if r_runs and r_runs["cnt"] > 0:
+        conn.close()
+        return True
+
+    r_chat = conn.execute("""
+        SELECT COUNT(*) as cnt FROM chat_messages
+        WHERE wallet = ? AND created_at >= ?
+    """, (clean_wallet, cutoff_iso)).fetchone()
+    conn.close()
+    if r_chat and r_chat["cnt"] > 0:
+        return True
+
+    return False
 
 
 
@@ -3343,13 +3551,13 @@ def get_moderator_cadence_info(user_wallet: str) -> Dict[str, Any]:
 # 13. RESILIENT AGENT RUNS & EVENT PERSISTENCE
 # ─────────────────────────────────────────────────────────────────────────────
 
-def create_run(wallet: str, agent_type: str, title: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> str:
+def create_run(wallet: str, agent_type: str, title: Optional[str] = None, params: Optional[Dict[str, Any]] = None, db_path: Optional[str] = None) -> str:
     """Creates a new tracked agent run row in 'running' status with initial heartbeat."""
     norm_w = normalize_wallet(wallet)
     upsert_user(norm_w)
     run_id = uuid.uuid4().hex
     now_iso = datetime.now(timezone.utc).isoformat()
-    conn = get_connection()
+    conn = get_connection(db_path)
     conn.execute("""
         INSERT INTO agent_runs (
             run_id, wallet, agent_type, status, title, params_json, created_at, last_heartbeat

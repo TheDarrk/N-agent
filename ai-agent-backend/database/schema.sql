@@ -375,9 +375,27 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 -- =====================================================================
+-- 8. PERSISTENT SCHEDULER & AUTONOMY CADENCE (Task 3.1)
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+    job_id TEXT PRIMARY KEY,           -- uuid or "<wallet>:<agent_type>:<purpose>"
+    wallet TEXT NOT NULL,              -- normalized
+    agent_type TEXT NOT NULL,          -- 'trader' | 'rebalancer' | 'moderator'
+    purpose TEXT NOT NULL,             -- 'trade_poll' | 'rebalance_cadence' | ...
+    interval_seconds INTEGER NOT NULL,
+    next_run_at TEXT NOT NULL,         -- ISO UTC
+    enabled INTEGER NOT NULL DEFAULT 1,
+    config_json TEXT,                  -- snapshot of config at schedule time
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- =====================================================================
 -- PERFORMANCE & ISOLATION INDEXES
 -- =====================================================================
 CREATE INDEX IF NOT EXISTS idx_chat_wallet ON chat_messages(wallet, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_wallet ON scheduled_jobs(wallet, agent_type);
+CREATE INDEX IF NOT EXISTS idx_jobs_enabled ON scheduled_jobs(enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_core_kill_switch ON core_user_wallets(kill_switch_active);
 CREATE INDEX IF NOT EXISTS idx_core_network ON core_user_wallets(network_mode);
 CREATE INDEX IF NOT EXISTS idx_agent_wallets_user ON core_agent_wallets(wallet_address);
