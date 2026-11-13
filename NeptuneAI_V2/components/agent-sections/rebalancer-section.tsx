@@ -212,8 +212,10 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   }, []);
 
   // ─── FETCH REAL ON-CHAIN BALANCES (ZERO DUMMY DATA) ───
-  const fetchRealHoldings = async (wallet: string) => {
-    setIsLoadingHoldings(true);
+  const fetchRealHoldings = async (wallet: string, isManual = false) => {
+    if (isManual) {
+      setIsLoadingHoldings(true);
+    }
     try {
       const realHoldings: Record<string, number> = {};
 
@@ -248,7 +250,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   };
 
   // ─── FETCH ACTIVE STRATEGY & DRIFT STATUS ───
-  const fetchStrategyAndStatus = async () => {
+  const fetchStrategyAndStatus = async (isManual = false) => {
     if (!accountId) {
       setActiveStrategy(null);
       setDriftStatus(null);
@@ -256,10 +258,12 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
       return;
     }
 
-    setIsLoadingStatus(true);
+    if (isManual) {
+      setIsLoadingStatus(true);
+    }
     try {
       // 1. Fetch real holdings from blockchain
-      await fetchRealHoldings(accountId);
+      await fetchRealHoldings(accountId, isManual);
 
       // 2. Fetch active strategy from Rebalancer DB
       const stratRes = await fetch(`/api/rebalancer/strategy/${accountId}`);
@@ -320,16 +324,16 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   }, []);
 
   useEffect(() => {
-    fetchStrategyAndStatus();
+    fetchStrategyAndStatus(false);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && accountId) {
-        fetchStrategyAndStatus();
+        fetchStrategyAndStatus(false);
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
 
-    const cleanup = setVisibleInterval(fetchStrategyAndStatus, 20000);
+    const cleanup = setVisibleInterval(() => fetchStrategyAndStatus(false), 20000);
 
     const abortCtrl = new AbortController();
     async function checkActiveRebalanceRun() {
@@ -626,7 +630,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
 
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchStrategyAndStatus}
+            onClick={() => fetchStrategyAndStatus(true)}
             disabled={isLoadingStatus || !accountId}
             className="key3d flex items-center gap-2 px-3.5 py-2 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-foreground font-semibold text-xs disabled:opacity-50"
             title="Refresh active strategy and live drift"
@@ -1019,7 +1023,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               </div>
               {accountId && (
                 <button
-                  onClick={() => fetchRealHoldings(accountId)}
+                  onClick={() => fetchRealHoldings(accountId, true)}
                   disabled={isLoadingHoldings}
                   className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
                   title="Refresh on-chain balances"

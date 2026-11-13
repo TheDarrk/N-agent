@@ -423,7 +423,7 @@ export default function ChatSidebar({
 
         {/* Footer */}
         <div className="border-t border-border px-4 py-3">
-          <p className="text-center text-[11px] text-muted-foreground/70">Powered by NEAR Protocol &amp; HOT</p>
+          <p className="text-center text-[11px] text-muted-foreground/70">Powered by NEAR</p>
         </div>
       </aside>
 

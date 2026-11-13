@@ -9,7 +9,7 @@ export async function POST(req: Request) {
       balances,
     } = body;
 
-    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const backendUrl = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
     console.log(`[API] Proxying chat request to ${backendUrl}/chat`);
     console.log(`[API] Message: ${message?.substring(0, 100)}...`);

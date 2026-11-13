@@ -42,15 +42,19 @@ export default function SidebarChatHistory({
   onConnectWallet,
 }: Props) {
   const [chats, setChats] = useState<ChatHistoryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
 
-  const fetchHistory = useCallback(async () => {
+  const fetchHistory = useCallback(async (isManual = false) => {
     if (!accountId) {
       setChats([]);
+      setInitialLoaded(true);
       return;
     }
-    setIsLoading(true);
+    if (isManual) {
+      setIsManualRefreshing(true);
+    }
     try {
       const res = await fetch(`/api/chat/history/${encodeURIComponent(accountId)}`);
       if (res.ok) {
@@ -60,13 +64,17 @@ export default function SidebarChatHistory({
     } catch (e) {
       console.warn("[SidebarChatHistory] Fetch error:", e);
     } finally {
-      setIsLoading(false);
+      setInitialLoaded(true);
+      setIsManualRefreshing(false);
     }
   }, [accountId]);
 
   useEffect(() => {
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 15000);
+    setInitialLoaded(false);
+    fetchHistory(false);
+    const interval = setInterval(() => {
+      fetchHistory(false);
+    }, 15000);
     return () => clearInterval(interval);
   }, [fetchHistory]);
 
@@ -126,12 +134,12 @@ export default function SidebarChatHistory({
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={fetchHistory}
-            disabled={isLoading}
+            onClick={() => fetchHistory(true)}
+            disabled={isManualRefreshing}
             className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
             title="Refresh history"
           >
-            <RefreshCw size={12} className={isLoading ? "animate-spin text-primary" : ""} />
+            <RefreshCw size={12} className={isManualRefreshing ? "animate-spin text-primary" : ""} />
           </button>
           {chats.length > 0 && (
             <button
@@ -147,7 +155,7 @@ export default function SidebarChatHistory({
       </div>
 
       {/* Chat List */}
-      {isLoading && chats.length === 0 ? (
+      {!initialLoaded && chats.length === 0 ? (
         <div className="rounded-xl border border-border bg-card/50 px-3 py-5 text-center text-xs text-muted-foreground">
           Loading recent chats…
         </div>

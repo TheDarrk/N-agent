@@ -888,7 +888,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
 
             {/* Step 2: Transfer Guidance */}
             <div className="p-3 rounded-xl bg-primary/10 border border-primary/20 text-xs text-muted-foreground leading-relaxed">
-              <strong>Step 2:</strong> Open your NEAR wallet (Meteor, Here, HOT, or Nightly) and send exactly <strong>{activeOrder.amount_usdt} USDT</strong> to <code>{activeOrder.payout_wallet}</code>.
+              <strong>Step 2:</strong> Open your NEAR wallet (Meteor, Here, or Nightly) and send exactly <strong>{activeOrder.amount_usdt} USDT</strong> to <code>{activeOrder.payout_wallet}</code>.
             </div>
 
             {/* Step 3: Tx Hash & Verification */}

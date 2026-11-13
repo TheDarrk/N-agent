@@ -5,22 +5,40 @@ import React, { useState } from "react";
 type AvatarProps = {
   size?: number;
   className?: string;
-  fallbackEmoji?: string;
 };
 
-const AGENT_CONFIGS: Record<string, { src: string; alt: string; emoji: string }> = {
-  trader: { src: "/agents/trader.svg", alt: "Autonomous Trader", emoji: "📈" },
-  rebalancer: { src: "/agents/rebalancer.svg", alt: "Portfolio Rebalancer", emoji: "⚖️" },
-  research: { src: "/agents/research.svg", alt: "Deep Research", emoji: "🔬" },
-  moderator: { src: "/agents/moderator.svg", alt: "Moderator Watchdog", emoji: "🛡️" },
-  marketplace: { src: "/agents/marketplace.svg", alt: "Agent Marketplace", emoji: "🏪" },
+const AGENT_CONFIGS: Record<string, { src: string; fallbackSrc: string; alt: string }> = {
+  trader: {
+    src: "/images/agent-trader.png",
+    fallbackSrc: "/agents/trader.svg",
+    alt: "Autonomous Trader",
+  },
+  rebalancer: {
+    src: "/images/agent-rebalancer.png",
+    fallbackSrc: "/agents/rebalancer.svg",
+    alt: "Portfolio Rebalancer",
+  },
+  research: {
+    src: "/images/agent-researcher.png",
+    fallbackSrc: "/agents/research.svg",
+    alt: "Deep Research",
+  },
+  moderator: {
+    src: "/images/agent-moderator.png",
+    fallbackSrc: "/agents/moderator.svg",
+    alt: "Moderator Watchdog",
+  },
+  marketplace: {
+    src: "/neptune-logo.png",
+    fallbackSrc: "/agents/marketplace.svg",
+    alt: "Agent Marketplace",
+  },
 };
 
 export function AgentLogo({
   agentId,
   size = 32,
   className = "",
-  fallbackEmoji
 }: {
   agentId: string;
   size?: number;
@@ -29,42 +47,49 @@ export function AgentLogo({
 }) {
   const norm = (agentId || "trader").toLowerCase();
   const config = AGENT_CONFIGS[norm] || AGENT_CONFIGS.trader;
-  const emoji = fallbackEmoji || config.emoji;
+  const [imgSrc, setImgSrc] = useState(config.src);
   const [hasError, setHasError] = useState(false);
+
+  const handleError = () => {
+    if (imgSrc !== config.fallbackSrc) {
+      setImgSrc(config.fallbackSrc);
+    } else {
+      setHasError(true);
+    }
+  };
 
   if (hasError) {
     return (
       <span
-        className={`inline-flex shrink-0 items-center justify-center select-none ${className}`}
-        style={{
-          width: size,
-          height: size,
-          fontSize: Math.max(12, Math.floor(size * 0.65)),
-          lineHeight: 1,
-        }}
-        role="img"
-        aria-label={config.alt}
+        className={`inline-flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/30 to-purple-500/20 border border-primary/30 overflow-hidden ${className}`}
+        style={{ width: size, height: size }}
       >
-        {emoji}
+        <img
+          src="/neptune-logo.png"
+          alt={config.alt}
+          width={size}
+          height={size}
+          className="h-full w-full object-cover"
+        />
       </span>
     );
   }
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-xl ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/50 bg-secondary/30 ${className}`}
       style={{
         width: size,
         height: size,
       }}
     >
       <img
-        src={config.src}
+        src={imgSrc}
         alt={config.alt}
         width={size}
         height={size}
-        onError={() => setHasError(true)}
-        className="h-full w-full object-contain"
+        onError={handleError}
+        className="h-full w-full object-cover"
         loading="lazy"
       />
     </span>

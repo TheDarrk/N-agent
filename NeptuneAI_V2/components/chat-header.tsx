@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import {
   Menu,
   X,
-  Flame,
+  Wallet,
   Loader2,
   MessageSquare,
   Store,
@@ -295,10 +295,10 @@ export default function ChatHeader({
                 {isConnecting ? (
                   <Loader2 size={13} className="animate-spin" />
                 ) : (
-                  <Flame size={13} className="hidden @4xl:block text-orange-400 fill-orange-400" />
+                  <Wallet size={13} className="hidden @4xl:block text-primary" />
                 )}
                 <span className={c.connectShort}>Connect</span>
-                <span className={c.connectLong}>Connect HOT Wallet</span>
+                <span className={c.connectLong}>Connect Wallet</span>
               </button>
             )}
           </div>

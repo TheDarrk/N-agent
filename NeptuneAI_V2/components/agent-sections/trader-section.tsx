@@ -283,6 +283,14 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
   // Execution & Live Data State
   const [isScanning, setIsScanning] = useState(false);
+  const [liveProgressStep, setLiveProgressStep] = useState<{
+    stepNumber: number;
+    stepName: string;
+    title: string;
+    status: string;
+    message: string;
+  } | null>(null);
+  const [liveEvents, setLiveEvents] = useState<Array<{ time: string; message: string; step?: number }>>([]);
   const [scanResult, setScanResult] = useState<any>(() => {
     if (typeof window === "undefined" || !accountId) return null;
     try {
@@ -326,9 +334,11 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   };
 
   // Fetch trades and recent traces strictly isolated to the user's wallet
-  const fetchTrades = async () => {
+  const fetchTrades = async (isManual = false) => {
     if (!accountId) return;
-    setIsLoadingTrades(true);
+    if (isManual) {
+      setIsLoadingTrades(true);
+    }
     try {
       const res = await fetch(`/api/trader/trades/${encodeURIComponent(accountId)}`);
       if (res.ok) {
@@ -355,15 +365,15 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   };
 
   useEffect(() => {
-    fetchTrades();
-    return setVisibleInterval(fetchTrades, 15000);
+    fetchTrades(false);
+    return setVisibleInterval(() => fetchTrades(false), 15000);
   }, [accountId]);
 
   // Tab visibility: refresh instantly when user switches back to this tab
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && accountId) {
-        fetchTrades();
+        fetchTrades(false);
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
@@ -452,6 +462,14 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       return;
     }
     setIsScanning(true);
+    setLiveEvents([{ time: new Date().toLocaleTimeString(), message: "Starting Autonomous Trader market scan...", step: 1 }]);
+    setLiveProgressStep({
+      stepNumber: 1,
+      stepName: "Pre-Scanner",
+      title: "Market Universe & Tradeability Gate",
+      status: "running",
+      message: `Scanning 1-Click DEX universe in ${coinMode} mode...`
+    });
     try {
       const { run_id } = await startRun("trader", {
         user_wallet: accountId,
@@ -467,15 +485,49 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       await streamRun(
         run_id,
         (ev) => {
-          if (ev.type === "final" && ev.result) {
+          if (ev.type === "step") {
+            const stepNum = ev.step_number || 1;
+            setLiveProgressStep({
+              stepNumber: stepNum,
+              stepName: ev.step_name || "",
+              title: ev.title || "",
+              status: ev.status || "running",
+              message: ev.message || ev.agent_reasoning || "",
+            });
+            if (ev.message) {
+              setLiveEvents((prev) => [
+                ...prev.slice(-10),
+                { time: new Date().toLocaleTimeString(), message: ev.message, step: stepNum }
+              ]);
+            }
+          } else if (ev.type === "subagent_research_start") {
+            setLiveProgressStep({
+              stepNumber: 3,
+              stepName: "Subagent Research",
+              title: "Deep Researcher Intelligence Plugin",
+              status: "running",
+              message: `Dispatching subagent research for ${ev.symbol || "candidate"} (depth 2)...`,
+            });
+            setLiveEvents((prev) => [
+              ...prev.slice(-10),
+              { time: new Date().toLocaleTimeString(), message: `Researcher subagent inspecting sources for ${ev.symbol || "candidate"}`, step: 3 }
+            ]);
+          } else if (ev.type === "subagent_research_done") {
+            setLiveEvents((prev) => [
+              ...prev.slice(-10),
+              { time: new Date().toLocaleTimeString(), message: `Researcher subagent finished with ${ev.sources_count || 0} sources`, step: 3 }
+            ]);
+          } else if (ev.type === "final" && ev.result) {
             setScanResult(ev.result);
+            setLiveProgressStep(null);
           }
         },
         0
       );
 
       setActiveRun("trader", accountId, null);
-      await fetchTrades();
+      setLiveProgressStep(null);
+      await fetchTrades(false);
     } catch (e: any) {
       console.warn("Direct stream encounter, falling back to synchronous scan:", e);
       try {
@@ -493,12 +545,14 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
         });
         const data = await res.json();
         setScanResult(data);
-        await fetchTrades();
+        setLiveProgressStep(null);
+        await fetchTrades(false);
       } catch (err) {
         console.error("Scan fallback error:", err);
       }
     } finally {
       setIsScanning(false);
+      setLiveProgressStep(null);
       setActiveRun("trader", accountId, null);
     }
   };
@@ -615,7 +669,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchTrades}
+            onClick={() => fetchTrades(true)}
             disabled={isLoadingTrades}
             className="key3d grid h-9 w-9 place-items-center rounded-xl border border-border bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground"
             title="Refresh data"
@@ -652,6 +706,8 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
         coinMode={coinMode}
         customCoinCount={customCoins.length}
         timeframe={timeframe}
+        liveProgressStep={liveProgressStep}
+        liveEvents={liveEvents}
       />
 
       <TraderPnl
@@ -749,7 +805,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               isAutonomousFeed: true
             } : null);
 
-            if (!activeRun) {
+            if (!activeRun && !isScanning) {
               return (
                 <TraderReady
                   connected={Boolean(accountId)}
@@ -765,21 +821,38 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               );
             }
 
+            const currentDisplayRun = activeRun || {
+              success: false,
+              verdict: "EVALUATING",
+              symbol: coinMode === "custom" ? customCoins[0] || "NEAR" : "MARKET",
+              confidence_score: 0,
+              reasoning: "Autonomous Trader pipeline currently evaluating live candles and market heuristics...",
+            };
+
             return (
               <div className={`p-4 rounded-2xl border transition-all ${
-                activeRun.success
+                currentDisplayRun.success
                   ? "bg-emerald-500/5 border-emerald-500/30"
                   : "bg-card border-border"
               }`}>
                 {isScanning && (
-                  <div className="mb-3 px-3.5 py-2.5 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-between animate-pulse">
-                    <div className="flex items-center gap-2">
-                      <RotateCw size={14} className="animate-spin text-primary" />
-                      <span className="text-xs font-bold text-primary">
-                        Scanning market in real-time... evaluating mathematical indicators &amp; 20 Trading Book heuristics
+                  <div className="mb-3 px-3.5 py-2.5 rounded-xl bg-primary/10 border border-primary/30 flex flex-col gap-1.5 animate-pulse">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <RotateCw size={14} className="animate-spin text-primary" />
+                        <span className="text-xs font-bold text-primary">
+                          {liveProgressStep ? `${liveProgressStep.stepName}: ${liveProgressStep.title}` : "Scanning market in real-time..."}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono text-primary font-semibold px-2 py-0.5 rounded bg-primary/20">
+                        {liveProgressStep?.stepNumber ? `Stage ${liveProgressStep.stepNumber}` : "In Progress"}
                       </span>
                     </div>
-                    <span className="text-[10px] font-mono text-muted-foreground">In Progress</span>
+                    {liveProgressStep?.message && (
+                      <p className="text-[11px] text-muted-foreground font-mono pl-5">
+                        {liveProgressStep.message}
+                      </p>
+                    )}
                   </div>
                 )}
                 {activeRun.limit_warning && (
@@ -1028,7 +1101,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   </div>
                 )}
 
-                {/* Order Parameters (if warrant) */}
+                {/* Order Parameters or Evaluated Scan Metrics */}
                 {activeRun.success ? (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                     <div className="p-3 rounded-xl bg-secondary/50 border border-border">
@@ -1054,7 +1127,36 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                       <p className="text-sm font-mono font-bold text-rose-400">${activeRun.stop_loss_price}</p>
                     </div>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                    <div className="p-3 rounded-xl bg-secondary/50 border border-border">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Verdict</span>
+                      <p className="text-sm font-bold text-amber-400">{activeRun.verdict || "STAND ASIDE"}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-secondary/50 border border-border">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Evaluated Token</span>
+                      <p className="text-sm font-mono font-bold text-foreground">{symbolLabel(activeRun.evaluated_symbol || activeRun.symbol)}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-secondary/50 border border-border">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Token Price</span>
+                      <p className="text-sm font-mono font-bold text-foreground">
+                        {activeRun.entry_price || activeRun.indicators?.current_price || activeRun.indicators?.price
+                          ? `$${activeRun.entry_price || activeRun.indicators?.current_price || activeRun.indicators?.price}`
+                          : "—"}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-secondary/50 border border-border">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">RSI (14)</span>
+                      <p className="text-sm font-mono font-bold text-foreground">
+                        {activeRun.indicators?.rsi != null
+                          ? Number(activeRun.indicators.rsi).toFixed(1)
+                          : activeRun.indicators?.rsi14 != null
+                          ? Number(activeRun.indicators.rsi14).toFixed(1)
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Research Agent Intel & Twitter Sentiment Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
@@ -1141,7 +1243,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                 )}
 
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  <strong>Judge Reasoning:</strong> {activeRun.reasoning}
+                  <strong>Judge Reasoning:</strong> {activeRun.reasoning || activeRun.halt_cause || "No setup met all 20 book heuristics and confidence threshold."}
                 </p>
 
                 {activeRun.cid && (
@@ -1240,7 +1342,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   <span>Full Screen View</span>
                 </button>
                 <button
-                  onClick={fetchTrades}
+                  onClick={() => fetchTrades(true)}
                   disabled={isLoadingTrades}
                   {...tilt3d(10)}
                   className="tilt3d pop3d shrink-0 p-2 rounded-xl bg-secondary text-muted-foreground hover:text-foreground border border-border"

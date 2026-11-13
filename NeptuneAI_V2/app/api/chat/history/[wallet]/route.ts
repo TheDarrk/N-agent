@@ -10,10 +10,11 @@ export async function GET(
       return NextResponse.json({ status: "error", detail: "Wallet address required" }, { status: 400 });
     }
 
-    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const backendUrl = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
     const res = await fetch(`${backendUrl}/api/chat/history/${encodeURIComponent(wallet)}`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!res.ok) {
@@ -39,10 +40,11 @@ export async function DELETE(
       return NextResponse.json({ status: "error", detail: "Wallet address required" }, { status: 400 });
     }
 
-    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+    const backendUrl = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
     const res = await fetch(`${backendUrl}/api/chat/history/${encodeURIComponent(wallet)}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!res.ok) {

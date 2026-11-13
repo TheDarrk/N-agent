@@ -79,11 +79,14 @@ export default function SidebarAgentFeed({
 }: Props) {
   const [logs, setLogs] = useState<AgentLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
 
-  const fetchLogs = useCallback(async () => {
+  const fetchLogs = useCallback(async (isManual = false) => {
     const wallet = accountId || "guest.near";
-    setIsLoading(true);
+    if (isManual || !initialLoaded) {
+      setIsLoading(true);
+    }
     const logTime = (l: AgentLogItem) => l.created_at || l.created_at_utc;
     const logId = (l: AgentLogItem) => String(l.id ?? `${l.agent_name}-${logTime(l)}`);
     try {
@@ -107,12 +110,13 @@ export default function SidebarAgentFeed({
       // silent
     } finally {
       setIsLoading(false);
+      setInitialLoaded(true);
     }
-  }, [accountId]);
+  }, [accountId, initialLoaded]);
 
   useEffect(() => {
-    fetchLogs();
-    return setVisibleInterval(fetchLogs, 12000);
+    fetchLogs(false);
+    return setVisibleInterval(() => fetchLogs(false), 12000);
   }, [fetchLogs]);
 
   const groups = useMemo(() => {
@@ -139,7 +143,7 @@ export default function SidebarAgentFeed({
           {logs.length > 0 && <span className="ml-1.5 font-mono normal-case text-foreground/70">{logs.length}</span>}
         </h3>
         <button
-          onClick={fetchLogs}
+          onClick={() => fetchLogs(true)}
           disabled={isLoading}
           className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
           aria-label="Refresh decision history"

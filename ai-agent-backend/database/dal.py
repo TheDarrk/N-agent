@@ -321,7 +321,7 @@ def get_chat_history(
         SELECT message_id, wallet, role, content, agent_type, created_at
         FROM chat_messages
         WHERE wallet = ?
-        ORDER BY created_at ASC
+        ORDER BY created_at DESC
         LIMIT ?
     """, (clean_wallet, limit)).fetchall()
     conn.close()
@@ -336,6 +336,7 @@ def get_chat_history(
             "agent_type": r["agent_type"],
             "created_at": r["created_at"]
         })
+    results.reverse()
     return results
 
 

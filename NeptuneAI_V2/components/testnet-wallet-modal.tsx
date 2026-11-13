@@ -45,12 +45,12 @@ export default function TestnetWalletModal({
                 await onLaunchHotKit();
                 onClose();
             } else {
-                setError("HOT Wallet Kit launcher not ready.");
+                setError("Wallet selector launcher not ready.");
             }
         } catch (e: any) {
-            console.warn("[Modal] HOT Kit launcher error:", e);
+            console.warn("[Modal] Wallet selector error:", e);
             if (!e?.message?.includes("rejected")) {
-                setError(e?.message || "Failed to launch HOT Wallet modal. You can enter your account ID directly below.");
+                setError(e?.message || "Failed to launch wallet modal. You can enter your account ID directly below.");
             }
         } finally {
             setConnectingHot(false);
@@ -112,7 +112,7 @@ export default function TestnetWalletModal({
                                     {isMain ? "MAINNET" : "TESTNET"}
                                 </span>
                             </div>
-                            <p className="text-[11px] text-muted-foreground">HOT Wallet Kit &amp; Multi-Chain Integration</p>
+                            <p className="text-[11px] text-muted-foreground">NEAR Wallet &amp; Multi-Chain Integration</p>
                         </div>
                     </div>
                     <button
@@ -145,19 +145,19 @@ export default function TestnetWalletModal({
                     </div>
                 </div>
 
-                {/* ═══ SECTION 1: HOT Wallet Kit Modal Launcher (Official) ═══ */}
-                <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 space-y-3">
+                {/* ═══ SECTION 1: NEAR Wallet Modal Launcher (Official) ═══ */}
+                <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 space-y-3">
                     <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center shrink-0">
-                            <Flame size={22} className="text-orange-400 fill-orange-400" />
+                        <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/40 flex items-center justify-center shrink-0">
+                            <Wallet size={20} className="text-primary" />
                         </div>
                         <div className="space-y-0.5">
                             <div className="flex items-center gap-2">
-                                <h4 className="text-xs font-bold text-foreground">HOT Wallet Kit (Official Modal)</h4>
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">DIRECT</span>
+                                <h4 className="text-xs font-bold text-foreground">NEAR Wallet Selector</h4>
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-primary/20 text-primary border border-primary/30">DIRECT</span>
                             </div>
                             <p className="text-[11px] text-muted-foreground leading-relaxed">
-                                Open the HOT Wallet modal to select <span className="font-semibold text-foreground">Meteor Wallet</span>, <span className="font-semibold text-foreground">HOT Wallet</span>, <span className="font-semibold text-foreground">MyNearWallet</span>, Nightly, or Ethereum wallets directly.
+                                Open the wallet modal to select <span className="font-semibold text-foreground">Meteor Wallet</span>, <span className="font-semibold text-foreground">MyNearWallet</span>, Nightly, or Ethereum wallets directly.
                             </p>
                         </div>
                     </div>
@@ -165,17 +165,17 @@ export default function TestnetWalletModal({
                     <button
                         onClick={handleOpenHotKitModal}
                         disabled={connectingHot}
-                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-98 text-white font-bold text-xs transition-all shadow-md shadow-orange-500/25 disabled:opacity-50"
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-primary hover:bg-primary/90 active:scale-98 text-primary-foreground font-bold text-xs transition-all shadow-md shadow-primary/25 disabled:opacity-50"
                     >
                         {connectingHot ? (
                             <>
                                 <RefreshCw size={14} className="animate-spin" />
-                                <span>Opening HOT Wallet Modal...</span>
+                                <span>Opening Wallet Modal...</span>
                             </>
                         ) : (
                             <>
-                                <Flame size={15} className="fill-white" />
-                                <span>Open HOT Wallet Modal</span>
+                                <Wallet size={15} />
+                                <span>Open Wallet Modal</span>
                                 <ArrowRight size={14} className="ml-0.5 opacity-80" />
                             </>
                         )}

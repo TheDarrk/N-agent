@@ -13,6 +13,8 @@ import {
   Pause,
   ChevronDown,
   Check,
+  Activity,
+  RotateCw,
 } from "lucide-react";
 
 type Props = {
@@ -24,6 +26,14 @@ type Props = {
   coinMode: "auto" | "custom";
   customCoinCount: number;
   timeframe: string;
+  liveProgressStep?: {
+    stepNumber: number;
+    stepName: string;
+    title: string;
+    status: string;
+    message: string;
+  } | null;
+  liveEvents?: Array<{ time: string; message: string; step?: number }>;
 };
 
 type Step = {
@@ -313,15 +323,26 @@ function TraderStory(props: Props) {
   const stepMs = props.isScanning ? 2600 : 5600;
   const running = playing || props.isScanning;
 
+  // Auto-expand and sync active step when scanning
   useEffect(() => {
-    if (!open || !running) return;
-    const t = setTimeout(() => setActive((a) => (a + 1) % steps.length), stepMs);
-    return () => clearTimeout(t);
-  }, [active, open, running, stepMs, steps.length]);
+    if (props.isScanning) {
+      setOpen(true);
+    }
+  }, [props.isScanning]);
 
   useEffect(() => {
-    if (props.isScanning) setActive(0);
-  }, [props.isScanning]);
+    if (props.isScanning && props.liveProgressStep?.stepNumber) {
+      const targetStep = Math.min(Math.max(props.liveProgressStep.stepNumber - 1, 0), steps.length - 1);
+      setActive(targetStep);
+      setPlaying(false);
+    }
+  }, [props.isScanning, props.liveProgressStep, steps.length]);
+
+  useEffect(() => {
+    if (!open || !running || props.isScanning) return;
+    const t = setTimeout(() => setActive((a) => (a + 1) % steps.length), stepMs);
+    return () => clearTimeout(t);
+  }, [active, open, running, stepMs, steps.length, props.isScanning]);
 
   const step = steps[active];
 
@@ -372,6 +393,37 @@ function TraderStory(props: Props) {
 
       {open && (
         <div className="tr-stage border-t border-border">
+          {props.isScanning && (
+            <div className="mx-4 mt-4 p-3 rounded-xl bg-primary/10 border border-primary/30 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <RotateCw size={14} className="animate-spin text-primary" />
+                  <span className="text-xs font-bold text-foreground">
+                    Live Progress: {props.liveProgressStep?.title || props.liveProgressStep?.stepName || "Analyzing Market"}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-primary font-semibold px-2 py-0.5 rounded bg-primary/20">
+                  Step {active + 1} of {steps.length}
+                </span>
+              </div>
+              {props.liveProgressStep?.message && (
+                <p className="text-xs text-muted-foreground leading-relaxed pl-5 font-mono">
+                  {props.liveProgressStep.message}
+                </p>
+              )}
+              {props.liveEvents && props.liveEvents.length > 0 && (
+                <div className="mt-1 pt-2 border-t border-primary/15 max-h-24 overflow-y-auto space-y-1">
+                  {props.liveEvents.slice(-4).map((ev, eIdx) => (
+                    <div key={eIdx} className="text-[10px] text-muted-foreground/80 flex items-center justify-between font-mono">
+                      <span className="truncate pr-2">↳ {ev.message}</span>
+                      <span className="shrink-0 text-muted-foreground/50">{ev.time}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <ol className="flex items-start px-4 pt-4">
             {steps.map((s, i) => {
               const Icon = s.icon;

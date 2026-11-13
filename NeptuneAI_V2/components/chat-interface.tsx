@@ -503,7 +503,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
                   What can Neptune AI do for you?
                 </h2>
                 <p className="text-sm text-muted-foreground mb-6 leading-relaxed text-pretty">
-                  Swap tokens, create payment links, explore chains — all powered by NEAR Intents & HOT Pay.
+                  Swap tokens, explore chains, and automate strategies — all powered by NEAR.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
@@ -587,7 +587,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
               </button>
             </div>
             <p className="mt-2 text-center text-[10px] text-muted-foreground/50">
-              Neptune AI · Powered by NEAR Intents & HOT Pay
+              Neptune AI · Powered by NEAR
             </p>
           </div>
         </div>
@@ -625,8 +625,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
             <div className="px-5 py-4 space-y-3 text-[13px] leading-relaxed text-foreground/85">
               <p>
                 Neptune AI is your intelligent gateway to decentralized finance. Powered by
-                <strong className="text-foreground"> NEAR Intents</strong> and
-                <strong className="text-foreground"> HOT Pay</strong>, it brings the power of multi-chain
+                <strong className="text-foreground"> NEAR</strong>, it brings the power of multi-chain
                 operations into a simple conversational interface.
               </p>
               <div className="rounded-xl bg-secondary/30 border border-primary/8 p-3 space-y-2">

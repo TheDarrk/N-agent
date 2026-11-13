@@ -446,6 +446,24 @@ async def get_chat_history_endpoint(wallet_address: str):
     if not norm_wallet:
         raise HTTPException(status_code=400, detail="Valid wallet address is required to access chat history")
     raw_msgs = get_chat_history(norm_wallet, limit=100)
+    if not raw_msgs:
+        try:
+            from database.chat_db import get_recent_chats
+            legacy_turns = get_recent_chats(norm_wallet, limit=10)
+            if legacy_turns:
+                legacy_messages = []
+                for t in legacy_turns:
+                    legacy_messages.append({"id": f"turn_{t['id']}_u", "role": "user", "content": t["human_message"], "created_at": t["created_at"]})
+                    if t.get("ai_message"):
+                        legacy_messages.append({"id": f"turn_{t['id']}_a", "role": "ai", "content": t["ai_message"], "created_at": t["created_at"]})
+                return {
+                    "status": "success",
+                    "wallet": norm_wallet,
+                    "messages": legacy_messages,
+                    "history": legacy_turns
+                }
+        except Exception:
+            pass
     
     messages = [
         {
@@ -500,7 +518,12 @@ async def clear_chat_history_endpoint(wallet_address: str):
     if not norm_wallet:
         raise HTTPException(status_code=400, detail="Valid wallet address is required")
     cleared = clear_chat_history(norm_wallet)
-    return {"status": "success", "cleared": cleared}
+    try:
+        from database.chat_db import clear_chat_history as clear_legacy_chat
+        clear_legacy_chat(norm_wallet)
+    except Exception:
+        pass
+    return {"status": "success", "cleared": True}
 
 @app.get("/health")
 def root_health_check():
