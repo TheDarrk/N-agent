@@ -3759,3 +3759,70 @@ def mark_stale_runs_failed(running_run_ids: Optional[List[str]] = None) -> Dict[
         conn.close()
 
     return downtime_info
+
+
+def wipe_all_data(db_path: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Safely and completely wipes all user data and execution tables.
+    Disables foreign keys, deletes all rows across user data tables,
+    re-enables foreign keys, commits, forces Turso remote synchronization,
+    and returns stats.
+    """
+    tables = [
+        "agent_runs",
+        "agent_run_events",
+        "chat_messages",
+        "scheduled_jobs",
+        "trader_active_trades",
+        "trader_reasoning_traces",
+        "trader_config",
+        "rebalancer_strategies",
+        "rebalancer_executions",
+        "rebalancer_config",
+        "portfolio_snapshots",
+        "research_config",
+        "research_reports",
+        "moderator_config",
+        "moderator_evaluations",
+        "marketplace_listings",
+        "marketplace_orders",
+        "marketplace_subscriptions",
+        "marketplace_trade_mirrors",
+        "core_agent_audit_log",
+        "core_user_strategies",
+        "core_agent_wallets",
+        "core_user_wallets"
+    ]
+    conn = get_connection(db_path)
+    total_deleted = 0
+    wiped_tables = []
+    try:
+        conn.execute("PRAGMA foreign_keys = OFF;")
+        for t in tables:
+            try:
+                cur = conn.execute(f"SELECT COUNT(*) FROM {t}")
+                cnt = cur.fetchone()[0]
+                conn.execute(f"DELETE FROM {t}")
+                total_deleted += cnt
+                wiped_tables.append(t)
+            except Exception:
+                pass
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.commit()
+
+        if is_turso_enabled() and hasattr(conn, "sync"):
+            try:
+                conn.sync(force=True)
+                print("[DB: Turso] Force sync completed after wipe_all_data")
+            except Exception as se:
+                print(f"[DB: Turso wipe sync warning] {se}")
+    finally:
+        conn.close()
+
+    return {
+        "status": "success",
+        "message": "All user data and execution tables wiped clean",
+        "tables_wiped": wiped_tables,
+        "records_deleted": total_deleted
+    }
+

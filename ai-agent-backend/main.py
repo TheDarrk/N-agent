@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
@@ -2446,6 +2446,43 @@ async def export_agent_key_endpoint(body: ExportAgentKeyRequest):
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+ADMIN_WIPE_TOKEN = os.getenv("ADMIN_WIPE_TOKEN", "neptune_admin_secret_wipe_token_2026")
+
+
+@app.delete("/api/admin/wipe-all")
+async def admin_wipe_all_endpoint(
+    request: Request,
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token")
+):
+    """
+    Administrative Data Wipe Endpoint (Safeguarded).
+    Requires X-Admin-Token header matching ADMIN_WIPE_TOKEN.
+    Requires JSON body: {"confirm": "WIPE ALL DATA"}.
+    Completely purges all user data tables and forces immediate cloud sync.
+    """
+    expected_token = os.getenv("ADMIN_WIPE_TOKEN", "neptune_admin_secret_wipe_token_2026")
+    if not x_admin_token or x_admin_token != expected_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: invalid or missing X-Admin-Token"
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    if not isinstance(body, dict) or body.get("confirm") != "WIPE ALL DATA":
+        raise HTTPException(
+            status_code=400,
+            detail='Confirmation phrase required: {"confirm": "WIPE ALL DATA"}'
+        )
+
+    from database import wipe_all_data
+    stats = wipe_all_data()
+    return stats
 
 
 if __name__ == "__main__":
