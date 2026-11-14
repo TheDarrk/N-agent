@@ -4,6 +4,7 @@ Implements public global discovery, price-locked 24h order creation,
 on-chain USDT payment verification, and configuration mirroring.
 """
 
+import logging
 from fastapi import APIRouter, HTTPException, Query, Body, Depends, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -24,6 +25,7 @@ from marketplace_service import (
 from marketplace_verify import verify_usdt_payment
 
 router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
+logger = logging.getLogger("neptune.marketplace.api")
 
 
 # Request Models
@@ -62,6 +64,7 @@ class VerifyOrderRequest(BaseModel):
 @router.post("/listings")
 async def publish_listing_endpoint(body: CreateListingRequest):
     """Publish a new agent configuration listing to the global marketplace."""
+    logger.info("[MARKETPLACE API] publish request: wallet=%s agent=%s price=%s", body.wallet, body.agent_type, body.price_usdt)
     try:
         listing = create_marketplace_listing(
             seller_wallet=body.wallet,
@@ -73,8 +76,10 @@ async def publish_listing_endpoint(body: CreateListingRequest):
         )
         return {"success": True, "listing": listing}
     except ValueError as e:
+        logger.warning("[MARKETPLACE API] publish rejected: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("[MARKETPLACE API] publish failed")
         raise HTTPException(status_code=500, detail=f"Failed to publish listing: {e}")
 
 
@@ -83,7 +88,8 @@ async def list_listings_endpoint(
     agent_type: Optional[str] = None,
     sort: str = "newest",
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    seller: Optional[str] = None
 ):
     """
     Global discovery: Returns active agent listings for all users.
@@ -94,7 +100,8 @@ async def list_listings_endpoint(
             agent_type=agent_type,
             sort=sort,
             limit=limit,
-            offset=offset
+            offset=offset,
+            seller=seller
         )
         return {"success": True, "listings": listings, "count": len(listings)}
     except Exception as e:
@@ -128,7 +135,8 @@ async def update_listing_endpoint(listing_id: str, body: UpdateListingRequest):
 
 @router.delete("/listings/{listing_id}")
 async def delete_listing_endpoint(listing_id: str, wallet: str = Query(...)):
-    """Soft delete listing (status='removed'). Seller only."""
+    """Soft delete listing (status='removed'). Seller only. Always allowed (the 24h lock only covers edits)."""
+    logger.info("[MARKETPLACE API] delete request: listing=%s wallet=%s", listing_id, wallet)
     try:
         ok = delete_marketplace_listing(listing_id, wallet)
         if not ok:

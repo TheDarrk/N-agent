@@ -5,7 +5,8 @@ import ReportView from "./research/report-view";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { loadAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
+import { dedupedGetJson } from "@/lib/dedupe-fetch";
+import { loadAgentConfig, peekAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
 import { setVisibleInterval } from "@/lib/visible-interval";
 import {
   startRun,
@@ -150,22 +151,25 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const [dateRange, setDateRange] = useState("1_month");
 
   // DB-persisted form config (skeleton until loaded)
-  const [configLoaded, setConfigLoaded] = useState(false);
+  // Warm cache => no skeleton on re-open; DB is only re-pulled when its hash differs.
+  const [configLoaded, setConfigLoaded] = useState<boolean>(() => !accountId || !!peekAgentConfig(accountId, "research"));
   useEffect(() => {
     if (!accountId) {
       setConfigLoaded(true);
       return;
     }
-    setConfigLoaded(false);
+    const apply = (cfg: Record<string, any> | null) => {
+      if (!cfg) return;
+      if (typeof cfg.topic === "string" && cfg.topic) setTopic(cfg.topic);
+      if (typeof cfg.userExpectations === "string" && cfg.userExpectations) setUserExpectations(cfg.userExpectations);
+      if (typeof cfg.linksInput === "string") setLinksInput(cfg.linksInput);
+      if (typeof cfg.dateRange === "string" && cfg.dateRange) setDateRange(cfg.dateRange);
+    };
     const ctrl = new AbortController();
-    loadAgentConfig(accountId, "research", ctrl.signal).then((cfg) => {
+    if (!peekAgentConfig(accountId, "research")) setConfigLoaded(false);
+    loadAgentConfig(accountId, "research", ctrl.signal, apply).then((cfg) => {
       if (ctrl.signal.aborted) return;
-      if (cfg) {
-        if (typeof cfg.topic === "string" && cfg.topic) setTopic(cfg.topic);
-        if (typeof cfg.userExpectations === "string" && cfg.userExpectations) setUserExpectations(cfg.userExpectations);
-        if (typeof cfg.linksInput === "string") setLinksInput(cfg.linksInput);
-        if (typeof cfg.dateRange === "string" && cfg.dateRange) setDateRange(cfg.dateRange);
-      }
+      apply(cfg);
       setConfigLoaded(true);
     });
     return () => ctrl.abort();
@@ -210,9 +214,8 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       const url = accountId
         ? `/api/research/reports/${encodeURIComponent(accountId)}`
         : "/api/research/reports";
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await dedupedGetJson<{ reports?: Report[] }>(url, 4000);
+      if (data) {
         const list = data.reports || [];
         setReports(list);
         if (list.length > 0 && !activeReport && !isLoading) {
@@ -498,7 +501,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             <InfoTip label="About the Researcher">
               Turns your crypto question into concrete Web3 options (staking APYs, liquid staking, DEX pools,
               hackathons). It crawls your source links, filters by date, refines its own queries, and saves a report
-              with an IPFS CID.
+              with its own report ID.
             </InfoTip>
           </div>
           <p className="text-xs text-muted-foreground max-w-3xl">
@@ -797,17 +800,17 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       {/* Active Institutional Report View */}
       {activeReport && !isLoading && <ReportView key={activeReport.cid} report={activeReport} />}
 
-      {/* Historical Decentralized Research Reports */}
+      {/* Historical research reports */}
       <div className="tilt3d p-4 rounded-2xl bg-card border border-border space-y-4" {...tilt3d(1.5)}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Layers size={20} className="text-primary" />
             <h2 className="text-base font-bold text-foreground md:text-lg">
-              Preserved Decentralized Research Reports (Recent 10)
+              Your Research Reports (Recent 10)
             </h2>
           </div>
           <span className="text-xs font-mono text-muted-foreground">
-            {reports.length} Reports on IPFS
+            {reports.length} saved reports
           </span>
         </div>
 

@@ -376,6 +376,25 @@ class ModeratorAgent:
             data["next_run_due_at"] = cadence_info["next_run_due_at"]
             data["days_remaining"] = cadence_info["days_remaining"]
             data["is_due"] = cadence_info["is_due"]
+            data["report_created_at"] = latest.get("created_at")
+            # Previous audits (the latest is shown in full above; older ones live in the DB history)
+            try:
+                from database import get_moderator_evaluations
+                older = get_moderator_evaluations(user_wallet, limit=6)[1:]
+                data["history"] = [
+                    {
+                        "cid": e.get("cid"),
+                        "verdict": e.get("verdict"),
+                        "total_mean_score": e.get("overall_performance_score"),
+                        "trader_score": e.get("trader_score"),
+                        "rebalancer_score": e.get("rebalancer_score"),
+                        "research_score": e.get("research_score"),
+                        "killed_agents": e.get("killed_agents", []),
+                        "created_at": e.get("created_at"),
+                    } for e in older
+                ]
+            except Exception:
+                data["history"] = []
             return data
 
         # Standby status when zero evaluations exist - NO hardcoded fake scores

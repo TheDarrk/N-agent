@@ -9,11 +9,20 @@ import json
 import uuid
 import re
 import sqlite3
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 
 from database.connection import get_connection, normalize_wallet
 from database.crypto import encrypt_dict, decrypt_dict, encrypt_field, decrypt_field
+
+logger = logging.getLogger("neptune.marketplace")
+
+# Agents that can be sold. The Moderator Watchdog is platform-reserved and can never be listed.
+LISTABLE_AGENTS = ("trader", "rebalancer", "research")
+# After a listing is created or edited, its title/price/description are locked for this long
+# (protects buyers who already opened a 24h price-locked order). Deleting is always allowed.
+EDIT_LOCK_HOURS = int(os.getenv("MARKETPLACE_EDIT_LOCK_HOURS", "24"))
 
 # Constants
 DEFAULT_USDT_CONTRACT_MAINNET = "usdt.tether-token.near"
@@ -57,6 +66,30 @@ def usdt_to_base_units(amount_usdt_str: str) -> str:
     return str(base_int)
 
 
+def _parse_db_ts(value: Any) -> Optional[datetime]:
+    """Parse sqlite 'YYYY-MM-DD HH:MM:SS' / ISO timestamps into aware UTC datetimes."""
+    if not value:
+        return None
+    try:
+        txt = str(value).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(txt) if "T" in txt else datetime.strptime(txt[:19], "%Y-%m-%d %H:%M:%S")
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _decorate_listing(d: Dict[str, Any]) -> Dict[str, Any]:
+    """Adds edit-lock telemetry so the UI can show 'editable in Xh' next to Delete."""
+    base_ts = _parse_db_ts(d.get("updated_at")) or _parse_db_ts(d.get("created_at"))
+    if base_ts:
+        locked_until = base_ts + timedelta(hours=EDIT_LOCK_HOURS)
+        remaining = (locked_until - datetime.now(timezone.utc)).total_seconds()
+        d["edit_locked_until"] = locked_until.isoformat()
+        d["edit_lock_seconds_remaining"] = max(0, int(remaining))
+        d["can_edit"] = remaining <= 0
+    return d
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. SANITIZED CONFIG SNAPSHOT (TASK 3.2)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,7 +104,9 @@ def build_listing_snapshot(wallet: str, agent_type: str) -> Dict[str, Any]:
     norm_w = normalize_wallet(wallet)
     agent_type = agent_type.lower().strip()
 
-    if agent_type not in ("trader", "rebalancer"):
+    if agent_type == "moderator":
+        raise ValueError("The Moderator Watchdog agent is platform-reserved and cannot be listed for sale.")
+    if agent_type not in LISTABLE_AGENTS:
         raise ValueError(f"Agent type '{agent_type}' is not supported for marketplace listing.")
 
     if agent_type == "trader":
@@ -112,6 +147,20 @@ def build_listing_snapshot(wallet: str, agent_type: str) -> Dict[str, Any]:
             "max_open_trades": 3
         }
         return snapshot
+
+    elif agent_type == "research":
+        from database.dal import get_agent_ui_config
+        cfg = get_agent_ui_config(norm_w, "research") or {}
+        if not cfg.get("topic") and not cfg.get("userExpectations"):
+            raise ValueError("Configure your Research agent (topic / expectations) before listing it.")
+        return {
+            "snapshot_version": 1,
+            "agent_type": "research",
+            "topic": str(cfg.get("topic") or ""),
+            "user_expectations": str(cfg.get("userExpectations") or ""),
+            "links_input": str(cfg.get("linksInput") or ""),
+            "date_range": str(cfg.get("dateRange") or "1_month"),
+        }
 
     elif agent_type == "rebalancer":
         strat = get_active_rebalancer_strategy(norm_w)
@@ -156,6 +205,12 @@ def create_marketplace_listing(
     if not is_valid_near_account(payout_wallet):
         raise ValueError(f"Invalid payout wallet account: '{payout_wallet}'")
 
+    agent_type = (agent_type or "").lower().strip()
+    if agent_type == "moderator":
+        raise ValueError("The Moderator Watchdog agent is platform-reserved and cannot be listed for sale.")
+    if agent_type not in LISTABLE_AGENTS:
+        raise ValueError(f"Agent type '{agent_type}' is not supported for marketplace listing.")
+
     title = title.strip()
     if len(title) < 3 or len(title) > 100:
         raise ValueError("Listing title must be between 3 and 100 characters.")
@@ -170,16 +225,27 @@ def create_marketplace_listing(
     # Format price to 2-6 decimal string
     clean_price = f"{float(price_usdt):.2f}"
 
+    # One active listing per (seller, agent): must delete the previous one before listing again
+    conn_chk = get_connection()
+    dup = conn_chk.execute(
+        "SELECT listing_id FROM marketplace_listings WHERE seller_wallet = ? AND agent_type = ? AND status = 'active' LIMIT 1",
+        (seller_wallet, agent_type)
+    ).fetchone()
+    conn_chk.close()
+    if dup:
+        logger.warning("[MARKETPLACE] publish blocked: %s already has active %s listing %s", seller_wallet, agent_type, dup["listing_id"])
+        raise ValueError(f"You already have an active {agent_type} listing ({dup['listing_id']}). Delete it before listing this agent again.")
+
     # Build sanitized snapshot
     snapshot = build_listing_snapshot(seller_wallet, agent_type)
     snapshot_json = json.dumps(snapshot)
 
     listing_id = f"listing_{uuid.uuid4().hex[:12]}"
+    # No fabricated performance numbers: only facts derivable from the snapshot itself
     public_stats = {
-        "win_rate_pct": 78.5 if agent_type == "trader" else 84.0,
-        "sharpe_ratio": 2.35 if agent_type == "trader" else 2.65,
-        "risk_level": "MODERATE",
-        "market_regime": snapshot.get("market_regime", "BALANCED")
+        "risk_level": snapshot.get("risk_level", "MODERATE"),
+        "market_regime": snapshot.get("market_regime", "BALANCED"),
+        "agent_type": agent_type,
     }
 
     enc_config = encrypt_dict(seller_wallet, snapshot_json)
@@ -208,25 +274,36 @@ def create_marketplace_listing(
     # Never expose config_json in listing output
     res.pop("config_json", None)
     res["public_stats"] = decrypt_dict(seller_wallet, res.get("public_stats_json"))
-    return res
+    logger.info("[MARKETPLACE] listing %s published by %s (%s) price=%s USDT", listing_id, seller_wallet, agent_type, clean_price)
+    return _decorate_listing(res)
 
 
 def get_marketplace_listings(
     agent_type: Optional[str] = None,
     sort: str = "newest",
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    seller: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Returns global active marketplace listings.
+    Returns global active marketplace listings (optionally only one seller's).
     NEVER returns config_json.
     """
     conn = get_connection()
+    # Pull the latest rows published by OTHER users/instances (throttled to ~1/s inside the wrapper)
+    try:
+        if hasattr(conn, "sync"):
+            conn.sync(force=False)
+    except Exception:
+        pass
     params: List[Any] = []
     where_clause = "WHERE status = 'active'"
     if agent_type:
         where_clause += " AND agent_type = ?"
         params.append(agent_type.lower().strip())
+    if seller:
+        where_clause += " AND seller_wallet = ?"
+        params.append(normalize_wallet(seller))
 
     order_by = "ORDER BY created_at DESC"
     if sort == "sales":
@@ -250,9 +327,13 @@ def get_marketplace_listings(
 
     listings = []
     for r in rows:
-        d = dict(r)
-        d["public_stats"] = decrypt_dict(d.get("seller_wallet"), d.get("public_stats_json"))
-        listings.append(d)
+        try:
+            d = dict(r)
+            d["public_stats"] = decrypt_dict(d.get("seller_wallet"), d.get("public_stats_json"))
+            listings.append(_decorate_listing(d))
+        except Exception as row_err:  # one bad row must never hide every other listing
+            logger.error("[MARKETPLACE] skipping unreadable listing %s: %s", r["listing_id"], row_err)
+    logger.info("[MARKETPLACE] list: type=%s seller=%s -> %d listings", agent_type, seller, len(listings))
     return listings
 
 
@@ -271,7 +352,7 @@ def get_marketplace_listing_by_id(listing_id: str) -> Optional[Dict[str, Any]]:
         return None
     d = dict(row)
     d["public_stats"] = decrypt_dict(d.get("seller_wallet"), d.get("public_stats_json"))
-    return d
+    return _decorate_listing(d)
 
 
 def update_marketplace_listing(listing_id: str, seller_wallet: str, updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -287,6 +368,14 @@ def update_marketplace_listing(listing_id: str, seller_wallet: str, updates: Dic
         raise PermissionError("Only the seller can update this listing.")
 
     allowed = ["title", "description", "price_usdt", "payout_wallet", "status"]
+    edits_content = any(k in updates and updates[k] is not None for k in ("title", "description", "price_usdt", "payout_wallet"))
+    if edits_content:
+        info = _decorate_listing(dict(existing))
+        if not info.get("can_edit", True):
+            conn.close()
+            hrs = info["edit_lock_seconds_remaining"] / 3600.0
+            logger.warning("[MARKETPLACE] edit blocked on %s: locked for %.1f more hours", listing_id, hrs)
+            raise ValueError(f"Listing is locked for editing for another {hrs:.1f} hours. You can still delete it.")
     set_clauses = []
     params = []
     for k in allowed:
@@ -320,7 +409,8 @@ def update_marketplace_listing(listing_id: str, seller_wallet: str, updates: Dic
 
     d = dict(row)
     d.pop("config_json", None)
-    return d
+    logger.info("[MARKETPLACE] listing %s updated by %s: %s", listing_id, seller_wallet, sorted(updates.keys()))
+    return _decorate_listing(d)
 
 
 def delete_marketplace_listing(listing_id: str, seller_wallet: str) -> bool:
@@ -340,6 +430,7 @@ def delete_marketplace_listing(listing_id: str, seller_wallet: str) -> bool:
     if hasattr(conn, "sync"):
         conn.sync()
     conn.close()
+    logger.info("[MARKETPLACE] listing %s (%s) deleted by seller %s - agent slot freed", listing_id, existing["agent_type"], seller_wallet)
     return True
 
 
@@ -429,6 +520,7 @@ def create_marketplace_order(listing_id: str, buyer_wallet: str) -> Dict[str, An
     res = dict(row)
     res.pop("config_json", None)
     res["pay_to"] = res.get("payout_wallet")
+    logger.info("[MARKETPLACE] order %s created: buyer=%s listing=%s amount=%s USDT", order_id, buyer_wallet, listing_id, amount_usdt)
     return res
 
 
@@ -558,11 +650,13 @@ def apply_purchased_config(order: Dict[str, Any]) -> Tuple[bool, str]:
         return False, "Failed to parse or decrypt config JSON"
 
     agent_type = snapshot.get("agent_type") or "trader"
+    logger.info("[MARKETPLACE] applying purchased %s config for buyer %s (order %s)", agent_type, buyer_wallet, order.get("order_id"))
 
     from database.dal import (
         get_user,
         update_user_settings,
         save_rebalancer_strategy,
+        save_agent_ui_config,
         create_run
     )
 
@@ -597,6 +691,15 @@ def apply_purchased_config(order: Dict[str, Any]) -> Tuple[bool, str]:
 
             update_user_settings(buyer_wallet, updates)
 
+        elif agent_type == "research":
+            # Paste the seller's research setup into the buyer's Research form (DB-persisted UI config)
+            save_agent_ui_config(buyer_wallet, "research", {
+                "topic": snapshot.get("topic", ""),
+                "userExpectations": snapshot.get("user_expectations", ""),
+                "linksInput": snapshot.get("links_input", ""),
+                "dateRange": snapshot.get("date_range", "1_month"),
+            })
+
         elif agent_type == "rebalancer":
             save_rebalancer_strategy(
                 user_wallet=buyer_wallet,
@@ -609,6 +712,13 @@ def apply_purchased_config(order: Dict[str, Any]) -> Tuple[bool, str]:
                 overall_strategy=snapshot.get("executive_summary", f"Imported strategy configuration from marketplace listing {order.get('listing_id')}"),
                 min_stable_pct=float(snapshot.get("min_stablecoin_floor_pct", 10.0))
             )
+            # Also fill the buyer's Rebalancer form so the pasted configuration is visible in the UI
+            save_agent_ui_config(buyer_wallet, "rebalancer", {
+                "selectedCoins": snapshot.get("selected_coins", ["USDT", "NEAR"]),
+                "userExpectation": snapshot.get("user_expectation", ""),
+                "cadenceDays": int(snapshot.get("rebalance_cadence_days", 7)),
+                "minStablePct": float(snapshot.get("min_stablecoin_floor_pct", 10.0)),
+            })
 
         # Log purchase activity to agent_runs
         try:
@@ -630,9 +740,11 @@ def apply_purchased_config(order: Dict[str, Any]) -> Tuple[bool, str]:
         """, (order["order_id"],))
         conn.commit()
         conn.close()
+        logger.info("[MARKETPLACE] %s config applied for buyer %s (order %s)", agent_type, buyer_wallet, order.get("order_id"))
         return True, "Purchased configuration successfully applied to agent setup."
 
     except Exception as e:
+        logger.exception("[MARKETPLACE] FAILED applying %s config for buyer %s (order %s): %s", agent_type, buyer_wallet, order.get("order_id"), e)
         conn = get_connection()
         conn.execute("""
             UPDATE marketplace_orders

@@ -1358,7 +1358,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
                 {activeRun.cid && (
                   <div className="mt-3 pt-3 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>Decentralized Reasoning Trace CID:</span>
+                    <span>Reasoning Trace ID:</span>
                     <span className="font-mono text-primary truncate max-w-xs">{activeRun.cid}</span>
                   </div>
                 )}

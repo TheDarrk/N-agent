@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 # Force UTF-8 for stdout/stderr to prevent crashes on Windows with Unicode characters
-if sys.platform == "win32":
+if sys.platform == "win32" and "pytest" not in sys.modules:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
@@ -27,6 +27,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+# Make INFO-level app logs (scheduler, marketplace, research seeding...) visible in Render's log stream.
+if not logging.getLogger().handlers and "pytest" not in sys.modules:
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+for _noisy in ("httpx", "httpcore", "urllib3", "hpack"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger("main")
 
 load_dotenv(override=True)
@@ -204,40 +209,25 @@ async def lifespan(app):
         active_jobs = [j.id for j in scheduler.get_jobs()]
         print(f"[STARTUP] Autonomy engine started with active jobs: {active_jobs}")
 
-        # Task 3.2: Re-register enabled schedules in APScheduler on startup & fire overdue jobs once immediately
+        # GLOBAL JOB POLLER: every 60s read ALL enabled scheduled_jobs (every user, every agent)
+        # from the database and run whichever are due (next_run_at <= now). State lives in the DB,
+        # not in process memory, so a Render spin-down/wake-up simply catches up overdue jobs.
         try:
-            from database import list_enabled_jobs
-            enabled_jobs = list_enabled_jobs()
-            print(f"[STARTUP: SCHEDULER] Recovering {len(enabled_jobs)} persistent scheduled jobs from database...")
-            now_utc = datetime.now(timezone.utc)
-            for job in enabled_jobs:
-                try:
-                    next_run_str = job.get("next_run_at", "")
-                    if next_run_str.endswith("Z"):
-                        next_run_str = next_run_str[:-1] + "+00:00"
-                    next_run_dt = datetime.fromisoformat(next_run_str)
-                    if next_run_dt.tzinfo is None:
-                        next_run_dt = next_run_dt.replace(tzinfo=timezone.utc)
-                except Exception:
-                    next_run_dt = now_utc
-
-                if next_run_dt <= now_utc:
-                    print(f"[STARTUP: SCHEDULER] Job {job['job_id']} is overdue ({job['next_run_at']}). Firing catch-up run immediately.")
-                    asyncio.create_task(execute_persisted_job(job))
-
-                scheduler.add_job(
-                    execute_persisted_job,
-                    'interval',
-                    seconds=max(30, job["interval_seconds"]),
-                    args=[job],
-                    id=f"persisted_{job['job_id']}",
-                    misfire_grace_time=3600,
-                    coalesce=True,
-                    replace_existing=True
-                )
-            print(f"[STARTUP: SCHEDULER] Successfully restored all scheduled jobs: {[j.id for j in scheduler.get_jobs() if j.id.startswith('persisted_')]}")
+            scheduler.add_job(
+                run_due_persisted_jobs,
+                'interval',
+                seconds=60,
+                id='global_job_poller',
+                max_instances=1,
+                misfire_grace_time=3600,
+                coalesce=True,
+                replace_existing=True
+            )
+            # Immediate catch-up pass after boot (jobs that came due while the service was asleep)
+            asyncio.create_task(run_due_persisted_jobs())
+            print("[STARTUP: SCHEDULER] Global job poller registered (60s) + catch-up pass queued")
         except Exception as p_err:
-            print(f"[STARTUP: SCHEDULER] Warning restoring persisted jobs: {p_err}")
+            print(f"[STARTUP: SCHEDULER] Warning registering global job poller: {p_err}")
     except ImportError:
         print("[STARTUP] APScheduler not installed   autonomy engine disabled")
     except Exception as e:
@@ -993,7 +983,6 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
             logger.debug("Heartbeat worker notice for %s: %s", run_id, he)
 
     heartbeat_task = asyncio.create_task(_heartbeat_worker())
-    pipeline_events: list = []
     try:
         update_run_heartbeat(run_id)
         async for raw_item in gen_factory():
@@ -1005,8 +994,7 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
             else:
                 event = raw_item
 
-            append_run_event(run_id, event)
-            pipeline_events.append(event)
+            append_run_event(run_id, event)  # events live in the DB; not accumulated in memory
 
             evt_type = event.get("type")
             if evt_type == "result":
@@ -1035,11 +1023,11 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
         heartbeat_task.cancel()
         finish_run(run_id, result, cid, error)
         RUNNING_TASKS.pop(run_id, None)
-        try:
-            from decentralized_storage import write_pipeline_log
-            write_pipeline_log(run_id, agent_type, wallet, pipeline_events, result, error)
-        except Exception as log_err:
-            logger.warning("Pipeline log write failed for %s: %s", run_id, log_err)
+
+
+# Jobs currently executing (job_id) and the cap on how many may run at once.
+_INFLIGHT_JOBS: set = set()
+MAX_CONCURRENT_JOBS = max(1, int(os.getenv("JOB_MAX_CONCURRENCY", "2")))
 
 
 async def execute_persisted_job(job: Dict[str, Any]):
@@ -1058,15 +1046,44 @@ async def execute_persisted_job(job: Dict[str, Any]):
         return
 
     from database import is_user_active_recently, mark_job_run
+
+    # --- Concurrency guards (Render free tier = small RAM, so never stampede) ---
+    if job_id in _INFLIGHT_JOBS:
+        logger.info(f"[SCHEDULER] {job_id} is still running from a previous cycle; skipping this tick.")
+        return
+    if len(_INFLIGHT_JOBS) >= MAX_CONCURRENT_JOBS:
+        # Leave next_run_at untouched: the job stays due and the next 60s poll picks it up when a slot frees.
+        logger.info(f"[SCHEDULER] {len(_INFLIGHT_JOBS)} jobs already running (cap {MAX_CONCURRENT_JOBS}); deferring {job_id}.")
+        return
+
+    now_utc = datetime.now(timezone.utc)
+    # Coalesce: if the service slept through N cycles, run ONCE now and schedule the next run from now
+    # (never replay the missed backlog).
+    try:
+        nr = str(job.get("next_run_at") or "")
+        nr = nr[:-1] + "+00:00" if nr.endswith("Z") else nr
+        due_dt = datetime.fromisoformat(nr)
+        if due_dt.tzinfo is None:
+            due_dt = due_dt.replace(tzinfo=timezone.utc)
+        missed = int((now_utc - due_dt).total_seconds() // max(1, interval_seconds))
+        if missed >= 1:
+            logger.info(f"[SCHEDULER] {job_id} missed {missed} extra cycle(s) while the service was asleep; coalescing into ONE run.")
+    except Exception:
+        pass
+
+    next_run_iso = (now_utc + timedelta(seconds=interval_seconds)).isoformat()
     # Check 14-day user activity (Task 3.4)
-    if not is_user_active_recently(wallet, days=14):
-        next_run_iso = (datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)).isoformat()
-        mark_job_run(job_id, next_run_iso)
+    if not await asyncio.to_thread(is_user_active_recently, wallet, 14):
+        await asyncio.to_thread(mark_job_run, job_id, next_run_iso)
         logger.info(f"[SCHEDULER] User {wallet} inactive for >14 days. Skipped scheduled cadence for {job_id}.")
         return
 
-    next_run_iso = (datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)).isoformat()
-    mark_job_run(job_id, next_run_iso)
+    await asyncio.to_thread(mark_job_run, job_id, next_run_iso)
+    _INFLIGHT_JOBS.add(job_id)
+    handed_off = False  # True once a background task owns releasing the in-flight slot
+
+    def _release(_t=None, _jid=job_id):
+        _INFLIGHT_JOBS.discard(_jid)
 
     try:
         if agent_type == "trader":
@@ -1088,6 +1105,8 @@ async def execute_persisted_job(job: Dict[str, Any]):
             )
             task = asyncio.create_task(_execute_run(run_id, "trader", wallet, gen_factory))
             RUNNING_TASKS[run_id] = task
+            task.add_done_callback(_release)
+            handed_off = True
             logger.info(f"[SCHEDULER] Launched scheduled trader run {run_id} for wallet {wallet}")
         elif agent_type == "rebalancer":
             from autonomous_agents.rebalancer_agent import RebalancerAgent
@@ -1106,6 +1125,8 @@ async def execute_persisted_job(job: Dict[str, Any]):
             )
             task = asyncio.create_task(_execute_run(run_id, "rebalancer", wallet, gen_factory))
             RUNNING_TASKS[run_id] = task
+            task.add_done_callback(_release)
+            handed_off = True
             logger.info(f"[SCHEDULER] Launched scheduled rebalancer run {run_id} for wallet {wallet}")
         elif agent_type == "moderator":
             from autonomous_agents.moderator_agent import ModeratorAgent
@@ -1118,6 +1139,9 @@ async def execute_persisted_job(job: Dict[str, Any]):
                 logger.info(f"[SCHEDULER] Completed moderator deliberation run {m_run_id} for wallet {wallet}")
     except Exception as exc:
         logger.error(f"[SCHEDULER] Error executing persisted job {job_id}: {exc}")
+    finally:
+        if not handed_off:
+            _release()
 
 
 def schedule_or_update_persisted_job(
@@ -1138,14 +1162,9 @@ def schedule_or_update_persisted_job(
     job_id = f"{clean_w}:{agent_type.lower()}:{purpose.lower()}"
     if enabled == 0:
         disable_job(job_id)
-        if GLOBAL_SCHEDULER:
-            try:
-                if GLOBAL_SCHEDULER.get_job(f"persisted_{job_id}"):
-                    GLOBAL_SCHEDULER.remove_job(f"persisted_{job_id}")
-            except Exception:
-                pass
         return {"job_id": job_id, "enabled": 0}
 
+    # next_run_at = now + interval; the global poller (run_due_persisted_jobs) picks it up when due
     job = upsert_scheduled_job(
         wallet=clean_w,
         agent_type=agent_type,
@@ -1155,21 +1174,91 @@ def schedule_or_update_persisted_job(
         enabled=1,
         job_id=job_id
     )
-    if GLOBAL_SCHEDULER:
-        try:
-            GLOBAL_SCHEDULER.add_job(
-                execute_persisted_job,
-                'interval',
-                seconds=max(30, interval_seconds),
-                args=[job],
-                id=f"persisted_{job_id}",
-                misfire_grace_time=3600,
-                coalesce=True,
-                replace_existing=True
-            )
-        except Exception as e:
-            logger.warning(f"Failed to add job to GLOBAL_SCHEDULER: {e}")
     return job
+
+
+def _heal_missing_agent_jobs() -> int:
+    """
+    Self-heal: any user whose trader/rebalancer is flagged active in its config table but has no enabled
+    scheduled_jobs row (e.g. activated through a path that skipped the lifecycle hook, or the jobs table
+    was wiped) gets a job created, first firing one interval from now.
+    """
+    from database import get_connection, upsert_scheduled_job
+    created = 0
+    try:
+        conn = get_connection()
+        rows = []
+        for table, agent, purpose, interval in (
+            ("trader_config", "trader", "trade_poll", 3600),
+            ("rebalancer_config", "rebalancer", "rebalance_cadence", 604800),
+        ):
+            for r in conn.execute(
+                f"SELECT t.wallet_address AS w FROM {table} t "
+                "JOIN core_user_wallets u ON u.wallet_address = t.wallet_address "
+                "WHERE t.agent_active = 1 AND (u.kill_switch_active IS NULL OR u.kill_switch_active = 0) "
+                "AND NOT EXISTS (SELECT 1 FROM scheduled_jobs j WHERE j.wallet = t.wallet_address "
+                f"AND j.agent_type = '{agent}' AND j.enabled = 1)"
+            ).fetchall():
+                rows.append((r["w"], agent, purpose, interval))
+        conn.close()
+        for w, agent, purpose, interval in rows:
+            upsert_scheduled_job(wallet=w, agent_type=agent, purpose=purpose, interval_seconds=interval, config={}, enabled=1)
+            created += 1
+            logger.info(f"[SCHEDULER] Self-healed missing {agent} job for {w}")
+    except Exception as e:
+        logger.warning(f"[SCHEDULER] heal_missing_agent_jobs error: {e}")
+    return created
+
+
+_DUE_POLL_LOCK = asyncio.Lock()
+
+
+async def run_due_persisted_jobs() -> Dict[str, Any]:
+    """
+    Global poller body: run every enabled job (all users, all agents) whose next_run_at has passed.
+    Safe to call from APScheduler, at startup, or from the /api/scheduler/tick keep-alive endpoint.
+    """
+    if _DUE_POLL_LOCK.locked():
+        return {"status": "busy", "launched": 0}
+    async with _DUE_POLL_LOCK:
+        launched = 0
+        try:
+            from database import list_enabled_jobs
+            await asyncio.to_thread(_heal_missing_agent_jobs)
+            jobs = await asyncio.to_thread(list_enabled_jobs)
+            now_utc = datetime.now(timezone.utc)
+            for job in jobs:
+                try:
+                    nr = str(job.get("next_run_at") or "")
+                    if nr.endswith("Z"):
+                        nr = nr[:-1] + "+00:00"
+                    due_dt = datetime.fromisoformat(nr)
+                    if due_dt.tzinfo is None:
+                        due_dt = due_dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    due_dt = now_utc
+                if due_dt <= now_utc:
+                    if len(_INFLIGHT_JOBS) >= MAX_CONCURRENT_JOBS:
+                        break  # remaining due jobs wait for the next 60s tick
+                    before = len(_INFLIGHT_JOBS)
+                    logger.info(f"[SCHEDULER] Job {job['job_id']} due ({job.get('next_run_at')}); launching.")
+                    await execute_persisted_job(job)
+                    if len(_INFLIGHT_JOBS) > before:
+                        launched += 1
+        except Exception as e:
+            logger.error(f"[SCHEDULER] Global poller error: {e}")
+        return {"status": "ok", "launched": launched}
+
+
+@app.get("/api/scheduler/tick")
+@app.post("/api/scheduler/tick")
+async def scheduler_tick():
+    """
+    Keep-alive + catch-up endpoint for an external pinger (UptimeRobot / cron-job.org / GitHub Actions).
+    Hitting it every <=10 min stops Render's free tier spinning down AND runs any overdue agent jobs.
+    """
+    res = await run_due_persisted_jobs()
+    return {**res, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 async def _stream_run_events(run_id: str, wallet: Optional[str], after: int, request: Request):
@@ -1270,12 +1359,7 @@ async def health_storage_endpoint():
         conn = get_connection()
         runs_count = conn.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
         conn.close()
-        test_file = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), ".storage_write_test")
-        with open(test_file, "w") as tf:
-            tf.write("ok")
-        if os.path.exists(test_file):
-            os.remove(test_file)
-            is_writable = True
+        is_writable = True  # DB read above succeeded; nothing is stored on local disk
     except Exception as e:
         logger.warning(f"Storage health check error: {e}")
     return {
@@ -1484,14 +1568,14 @@ async def get_trade_traces(wallet_address: Optional[str] = None):
     """Get recent 24 decentralized trade reasoning traces (isolated by wallet if provided)."""
     if not wallet_address:
         return {"traces": [], "count": 0}
-    from decentralized_storage import get_recent_trade_traces
+    from history_store import get_recent_trade_traces
     traces = get_recent_trade_traces(limit=24, wallet_address=wallet_address)
     return {"traces": traces, "count": len(traces)}
 
 @app.get("/api/trader/traces/{wallet_address}")
 def get_trade_traces_for_wallet(wallet_address: str):
     """Get recent 24 decentralized trade reasoning traces for a specific wallet."""
-    from decentralized_storage import get_recent_trade_traces
+    from history_store import get_recent_trade_traces
     traces = get_recent_trade_traces(limit=24, wallet_address=wallet_address)
     return {"traces": traces, "count": len(traces)}
 
@@ -1766,14 +1850,14 @@ async def get_research_reports(wallet_address: Optional[str] = None):
     """Get the recent 10 decentralized research reports (isolated by wallet if provided)."""
     if not wallet_address:
         return {"reports": [], "count": 0}
-    from decentralized_storage import get_recent_research_reports
+    from history_store import get_recent_research_reports
     reports = get_recent_research_reports(limit=10, wallet_address=wallet_address)
     return {"reports": reports, "count": len(reports)}
 
 @app.get("/api/research/reports/{wallet_address}")
 async def get_research_reports_for_wallet(wallet_address: str):
     """Get the recent 10 decentralized research reports for a specific wallet."""
-    from decentralized_storage import get_recent_research_reports
+    from history_store import get_recent_research_reports
     reports = get_recent_research_reports(limit=10, wallet_address=wallet_address)
     return {"reports": reports, "count": len(reports)}
 
@@ -1836,17 +1920,24 @@ def save_agent_fleet_config(body: AgentFleetConfigRequest):
 class AgentUiConfigRequest(BaseModel):
     config: Dict[str, Any]
 
+@app.get("/api/agent-config/{wallet_address}/{agent_id}/hash")
+def read_agent_ui_config_hash(wallet_address: str, agent_id: str):
+    """Tiny single-column lookup: clients compare this to their cached hash and skip the full pull on match."""
+    from database import get_agent_ui_config_hash
+    return {"hash": get_agent_ui_config_hash(wallet_address, agent_id)}
+
 @app.get("/api/agent-config/{wallet_address}/{agent_id}")
 def read_agent_ui_config(wallet_address: str, agent_id: str):
-    """Load the user's saved form configuration (prompts, coins, etc.) for an agent."""
-    from database import get_agent_ui_config
-    return {"config": get_agent_ui_config(wallet_address, agent_id)}
+    """Load the user's saved form configuration (prompts, coins, etc.) for an agent, with its hash."""
+    from database import get_agent_ui_config_with_hash
+    return get_agent_ui_config_with_hash(wallet_address, agent_id)
 
 @app.post("/api/agent-config/{wallet_address}/{agent_id}")
 def write_agent_ui_config(wallet_address: str, agent_id: str, body: AgentUiConfigRequest):
-    """Persist the user's form configuration for an agent in the DB."""
-    from database import save_agent_ui_config
-    return {"config": save_agent_ui_config(wallet_address, agent_id, body.config)}
+    """Persist the user's form configuration for an agent in the DB; returns the refreshed hash."""
+    from database import save_agent_ui_config, compute_config_hash
+    cfg = save_agent_ui_config(wallet_address, agent_id, body.config)
+    return {"config": cfg, "hash": compute_config_hash(cfg)}
 
 class HyperliquidConfigRequest(BaseModel):
     account_address: str

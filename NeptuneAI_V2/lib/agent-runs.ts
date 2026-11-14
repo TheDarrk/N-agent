@@ -5,6 +5,8 @@
  * and persistent history retrieval.
  */
 
+import { dedupedGetJson } from "@/lib/dedupe-fetch";
+
 export interface AgentRunMetadata {
   run_id: string;
   wallet: string;
@@ -119,10 +121,8 @@ export async function listRuns(
     url += `&agent_type=${encodeURIComponent(agentType)}`;
   }
 
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.runs || [];
+  const data = await dedupedGetJson<{ runs?: AgentRunMetadata[] }>(url, 2000);
+  return data?.runs || [];
 }
 
 export async function streamRun(

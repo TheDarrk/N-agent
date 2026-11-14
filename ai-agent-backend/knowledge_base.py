@@ -124,17 +124,9 @@ async def get_available_tokens_from_api() -> List[Dict]:
         
         sorted_tokens = sorted(tokens, key=sort_key)
         
-        # Update in-memory and persistent disk cache
+        # In-memory cache only (the bundled tokens_cache.json is a read-only seed; nothing is written to disk)
         _token_cache = sorted_tokens
         _cache_timestamp = datetime.now()
-        
-        try:
-            cache_file = os.path.join(os.path.dirname(__file__), "knowledge_base", "tokens_cache.json")
-            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(sorted_tokens, f)
-        except Exception:
-            pass
 
         print(f"[KNOWLEDGE] Loaded {len(sorted_tokens)} tokens from API (all chains)")
         return sorted_tokens

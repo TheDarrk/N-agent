@@ -618,7 +618,7 @@ def get_user(wallet_address: str) -> Optional[Dict[str, Any]]:
 
     # Query assigned wallets from core_agent_wallets
     assigned_rows = conn.execute(
-        "SELECT id, assigned_agents_json, agent_account_id, public_key, chain_type FROM core_agent_wallets WHERE wallet_address = ?",
+        "SELECT id, assigned_agents_json, agent_account_id, public_key, chain_type FROM core_agent_wallets WHERE LOWER(wallet_address) = ?",
         (wallet_address,)
     ).fetchall()
     conn.close()
@@ -1484,6 +1484,7 @@ def save_agent_key(user_wallet: str, chain_type: str, public_key: str,
                    encrypted_private_key: str, scope: str = "function_call",
                    agent_account_id: str = "") -> int:
     """Store an agent key in the unified core_agent_wallets pool."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     upsert_user(user_wallet)
     cursor = conn.execute("""
@@ -1501,10 +1502,11 @@ def save_agent_key(user_wallet: str, chain_type: str, public_key: str,
 
 def get_agent_key(user_wallet: str, chain_type: str) -> Optional[Dict[str, Any]]:
     """Get the active agent key for a user and blockchain."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     row = conn.execute("""
         SELECT * FROM core_agent_wallets
-        WHERE wallet_address = ? AND chain_type = ? AND status = 'active'
+        WHERE LOWER(wallet_address) = ? AND chain_type = ? AND status = 'active'
         ORDER BY created_at DESC LIMIT 1
     """, (user_wallet, chain_type.lower())).fetchone()
     conn.close()
@@ -1517,12 +1519,13 @@ def get_agent_key(user_wallet: str, chain_type: str) -> Optional[Dict[str, Any]]
 
 def get_all_agent_keys(user_wallet: str) -> List[Dict[str, Any]]:
     """Get all agent keys for a user across all chains."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     rows = conn.execute("""
         SELECT id, wallet_address, chain_type, public_key, agent_account_id, label,
                assigned_agents_json, scope, status, funding_tx_hash AS tx_hash, created_at
         FROM core_agent_wallets
-        WHERE wallet_address = ?
+        WHERE LOWER(wallet_address) = ?
         ORDER BY created_at ASC
     """, (user_wallet,)).fetchall()
     conn.close()
@@ -1565,8 +1568,9 @@ def delete_agent_key(key_id: int):
 
 def delete_all_user_agent_keys(user_wallet: str):
     """Delete all agent keys for a user."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
-    conn.execute("DELETE FROM core_agent_wallets WHERE wallet_address = ?", (user_wallet,))
+    conn.execute("DELETE FROM core_agent_wallets WHERE LOWER(wallet_address) = ?", (user_wallet,))
     conn.commit()
     conn.close()
 
@@ -1643,9 +1647,10 @@ def create_agent_wallet(
     assigned_agent: str = None
 ) -> Dict[str, Any]:
     """Generate and store a new dedicated Agent Wallet keypair (max 4 per user)."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     upsert_user(user_wallet)
-    count = conn.execute("SELECT COUNT(*) as cnt FROM core_agent_wallets WHERE wallet_address = ?", (user_wallet,)).fetchone()["cnt"]
+    count = conn.execute("SELECT COUNT(*) as cnt FROM core_agent_wallets WHERE LOWER(wallet_address) = ?", (user_wallet,)).fetchone()["cnt"]
     if count >= 4:
         conn.close()
         raise ValueError("Maximum 4 agent wallets allowed per user. Please delete an existing wallet first.")
@@ -1726,11 +1731,12 @@ def create_agent_wallet(
 
 def activate_agent_wallet(user_wallet: str, key_id: int, tx_hash: str = "", assigned_agent: str = None) -> bool:
     """Activate an agent wallet once on-chain funding is confirmed."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     assigned_json = json.dumps([assigned_agent]) if assigned_agent else None
     if assigned_agent:
         cursor = conn.execute(
-            "UPDATE core_agent_wallets SET status = 'active', funding_tx_hash = ?, assigned_agents_json = ? WHERE id = ? AND wallet_address = ?",
+            "UPDATE core_agent_wallets SET status = 'active', funding_tx_hash = ?, assigned_agents_json = ? WHERE id = ? AND LOWER(wallet_address) = ?",
             (tx_hash, assigned_json, key_id, user_wallet)
         )
         # Update user wallet assignment and config
@@ -1748,7 +1754,7 @@ def activate_agent_wallet(user_wallet: str, key_id: int, tx_hash: str = "", assi
             pass
     else:
         cursor = conn.execute(
-            "UPDATE core_agent_wallets SET status = 'active', funding_tx_hash = ? WHERE id = ? AND wallet_address = ?",
+            "UPDATE core_agent_wallets SET status = 'active', funding_tx_hash = ? WHERE id = ? AND LOWER(wallet_address) = ?",
             (tx_hash, key_id, user_wallet)
         )
     conn.commit()
@@ -1767,6 +1773,7 @@ def import_agent_wallet(
     seed_phrase: str = ""
 ) -> Dict[str, Any]:
     """Import an existing account or custom keypair into the user's agent wallet pool (max 4)."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     upsert_user(user_wallet)
 
@@ -1860,7 +1867,7 @@ def import_agent_wallet(
 
     # Deduplication: update if this account is already in the user's pool
     existing = conn.execute(
-        "SELECT id FROM core_agent_wallets WHERE wallet_address = ? AND agent_account_id = ?",
+        "SELECT id FROM core_agent_wallets WHERE LOWER(wallet_address) = ? AND agent_account_id = ?",
         (user_wallet, clean_account)
     ).fetchone()
     if existing:
@@ -1885,7 +1892,7 @@ def import_agent_wallet(
             "status": "active"
         }
 
-    count = conn.execute("SELECT COUNT(*) as cnt FROM core_agent_wallets WHERE wallet_address = ?", (user_wallet,)).fetchone()["cnt"]
+    count = conn.execute("SELECT COUNT(*) as cnt FROM core_agent_wallets WHERE LOWER(wallet_address) = ?", (user_wallet,)).fetchone()["cnt"]
     if count >= 4:
         conn.close()
         raise ValueError("Maximum 4 agent wallets allowed per user. Please delete an unneeded wallet first.")
@@ -1915,9 +1922,10 @@ def import_agent_wallet(
 
 def assign_agent_wallets(user_wallet: str, assignments: dict) -> dict:
     """Assign which agent uses which agent wallet(s). Updates core_agent_wallets assignments."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     upsert_user(user_wallet)
-    all_keys = conn.execute("SELECT id, chain_type, agent_account_id, public_key FROM core_agent_wallets WHERE wallet_address = ?", (user_wallet,)).fetchall()
+    all_keys = conn.execute("SELECT id, chain_type, agent_account_id, public_key FROM core_agent_wallets WHERE LOWER(wallet_address) = ?", (user_wallet,)).fetchall()
     keys_by_id = {str(k["id"]): dict(k) for k in all_keys}
 
     normalized = {"trader": "", "rebalancer": "", "research": "", "moderator": ""}
@@ -2009,8 +2017,9 @@ def assign_agent_wallets(user_wallet: str, assignments: dict) -> dict:
 
 def delete_user_agent_wallet(user_wallet: str, key_id: int) -> bool:
     """Delete an agent wallet and unassign it from any agents."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
-    cursor = conn.execute("DELETE FROM core_agent_wallets WHERE id = ? AND wallet_address = ?", (key_id, user_wallet))
+    cursor = conn.execute("DELETE FROM core_agent_wallets WHERE id = ? AND LOWER(wallet_address) = ?", (key_id, user_wallet))
     conn.commit()
     ok = cursor.rowcount > 0
     conn.close()
@@ -2019,9 +2028,10 @@ def delete_user_agent_wallet(user_wallet: str, key_id: int) -> bool:
 
 def create_evm_agent_wallet(user_wallet: str, label: str = "Trader Arbitrum / EVM Wallet", assigned_agent: str = None) -> Dict[str, Any]:
     """Generate and store an EVM keypair for cross-chain receipt."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     upsert_user(user_wallet)
-    count = conn.execute("SELECT COUNT(*) as cnt FROM core_agent_wallets WHERE wallet_address = ?", (user_wallet,)).fetchone()["cnt"]
+    count = conn.execute("SELECT COUNT(*) as cnt FROM core_agent_wallets WHERE LOWER(wallet_address) = ?", (user_wallet,)).fetchone()["cnt"]
     if count >= 4:
         conn.close()
         raise ValueError("Maximum 4 agent wallets allowed per user.")
@@ -2057,8 +2067,9 @@ def create_evm_agent_wallet(user_wallet: str, label: str = "Trader Arbitrum / EV
 
 def get_fund_agent_wallet_payload(user_wallet: str, key_id: int, amount_near: float = 0.5) -> dict:
     """Generate on-chain Transfer payload to top up an agent wallet."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
-    row = conn.execute("SELECT * FROM core_agent_wallets WHERE id = ? AND wallet_address = ?", (key_id, user_wallet)).fetchone()
+    row = conn.execute("SELECT * FROM core_agent_wallets WHERE id = ? AND LOWER(wallet_address) = ?", (key_id, user_wallet)).fetchone()
     conn.close()
     if not row:
         raise ValueError(f"Agent wallet #{key_id} not found for {user_wallet}")
@@ -2079,9 +2090,10 @@ def export_agent_wallet_key(user_wallet: str, key_id: int) -> Dict[str, Any]:
     Strictly verifies that the wallet belongs to user_wallet (the primary key in core_user_wallets).
     Agents NEVER have access to this endpoint or to raw private keys.
     """
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     row = conn.execute(
-        "SELECT * FROM core_agent_wallets WHERE id = ? AND wallet_address = ?",
+        "SELECT * FROM core_agent_wallets WHERE id = ? AND LOWER(wallet_address) = ?",
         (key_id, user_wallet)
     ).fetchone()
     conn.close()
@@ -2221,6 +2233,7 @@ def validate_agent_execution_wallet(
     is_cross_chain: bool = False
 ) -> Dict[str, Any]:
     """Hard validator: Checks if autonomous agent has a funded, active execution wallet."""
+    user_wallet = normalize_wallet(user_wallet)
     user = get_user(user_wallet)
     if not user:
         return {"valid": False, "reason": f"User wallet '{user_wallet}' not registered.", "agent_wallet": ""}
@@ -2236,7 +2249,7 @@ def validate_agent_execution_wallet(
         # Fallback: check core_agent_wallets assigned_agents_json directly
         conn = get_connection()
         candidate_rows = conn.execute(
-            "SELECT id, assigned_agents_json, status FROM core_agent_wallets WHERE wallet_address = ? AND status = 'active'",
+            "SELECT id, assigned_agents_json, status FROM core_agent_wallets WHERE LOWER(wallet_address) = ? AND status = 'active'",
             (user_wallet,)
         ).fetchall()
         conn.close()
@@ -2262,7 +2275,7 @@ def validate_agent_execution_wallet(
     keys_rows = []
     for kid in key_ids:
         if kid.isdigit():
-            r = conn.execute("SELECT * FROM core_agent_wallets WHERE id = ? AND wallet_address = ?", (int(kid), user_wallet)).fetchone()
+            r = conn.execute("SELECT * FROM core_agent_wallets WHERE id = ? AND LOWER(wallet_address) = ?", (int(kid), user_wallet)).fetchone()
             if r:
                 keys_rows.append(dict(r))
     conn.close()
@@ -2499,7 +2512,12 @@ def count_trades_this_week(user_wallet: str) -> int:
 # 9. REASONING TRACES & RESEARCH REPORTS (ZERO-LEAK PERSISTENCE)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confidence: int, trace_payload: Dict[str, Any], chart_image_path: Any = None) -> str:
+def new_record_id(prefix: str = "REC") -> str:
+    """Short readable ID for a stored record, e.g. TRC-9F2A41C07B (replaces the old fake IPFS CIDs)."""
+    return f"{prefix}-{uuid.uuid4().hex[:10].upper()}"
+
+
+def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confidence: int, trace_payload: Dict[str, Any], chart_image_path: Any = None, record_id: Optional[str] = None) -> str:
     """Saves a trader reasoning trace scoped strictly to wallet_address in SQLite."""
     wallet_address = normalize_wallet(wallet_address)
     trace_uuid = f"trace-{uuid.uuid4().hex[:10]}"
@@ -2509,7 +2527,7 @@ def save_reasoning_trace(wallet_address: str, symbol: str, verdict: str, confide
     elif chart_image_path:
         clean_image_path = str(chart_image_path)
 
-    cid = f"bafy{hashlib.sha256((json.dumps(trace_payload, default=str) + wallet_address + trace_uuid).encode()).hexdigest()[:40]}"
+    cid = record_id or new_record_id("TRC")
     conn = get_connection()
     upsert_user(wallet_address)
     conn.execute("""
@@ -2588,11 +2606,11 @@ def get_user_reasoning_traces(wallet_address: str, limit: int = 24) -> List[Dict
     return res
 
 
-def save_research_report(wallet_address: str, title: str, query: str, full_report: Dict[str, Any], report_type: str = "comprehensive") -> str:
+def save_research_report(wallet_address: str, title: str, query: str, full_report: Dict[str, Any], report_type: str = "comprehensive", record_id: Optional[str] = None) -> str:
     """Saves a research agent report scoped strictly to wallet_address in SQLite."""
     wallet_address = normalize_wallet(wallet_address)
     report_uuid = f"report-{uuid.uuid4().hex[:10]}"
-    cid = f"bafy{hashlib.sha256((json.dumps(full_report) + wallet_address + report_uuid).encode()).hexdigest()[:40]}"
+    cid = record_id or new_record_id("RSH")
     conn = get_connection()
     upsert_user(wallet_address)
     conn.execute("""
@@ -2790,45 +2808,88 @@ def _ensure_agent_ui_config_table(conn) -> None:
             wallet_address TEXT NOT NULL,
             agent_id TEXT NOT NULL,
             config_json TEXT NOT NULL DEFAULT '{}',
+            config_hash TEXT DEFAULT NULL,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (wallet_address, agent_id)
         )"""
     )
+    try:
+        cols = [c[1] for c in conn.execute("PRAGMA table_info(agent_ui_config)").fetchall()]
+        if "config_hash" not in cols:
+            conn.execute("ALTER TABLE agent_ui_config ADD COLUMN config_hash TEXT DEFAULT NULL")
+    except Exception:
+        pass
 
 
-def get_agent_ui_config(user_wallet: str, agent_id: str) -> Dict[str, Any]:
-    """Return the user's saved form configuration for an agent ({} if none)."""
+def compute_config_hash(config: Dict[str, Any]) -> str:
+    """Stable SHA-256 of a config dict (canonical JSON: sorted keys, no whitespace)."""
+    canonical = json.dumps(config or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+
+
+def get_agent_ui_config_with_hash(user_wallet: str, agent_id: str) -> Dict[str, Any]:
+    """Return {config, hash} for an agent's saved form configuration ({} / hash of {} if none)."""
     conn = get_connection()
     try:
         _ensure_agent_ui_config_table(conn)
         row = conn.execute(
-            "SELECT config_json FROM agent_ui_config WHERE wallet_address = ? AND agent_id = ?",
+            "SELECT config_json, config_hash FROM agent_ui_config WHERE wallet_address = ? AND agent_id = ?",
             (user_wallet.strip().lower(), agent_id.lower()),
         ).fetchone()
-        if not row:
-            return {}
-        try:
-            return json.loads(row["config_json"] or "{}")
-        except Exception:
-            return {}
+        cfg: Dict[str, Any] = {}
+        if row:
+            try:
+                cfg = json.loads(row["config_json"] or "{}")
+            except Exception:
+                cfg = {}
+        h = (row["config_hash"] if row else None) or compute_config_hash(cfg)
+        return {"config": cfg, "hash": h}
     finally:
         conn.close()
 
 
-def save_agent_ui_config(user_wallet: str, agent_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Persist the user's form configuration for an agent."""
+def get_agent_ui_config_hash(user_wallet: str, agent_id: str) -> str:
+    """Cheap single-column lookup used by clients to validate their cached config."""
     conn = get_connection()
     try:
         _ensure_agent_ui_config_table(conn)
+        row = conn.execute(
+            "SELECT config_hash, config_json FROM agent_ui_config WHERE wallet_address = ? AND agent_id = ?",
+            (user_wallet.strip().lower(), agent_id.lower()),
+        ).fetchone()
+        if not row:
+            return compute_config_hash({})
+        if row["config_hash"]:
+            return row["config_hash"]
+        try:
+            return compute_config_hash(json.loads(row["config_json"] or "{}"))
+        except Exception:
+            return compute_config_hash({})
+    finally:
+        conn.close()
+
+
+def get_agent_ui_config(user_wallet: str, agent_id: str) -> Dict[str, Any]:
+    """Return the user's saved form configuration for an agent ({} if none)."""
+    return get_agent_ui_config_with_hash(user_wallet, agent_id)["config"]
+
+
+def save_agent_ui_config(user_wallet: str, agent_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Persist the user's form configuration for an agent and refresh its hash."""
+    conn = get_connection()
+    try:
+        _ensure_agent_ui_config_table(conn)
+        cfg = config or {}
         conn.execute(
-            """INSERT INTO agent_ui_config (wallet_address, agent_id, config_json, updated_at)
-               VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """INSERT INTO agent_ui_config (wallet_address, agent_id, config_json, config_hash, updated_at)
+               VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(wallet_address, agent_id)
-               DO UPDATE SET config_json = excluded.config_json, updated_at = CURRENT_TIMESTAMP""",
-            (user_wallet.strip().lower(), agent_id.lower(), json.dumps(config or {})),
+               DO UPDATE SET config_json = excluded.config_json, config_hash = excluded.config_hash,
+                             updated_at = CURRENT_TIMESTAMP""",
+            (user_wallet.strip().lower(), agent_id.lower(), json.dumps(cfg), compute_config_hash(cfg)),
         )
         conn.commit()
-        return config or {}
+        return cfg
     finally:
         conn.close()
 
@@ -3523,6 +3584,7 @@ def save_moderator_evaluation(
 ) -> int:
     """Stores a complete 4-node evaluation report in moderator_evaluations."""
     eval_uuid = f"eval-{uuid.uuid4().hex[:12]}"
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     upsert_user(user_wallet)
     cursor = conn.execute("""
@@ -3547,11 +3609,12 @@ def save_moderator_evaluation(
 
 def get_latest_moderator_evaluation(user_wallet: str) -> Optional[Dict[str, Any]]:
     """Retrieve the most recent moderator 4-node evaluation for a user."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     row = conn.execute("""
         SELECT * FROM moderator_evaluations
-        WHERE wallet_address = ?
-        ORDER BY created_at DESC LIMIT 1
+        WHERE LOWER(wallet_address) = ?
+        ORDER BY created_at DESC, id DESC LIMIT 1
     """, (user_wallet,)).fetchone()
     conn.close()
     if not row:
@@ -3572,11 +3635,12 @@ def get_latest_moderator_evaluation(user_wallet: str) -> Optional[Dict[str, Any]
 
 def get_moderator_evaluations(user_wallet: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Retrieve recent moderator evaluations for a user."""
+    user_wallet = normalize_wallet(user_wallet)
     conn = get_connection()
     rows = conn.execute("""
         SELECT * FROM moderator_evaluations
-        WHERE wallet_address = ?
-        ORDER BY created_at DESC LIMIT ?
+        WHERE LOWER(wallet_address) = ?
+        ORDER BY created_at DESC, id DESC LIMIT ?
     """, (user_wallet, limit)).fetchall()
     conn.close()
     results = []
@@ -3660,6 +3724,13 @@ def get_moderator_cadence_info(user_wallet: str) -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
     is_due = False
     days_remaining = float(cadence_days)
+    if not last_run_str:
+        # Never audited yet: first report is due immediately instead of waiting a full cadence (1w/2w/1m)
+        return {
+            "frequency": freq, "cadence_days": cadence_days, "last_run_at": None,
+            "activated_at": activated_at_str, "next_run_due_at": now.isoformat(),
+            "is_due": True, "days_remaining": 0.0,
+        }
     next_due_iso = (now + timedelta(days=cadence_days)).isoformat()
 
     if baseline_str:

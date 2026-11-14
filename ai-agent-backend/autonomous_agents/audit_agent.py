@@ -1,6 +1,5 @@
 """
-Audit Agent   Logs all decisions and uploads reasoning traces
-to decentralized storage (Storacha/Filecoin).
+Audit Agent - logs every decision and its reasoning trace to the database.
 """
 
 import json
@@ -12,7 +11,7 @@ from database import log_agent_action
 class AuditAgent:
     """
     Creates structured reasoning traces for every autonomous action
-    and uploads them to decentralized storage for verifiability.
+    and stores them in the database.
     """
 
     def __init__(self):
@@ -28,13 +27,12 @@ class AuditAgent:
     ) -> Optional[str]:
         """
         Create a full reasoning trace and store it.
-        Returns the CID if uploaded to decentralized storage.
+        Returns None (audit rows are stored in the database).
         """
         reasoning_trace = self._build_trace(
             user_wallet, decision, risk_result, execution_result, market_snapshot
         )
 
-        # Upload to decentralized storage
         cid = await self._upload_to_storage(reasoning_trace)
 
         # Log to local DB with CID reference
@@ -89,18 +87,5 @@ class AuditAgent:
         }
 
     async def _upload_to_storage(self, trace: Dict) -> Optional[str]:
-        """
-        Upload reasoning trace to decentralized storage.
-        Tries Storacha first, falls back to local-only.
-        """
-        try:
-            from decentralized_storage import upload_reasoning_trace
-            cid = await upload_reasoning_trace(trace)
-            return cid
-        except ImportError:
-            # Storacha not configured yet   store locally only
-            print("[AUDIT] Decentralized storage not configured   local only")
-            return None
-        except Exception as e:
-            print(f"[AUDIT] Storage upload failed: {e}   local only")
-            return None
+        """Audit records live in the database (core_agent_audit_log); no external storage."""
+        return None

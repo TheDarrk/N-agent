@@ -141,7 +141,7 @@ def test_01_trader_agent_data_flow():
         confidence=85,
         trace_payload={"rsi": 65.2, "ema20": 89500.0, "reasoning": "Bullish momentum breakout"}
     )
-    assert cid.startswith("bafy")
+    assert cid.startswith("TRC-")
     traces = get_user_reasoning_traces(user, limit=5)
     assert len(traces) >= 1
     assert traces[0]["symbol"] == "BTC"
@@ -254,7 +254,7 @@ def test_03_research_agent_data_flow():
         full_report=report_data,
         report_type="comprehensive"
     )
-    assert cid.startswith("bafy")
+    assert cid.startswith("RSH-")
 
     reports = get_user_research_reports(user, limit=5)
     assert len(reports) >= 1

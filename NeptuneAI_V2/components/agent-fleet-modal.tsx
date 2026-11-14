@@ -108,7 +108,7 @@ export default function AgentFleetModal({
       icon: FileText,
       status: fleetData?.kill_switch_active ? "HALTED" : "ACTIVE",
       stats: fleetData?.agents?.research?.summary || "Produces institutional alpha reports & fulfills Trader rentals",
-      highlights: ["Storage: IPFS Recent 10", "A2A Collaboration: Active", "Sources: Seed URLs & Crawl"]
+      highlights: ["History: saved to your account", "A2A Collaboration: Active", "Sources: Seed URLs & Crawl"]
     },
     {
       id: "moderator",

@@ -15,8 +15,11 @@ from typing import List, Dict, Any, Optional
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 WORKSPACE_ROOT = BACKEND_DIR.parent
 
-for candidate_dir in [BACKEND_DIR / "scrapper", WORKSPACE_ROOT / "scrapper"]:
-    if candidate_dir.exists() and str(candidate_dir) not in sys.path:
+# Insert the workspace copy first so the backend copy (inserted last => position 0) always wins.
+for candidate_dir in [WORKSPACE_ROOT / "scrapper", BACKEND_DIR / "scrapper"]:
+    if candidate_dir.exists():
+        if str(candidate_dir) in sys.path:
+            sys.path.remove(str(candidate_dir))
         sys.path.insert(0, str(candidate_dir))
 
 scrapper_import_error = None

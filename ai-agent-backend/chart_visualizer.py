@@ -39,7 +39,7 @@ except ImportError:
     HAS_NUMPY = False
     np = None
 
-CHARTS_DIR = os.path.join(os.path.dirname(__file__), "knowledge_base", "charts")
+# Charts are rendered in memory only (returned as a data URI); nothing is written to disk.
 
 
 def generate_ascii_chart(
@@ -122,9 +122,8 @@ def render_chart_image(
       - Trade execution levels (Entry, Target TP, Stop Loss)
       - Forward-projecting Agent Prediction Path & Confidence Cone extending into future bars
     """
-    os.makedirs(CHARTS_DIR, exist_ok=True)
     chart_filename = f"chart_{symbol.upper()}_{timeframe}.png"
-    chart_path = os.path.join(CHARTS_DIR, chart_filename)
+    chart_path = ""
 
     display_candles = candles[-38:] if len(candles) >= 38 else candles
     n = len(display_candles)
@@ -454,16 +453,18 @@ def render_chart_image(
         loc="upper left", fontsize=7.2, framealpha=0.92, ncol=2
     )
 
-    # Save to disk
-    plt.savefig(chart_path, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight")
-
-    # Base64 data URI
+    # Render to an in-memory PNG (lower dpi keeps both RAM and the stored trace small)
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    b64_str = base64.b64encode(buf.read()).decode("utf-8")
+    try:
+        plt.savefig(buf, format="png", dpi=90, facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight")
+    finally:
+        plt.close(fig)
+        plt.close("all")
+    b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+    buf.close()
     data_uri = f"data:image/png;base64,{b64_str}"
+    import gc
+    gc.collect()
 
     return {
         "file_path": chart_path,

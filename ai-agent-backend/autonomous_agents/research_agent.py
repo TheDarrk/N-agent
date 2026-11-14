@@ -23,7 +23,7 @@ import httpx
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-from decentralized_storage import upload_research_report, get_recent_research_reports
+from history_store import record_research_report, get_recent_research_reports
 from database import log_agent_action
 from autonomous_agents.research_crawler_tool import ResearchCrawlerTool, calculate_min_date
 from network_config import get_near_rpc
@@ -618,6 +618,8 @@ class ResearchAgent:
     """
     _API_KEY_VALID: Optional[bool] = None
     _API_KEY_FINGERPRINT: Optional[str] = None
+    _BREAKER_TRIPPED_AT: float = 0.0
+    _KB_SEED_TASKS: Dict[str, Any] = {}
 
     def __init__(self):
         self.name = "research"
@@ -647,7 +649,10 @@ class ResearchAgent:
         Timeouts and other errors fall back for that node only.
         """
         if ResearchAgent._API_KEY_VALID is False:
-            return None
+            # Breaker auto-resets after 10 min so one transient 401/403 never disables research until restart
+            if time.time() - ResearchAgent._BREAKER_TRIPPED_AT < 600:
+                return None
+            ResearchAgent._API_KEY_VALID = None
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload: Dict[str, Any] = {
@@ -683,6 +688,7 @@ class ResearchAgent:
                             return res
                     elif resp.status_code in (401, 403):
                         ResearchAgent._API_KEY_VALID = False
+                        ResearchAgent._BREAKER_TRIPPED_AT = time.time()
                         raise Exception(f"GLM 5.3 Flash auth error (HTTP {resp.status_code})")
                     else:
                         raise Exception(f"GLM 5.3 Flash research endpoint failed (HTTP {resp.status_code})")
@@ -695,6 +701,7 @@ class ResearchAgent:
                 err_str = str(e).lower()
                 if "401" in err_str or "403" in err_str or "invalid_api_key" in err_str:
                     ResearchAgent._API_KEY_VALID = False
+                    ResearchAgent._BREAKER_TRIPPED_AT = time.time()
                     print(f"[RESEARCH LLM CALL] Auth error ({e}). Global circuit breaker activated.")
                     return None
                 if attempt == 0:
@@ -703,6 +710,51 @@ class ResearchAgent:
                     continue
                 print(f"[RESEARCH LLM CALL] Notice: Transient call error after retry ({e}). Node will use fallback.")
                 return None
+
+    async def _ensure_knowledge_base(self, scope: str, user_links: List[str], date_range: str, force: bool = False) -> None:
+        """Crawl default sources (and user links) into Chroma when the store has no chunks for this scope.
+        Concurrent callers for the same scope share ONE crawl (no pile-up of duplicate crawls)."""
+        existing = ResearchAgent._KB_SEED_TASKS.get(scope)
+        if existing and not existing.done():
+            try:
+                await asyncio.shield(existing)
+            except Exception:
+                pass
+            return
+        task = asyncio.ensure_future(self._seed_knowledge_base(scope, user_links, date_range, force))
+        ResearchAgent._KB_SEED_TASKS[scope] = task
+        try:
+            await asyncio.shield(task)
+        except Exception:
+            pass
+
+    async def _seed_knowledge_base(self, scope: str, user_links: List[str], date_range: str, force: bool) -> None:
+        try:
+            scr = self.crawler_tool.scrapper
+            if scr is None:
+                return
+            def _count() -> int:
+                col = scr.get_collection()
+                try:
+                    return len(col.get(where={"topic": scope}, limit=1).get("ids", []))
+                except Exception:
+                    return col.count()
+            if not force and await asyncio.to_thread(_count) > 0:
+                return
+            urls = list(user_links)
+            for src in get_default_sources_for_coins([scope.upper()]):
+                if src.get("url") and src["url"] not in urls:
+                    urls.append(src["url"])
+            if not urls:
+                return
+            print(f"[RESEARCH] Knowledge base empty for '{scope}' - seeding from {len(urls)} sources")
+            res = await asyncio.wait_for(
+                asyncio.to_thread(self.crawler_tool.crawl_custom_sources, urls[:8], scope, "all_recent", 6, 1),
+                timeout=240.0,
+            )
+            print(f"[RESEARCH] Seed crawl result: {res}")
+        except Exception as e:
+            print(f"[RESEARCH] Knowledge-base seeding failed (non-fatal): {e}")
 
     # ─── NODE 1: INTENT ANALYSIS ──────────────────────────────────────────────
 
@@ -822,6 +874,10 @@ class ResearchAgent:
         selection: Optional[RetrievalSelection] = None
         use_llm_loop = (ResearchAgent._API_KEY_VALID is not False)
         research_scope = (intent.research_scope or "near").strip().lower()
+
+        # Render's disk is ephemeral: the Chroma knowledge base is empty after every cold start.
+        # Seed it from default sources + user links before retrieval so we never synthesize from zero evidence.
+        await self._ensure_knowledge_base(research_scope, clean_links, date_range)
 
         # If live chain facts requested, read final RPC snapshot into pool
         intent_text = f"{intent.user_intent_summary} {' '.join(intent.detected_crypto_mechanisms)}".lower()
@@ -1032,6 +1088,15 @@ class ResearchAgent:
                     pool.add_chunk(h)
                 all_pool_text += " " + " ".join((h.get("text", "") + " " + h.get("title", "")).lower() for h in hits)
                 discovered_mechanisms.append(m)
+
+        # Rescue: pool still empty -> force-seed the knowledge base and retry one broad search
+        if not pool.chunks_by_id:
+            await self._ensure_knowledge_base(research_scope, clean_links, date_range, force=True)
+            rescue_q = f"{research_scope} {intent.user_intent_summary}"[:300]
+            if on_tool_call:
+                await on_tool_call("rag_search", {"query": rescue_q, "n_results": 8}, "Pool empty - retrying after seeding knowledge base.")
+            for h in await asyncio.to_thread(self.crawler_tool.search_rag, research_scope, rescue_q, 8, None, None, cutoff_date):
+                pool.add_chunk(h)
 
         # Ensure a checkpoint is recorded after discovery engine runs so user intent coverage is evaluated
         if discovered_mechanisms:
@@ -1466,9 +1531,9 @@ class ResearchAgent:
             actionable_signal=actionable_compat
         )
 
-        # Upload to decentralized storage
+        # Save to the database
         report_dict = report.model_dump()
-        cid = await upload_research_report(report_dict)
+        cid = await record_research_report(report_dict)
         report.cid = cid
 
         # Log action to DB
@@ -1477,7 +1542,7 @@ class ResearchAgent:
             agent_name="research",
             trigger_type="report_published",
             reasoning_text=llm_output.reasoning[:180] if llm_output.reasoning else "Institutional report synthesized",
-            action_taken=f"Report Published: {report.title} (CID: {cid})",
+            action_taken=f"Report Published: {report.title} (ID: {cid})",
             cid_reference=cid,
             status="completed"
         )
@@ -1490,12 +1555,12 @@ class ResearchAgent:
                 agent_name="researcher",
                 action_type="RESEARCH_REPORT",
                 title=f"Research: {report.title}",
-                summary=report.summary[:200] if report.summary else "Intelligence report generated and stored on IPFS.",
+                summary=report.summary[:200] if report.summary else "Intelligence report generated and saved to your account.",
                 metrics={
                     "Topic": topic,
                     "Regime": report.regime or "ACCUMULATION",
                     "Actionable Signal": actionable_compat,
-                    "Decentralized CID": cid
+                    "Report ID": cid
                 },
                 reasoning=llm_output.reasoning if llm_output.reasoning else "Synthesized via multi-node deep research and citations retrieval.",
                 cid_reference=cid
@@ -1561,6 +1626,10 @@ class ResearchAgent:
                     print(f"[PRE-CRAWL] Seed crawl finished: {pre_crawl_res}")
                 except Exception as pe:
                     print(f"[PRE-CRAWL] Notice: seed crawl encountered: {pe}")
+
+            # Warm the knowledge base in the background while Node 1 (LLM) runs, so crawl time is hidden
+            if not clean_seed_links:
+                asyncio.ensure_future(self._ensure_knowledge_base("near", [], effective_range))
 
             # ─── NODE 1: INTENT ANALYSIS ─────────────────────────────
             print(f"\n[NODE 1: INTENT ANALYSIS] Deconstructing user intent & generic mechanisms...")

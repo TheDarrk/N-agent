@@ -327,11 +327,11 @@ async def send_agent_action_email(
                 """
 
         cid_section_html = ""
-        effective_cid = seen_cid or (str(metrics.get("Decentralized CID") or metrics.get("Decentralized Trace") or "").strip() if metrics else "")
+        effective_cid = seen_cid or (str(metrics.get("Report ID") or metrics.get("Trace ID") or metrics.get("Decentralized CID") or metrics.get("Decentralized Trace") or "").strip() if metrics else "")
         if effective_cid:
             cid_section_html = f"""
             <div style="margin-top: 14px; padding: 12px 14px; background: #0B0F19; border: 1px solid #1E293B; border-radius: 8px;">
-                <div style="font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; margin-bottom: 4px;">Decentralized Audit CID</div>
+                <div style="font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; margin-bottom: 4px;">Record ID</div>
                 <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; color: #38BDF8; font-weight: 600; word-break: break-all; overflow-wrap: anywhere; line-height: 1.4;">{effective_cid}</div>
             </div>
             """
@@ -419,7 +419,7 @@ RATIONALE:
 {reasoning}
 
 {f'NearBlocks Tx: https://nearblocks.io/txns/{tx_hash}' if tx_hash and not str(tx_hash).startswith('PENDING') else ''}
-{f'Decentralized Audit CID: {effective_cid}' if effective_cid else ''}
+{f'Record ID: {effective_cid}' if effective_cid else ''}
 """
 
         clean_title = title.replace("Trader Agent: ", "").replace("Rebalancer: ", "").replace("Research: ", "").replace("Watchdog: ", "")

@@ -1,21 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import {
-  X,
-  Store,
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  TrendingUp,
-  Scale,
-  FileText,
-  DollarSign,
-  Coins,
-  Percent,
-  RefreshCw,
-  Layers
-} from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { X, Store, CheckCircle2, AlertCircle, DollarSign, RefreshCw, Trash2, Clock } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
 
 interface ShareAgentModalProps {
@@ -27,36 +13,90 @@ interface ShareAgentModalProps {
   onSuccess?: () => void;
 }
 
+type ExistingListing = {
+  listing_id: string;
+  title: string;
+  price_usdt: string;
+  can_edit?: boolean;
+  edit_lock_seconds_remaining?: number;
+};
+
+const LABELS: Record<string, { name: string; title: string; desc: string }> = {
+  trader: {
+    name: "Trader",
+    title: "Alpha Momentum Trader",
+    desc: "Technical trend and breakout momentum configuration with ATR-based TP/SL and sentiment validation.",
+  },
+  rebalancer: {
+    name: "Rebalancer",
+    title: "StableGuard Dynamic Rebalancer",
+    desc: "Target-allocation strategy keeping a stablecoin floor and correcting drift with low slippage.",
+  },
+  research: {
+    name: "Research",
+    title: "Deep On-Chain Alpha Research",
+    desc: "Research setup (topic, expectations, seed sources) that produces institutional-grade reports.",
+  },
+};
+
+/**
+ * Publishes the agent's CURRENT configuration to the global USDT marketplace (one flat price,
+ * no profit sharing). One active listing per agent: delete the old one to list again.
+ */
 export default function ShareAgentModal({
   isOpen,
   onClose,
   agentId,
   accountId,
   onConnectWallet,
-  onSuccess
+  onSuccess,
 }: ShareAgentModalProps) {
-  const isTrader = agentId === "trader";
-  const isRebalancer = agentId === "rebalancer";
-  const isResearch = agentId === "research";
+  const meta = LABELS[agentId] || LABELS.trader;
 
-  const defaultName = isTrader
-    ? "Alpha Momentum Trader"
-    : isRebalancer
-    ? "StableGuard Dynamic Rebalancer"
-    : "Deep On-Chain Alpha Research";
-
-  const defaultDesc = isTrader
-    ? "Technical trend and breakout momentum agent scanning top tokens with dynamic ATR-based TP/SL and social sentiment validation."
-    : isRebalancer
-    ? "Maintains target allocation between stablecoins and NEAR, continuously correcting portfolio drift with low slippage."
-    : "Produces actionable institutional research reports, on-chain liquidity intelligence, and volume signals on NEAR.";
-
-  const [name, setName] = useState(defaultName);
-  const [description, setDescription] = useState(defaultDesc);
-  const [pricingValue, setPricingValue] = useState<number>(isTrader ? 10 : isRebalancer ? 0.05 : 0.1);
+  const [name, setName] = useState(meta.title);
+  const [description, setDescription] = useState(meta.desc);
+  const [priceUsdt, setPriceUsdt] = useState("25.00");
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [existing, setExisting] = useState<ExistingListing | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  // Reset defaults whenever the modal opens for a (different) agent
+  useEffect(() => {
+    if (!isOpen) return;
+    setName(meta.title);
+    setDescription(meta.desc);
+    setError(null);
+    setSuccess(false);
+  }, [isOpen, agentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Is this agent already listed by me?
+  const loadExisting = React.useCallback(async () => {
+    if (!accountId) {
+      setExisting(null);
+      return;
+    }
+    setChecking(true);
+    try {
+      const res = await fetch(
+        `/api/marketplace/listings?seller=${encodeURIComponent(accountId)}&agent_type=${agentId}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setExisting((data.listings || [])[0] || null);
+      }
+    } catch {
+      /* non-fatal */
+    } finally {
+      setChecking(false);
+    }
+  }, [accountId, agentId]);
+
+  useEffect(() => {
+    if (isOpen) loadExisting();
+  }, [isOpen, loadExisting]);
 
   if (!isOpen) return null;
 
@@ -66,55 +106,71 @@ export default function ShareAgentModal({
       else alert("Please connect your wallet first to publish your agent to the marketplace.");
       return;
     }
-
-    if (!name.trim()) {
-      setError("Please enter a name for your marketplace listing.");
+    if (name.trim().length < 3) {
+      setError("Please enter a listing title (3+ characters).");
       return;
     }
-
-    if (pricingValue < 0.05) {
-      setError("Please set a valid pricing value of at least $0.05.");
+    const price = Number(priceUsdt);
+    if (!Number.isFinite(price) || price <= 0) {
+      setError("Enter a price in USDT greater than 0.");
       return;
     }
 
     setIsPublishing(true);
     setError(null);
-
-    const pricingType = isTrader
-      ? "profit_share"
-      : isRebalancer
-      ? "fee_per_trade"
-      : "fee_per_report";
-
     try {
-      const res = await fetch("/api/marketplace/publish", {
+      const res = await fetch("/api/marketplace/listings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          creator_wallet: accountId,
+          wallet: accountId,
           agent_type: agentId,
-          name: name.trim(),
+          title: name.trim(),
           description: description.trim(),
-          pricing_type: pricingType,
-          pricing_value: Number(pricingValue)
-        })
+          price_usdt: String(price),
+          payout_wallet: accountId,
+        }),
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || data.error || "Failed to publish agent.");
-      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to publish agent.");
 
       setSuccess(true);
       setTimeout(() => {
         setIsPublishing(false);
-        if (onSuccess) onSuccess();
+        onSuccess?.();
         onClose();
       }, 1200);
     } catch (e: any) {
       setError(e.message || "Failed to publish agent to marketplace.");
       setIsPublishing(false);
     }
+  };
+
+  const handleDelete = async () => {
+    if (!accountId || !existing) return;
+    if (!window.confirm(`Delete "${existing.title}" from the marketplace? You can list this agent again afterwards.`)) return;
+    setIsDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/marketplace/listings/${encodeURIComponent(existing.listing_id)}?wallet=${encodeURIComponent(accountId)}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to delete listing.");
+      setExisting(null);
+    } catch (e: any) {
+      setError(e.message || "Failed to delete listing.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const lockText = (secs?: number) => {
+    if (!secs || secs <= 0) return null;
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
 
   return (
@@ -128,15 +184,13 @@ export default function ShareAgentModal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-foreground text-sm tracking-tight">
-                  Share {isTrader ? "Trader" : isRebalancer ? "Rebalancer" : "Research"} Agent
-                </h3>
+                <h3 className="font-bold text-foreground text-sm tracking-tight">Sell {meta.name} Agent</h3>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/15 text-primary border border-primary/30">
                   MARKETPLACE
                 </span>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Set monetization terms &amp; allow other users to mirror this agent
+                Flat one-time price in USDT. Buyers get a copy of your current configuration.
               </p>
             </div>
           </div>
@@ -148,7 +202,6 @@ export default function ShareAgentModal({
           </button>
         </div>
 
-        {/* Success State */}
         {success ? (
           <div className="py-8 text-center space-y-3 animate-in zoom-in-95">
             <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center">
@@ -156,38 +209,68 @@ export default function ShareAgentModal({
             </div>
             <h4 className="text-base font-bold text-foreground">Agent Listed on Marketplace!</h4>
             <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-              Other users can now discover and hire your agent. Actions taken by your agent will be automatically mirrored to their wallets.
+              Other users can now find it in the Marketplace tab and buy your configuration for {priceUsdt} USDT.
             </p>
+          </div>
+        ) : existing ? (
+          /* Already listed: show it + delete (publishing again is blocked until deleted) */
+          <div className="mt-4 space-y-4">
+            <div className="p-4 rounded-xl bg-secondary/40 border border-border space-y-2 text-xs">
+              <p className="font-bold text-foreground text-sm">{existing.title}</p>
+              <p className="text-muted-foreground">
+                Already listed for <span className="font-mono font-bold text-emerald-400">{existing.price_usdt} USDT</span>.
+                Delete this listing to list your {meta.name} agent again.
+              </p>
+              {existing.can_edit === false && (
+                <p className="flex items-center gap-1.5 text-muted-foreground">
+                  <Clock size={12} /> Editing is locked for {lockText(existing.edit_lock_seconds_remaining)} (deleting is always allowed).
+                </p>
+              )}
+            </div>
+            {error && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/40 text-xs font-bold transition-all disabled:opacity-50"
+              >
+                {isDeleting ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                <span>Delete Listing</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="mt-4 space-y-4">
-            {/* Creator Wallet Note */}
             <div className="p-3 rounded-xl bg-secondary/40 border border-border flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Listing Creator:</span>
-              <span className="font-mono font-semibold text-foreground">
-                {accountId || "Connect wallet to publish"}
-              </span>
+              <span className="text-muted-foreground">Seller / payout wallet:</span>
+              <span className="font-mono font-semibold text-foreground">{accountId || "Connect wallet to publish"}</span>
             </div>
 
-            {/* Form: Name */}
             <div>
-              <label className="text-xs font-semibold text-foreground block mb-1">
-                Listing Title
-              </label>
+              <label className="text-xs font-semibold text-foreground block mb-1">Listing Title</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Alpha Momentum Trader v1"
                 className="w-full rounded-xl bg-background border border-border px-3.5 py-2 text-xs font-medium text-foreground focus:outline-none focus:border-primary/50"
               />
             </div>
 
-            {/* Form: Description */}
             <div>
-              <label className="text-xs font-semibold text-foreground block mb-1">
-                Strategy Overview
-              </label>
+              <label className="text-xs font-semibold text-foreground block mb-1">Strategy Overview</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -196,115 +279,29 @@ export default function ShareAgentModal({
               />
             </div>
 
-            {/* Form: Pricing Model (Tailored to Agent Type) */}
-            <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    {isTrader ? (
-                      <>
-                        <Percent size={14} className="text-emerald-400" />
-                        <span>Profit Share Percentage (%)</span>
-                      </>
-                    ) : isRebalancer ? (
-                      <>
-                        <Coins size={14} className="text-blue-400" />
-                        <span>Fee Per Rebalance Trade (NEAR)</span>
-                      </>
-                    ) : (
-                      <>
-                        <FileText size={14} className="text-purple-400" />
-                        <span>Fee Per Research Report (NEAR)</span>
-                      </>
-                    )}
-                  </label>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {isTrader
-                      ? "You earn this percentage of net profit generated from winning trades executed for subscribers."
-                      : isRebalancer
-                      ? "Subscribers pay this fee in NEAR each time an autonomous rebalancing swap executes."
-                      : "Subscribers pay this fee in NEAR per on-demand institutional research report generated."}
-                  </p>
-                </div>
-              </div>
-
-              {/* Pricing Input & Quick Presets */}
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type="number"
-                    min="0.05"
-                    step={"0.01"}
-                    value={pricingValue}
-                    onChange={(e) => setPricingValue(Number(e.target.value))}
-                    className="w-full rounded-lg bg-background border border-border px-3 py-1.5 text-xs font-mono font-bold text-foreground focus:outline-none focus:border-primary"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground pointer-events-none">
-                    {isTrader ? "%" : "NEAR"}
-                  </span>
-                </div>
-
-                {/* Presets */}
-                {isTrader && (
-                  <div className="flex gap-1">
-                    {[5, 10, 15, 20].map((pct) => (
-                      <button
-                        key={pct}
-                        type="button"
-                        onClick={() => setPricingValue(pct)}
-                        className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all ${
-                          pricingValue === pct
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-secondary text-muted-foreground hover:text-foreground border-border"
-                        }`}
-                      >
-                        {pct}%
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {isRebalancer && (
-                  <div className="flex gap-1">
-                    {[0.02, 0.05, 0.1].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setPricingValue(amt)}
-                        className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all ${
-                          pricingValue === amt
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-secondary text-muted-foreground hover:text-foreground border-border"
-                        }`}
-                      >
-                        {amt}N
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {isResearch && (
-                  <div className="flex gap-1">
-                    {[0.05, 0.1, 0.25].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setPricingValue(amt)}
-                        className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all ${
-                          pricingValue === amt
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-secondary text-muted-foreground hover:text-foreground border-border"
-                        }`}
-                      >
-                        {amt}N
-                      </button>
-                    ))}
-                  </div>
-                )}
+            <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
+              <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <DollarSign size={14} className="text-emerald-400" />
+                <span>Price (USDT, one-time)</span>
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                Buyers pay this once and receive a copy of your current {meta.name.toLowerCase()} configuration. No profit sharing.
+              </p>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={priceUsdt}
+                  onChange={(e) => setPriceUsdt(e.target.value)}
+                  className="w-full rounded-lg bg-background border border-border px-3 py-1.5 text-xs font-mono font-bold text-foreground focus:outline-none focus:border-primary"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground pointer-events-none">
+                  USDT
+                </span>
               </div>
             </div>
 
-            {/* Error notice */}
             {error && (
               <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 text-red-400 text-xs flex items-center gap-2">
                 <AlertCircle size={15} className="shrink-0" />
@@ -312,7 +309,6 @@ export default function ShareAgentModal({
               </div>
             )}
 
-            {/* Actions */}
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
               <button
                 type="button"
@@ -324,14 +320,10 @@ export default function ShareAgentModal({
               <button
                 type="button"
                 onClick={handlePublish}
-                disabled={isPublishing}
+                disabled={isPublishing || checking}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold transition-all shadow-md shadow-primary/20 disabled:opacity-50 active:scale-95"
               >
-                {isPublishing ? (
-                  <RefreshCw size={14} className="animate-spin" />
-                ) : (
-                  <Store size={14} />
-                )}
+                {isPublishing ? <RefreshCw size={14} className="animate-spin" /> : <Store size={14} />}
                 <span>Publish Agent</span>
               </button>
             </div>

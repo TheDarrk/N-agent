@@ -29,7 +29,8 @@ from database import (
     get_rebalancer_executions_for_user, kill_agent_by_moderator,
     save_moderator_evaluation
 )
-from decentralized_storage import get_recent_trade_traces, get_recent_research_reports, upload_trade_trace, upload_moderator_report
+from history_store import get_recent_trade_traces, get_recent_research_reports
+from database.dal import new_record_id
 from market_data import get_token_prices
 from market_intelligence import analyze_token_indicators
 from autonomous_agents.research_crawler_tool import ResearchCrawlerTool
@@ -1240,12 +1241,8 @@ class FleetSynthesisNode:
             recommended_tuning=tuning
         )
 
-        # Upload trace to decentralized storage
-        try:
-            cid = await upload_trade_trace(report.model_dump())
-            report.cid = cid
-        except Exception as e:
-            report.cid = f"bafy_mod_{int(datetime.now(timezone.utc).timestamp())}"
+        # The audit is saved in moderator_evaluations below; it just needs its own readable ID.
+        report.cid = new_record_id("MOD")
 
         # Persist report in moderator_evaluations table
         try:

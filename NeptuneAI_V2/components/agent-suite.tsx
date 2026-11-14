@@ -730,7 +730,7 @@ function AgentOverviewCard({
                 <button
                   onClick={onShare}
                   className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-border bg-secondary px-4 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                  title="Share this agent to the decentralized marketplace"
+                  title="Sell this agent on the marketplace"
                 >
                   <Store size={16} className="text-primary" />
                   <span>Share</span>

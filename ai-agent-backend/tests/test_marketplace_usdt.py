@@ -444,7 +444,15 @@ def test_marketplace_api_endpoints():
     b_orders = buyer_orders_resp.json()["orders"]
     assert any(o["order_id"] == order_id for o in b_orders)
 
-    # 6. Patch Listing (Seller only)
+    # 6a. A fresh listing is edit-locked for 24h (delete is still allowed)
+    locked_resp = client.patch(f"/api/marketplace/listings/{listing_id}", json={"wallet": seller, "price_usdt": "99"})
+    assert locked_resp.status_code == 400 and "locked" in locked_resp.json()["detail"]
+
+    # 6b. After the lock window the seller can edit (Seller only)
+    _c = get_connection()
+    _c.execute("UPDATE marketplace_listings SET created_at = datetime('now','-30 hours'), updated_at = datetime('now','-30 hours') WHERE listing_id = ?", (listing_id,))
+    _c.commit()
+    _c.close()
     patch_resp = client.patch(f"/api/marketplace/listings/{listing_id}", json={
         "wallet": seller,
         "price_usdt": "22.50",

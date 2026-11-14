@@ -560,14 +560,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 cadence_days=cadence_days,
                 reason=f"[{reason_code}] {str(llm_err)[:150]}"
             )
-            try:
-                from decentralized_storage import LOGS_DIR
-                os.makedirs(LOGS_DIR, exist_ok=True)
-                fb_path = os.path.join(LOGS_DIR, f"rebalance_fallback_{user_wallet[:10]}_{int(datetime.now().timestamp())}.json")
-                with open(fb_path, "w", encoding="utf-8") as fbf:
-                    json.dump({"error": str(llm_err), "reason_code": reason_code, "fallback": fallback}, fbf, indent=2)
-            except Exception:
-                pass
 
             pydantic_strat = RebalancerStrategySchema(
                 strategy_name=fallback["strategy_name"],
@@ -788,7 +780,14 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "message": "Computing BTC Beta, cross-asset correlation matrix, and portfolio volatility..."
             }) + "\n"
 
-            macro_correlations = await compute_btc_beta_and_correlations(norm_selected)
+            try:
+                macro_correlations = await compute_btc_beta_and_correlations(norm_selected)
+            except Exception as macro_err:
+                print(f"[REBALANCER STREAM] Macro correlation unavailable ({macro_err}); using neutral beta.")
+                macro_correlations = None
+            if not isinstance(macro_correlations, dict):
+                macro_correlations = {}
+            macro_correlations.setdefault("btc_beta", {s_: 1.0 for s_ in norm_selected})
             yield json.dumps({
                 "type": "step",
                 "step_number": 2,
@@ -809,7 +808,12 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "message": "Measuring live on-chain balances and building candidate index table..."
             }) + "\n"
 
-            real_portfolio = await get_wallet_portfolio(self._portfolio_wallet(user_wallet)) if user_wallet else {}
+            try:
+                real_portfolio = await get_wallet_portfolio(self._portfolio_wallet(user_wallet)) if user_wallet else {}
+            except Exception as pf_err:
+                print(f"[REBALANCER STREAM] Portfolio fetch failed ({pf_err}); continuing with provided holdings only.")
+                real_portfolio = {}
+            real_portfolio = dict(real_portfolio or {})
             if current_holdings:
                 real_portfolio.update({k.lower(): float(v) for k, v in current_holdings.items()})
 
@@ -1013,14 +1017,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                     cadence_days=cadence_days,
                     reason=f"[{reason_code}] {str(llm_err)[:150]}"
                 )
-                try:
-                    from decentralized_storage import LOGS_DIR
-                    os.makedirs(LOGS_DIR, exist_ok=True)
-                    fb_path = os.path.join(LOGS_DIR, f"rebalance_fallback_{user_wallet[:10]}_{int(datetime.now().timestamp())}.json")
-                    with open(fb_path, "w", encoding="utf-8") as fbf:
-                        json.dump({"error": str(llm_err), "reason_code": reason_code, "fallback": fallback}, fbf, indent=2)
-                except Exception:
-                    pass
 
                 pydantic_strat = RebalancerStrategySchema(
                     strategy_name=fallback["strategy_name"],

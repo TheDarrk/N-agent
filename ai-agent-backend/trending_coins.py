@@ -10,7 +10,6 @@ import httpx
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
-CACHE_FILE = os.path.join(os.path.dirname(__file__), "knowledge_base", "daily_trending_cache.json")
 CACHE_TTL_SECONDS = 86400  # 24 Hours
 
 # Strictly supported tokens on NEAR Intents / 1-Click protocol
@@ -26,31 +25,27 @@ FALLBACK_TRENDING_COINS = [
 ]
 
 
+_MEM_CACHE: Optional[Dict[str, Any]] = None  # in-memory only; nothing is written to disk
+
+
 def _read_cache() -> Optional[Dict[str, Any]]:
-    """Reads trending coin list from disk if fresh (< 24 hours old)."""
-    if not os.path.exists(CACHE_FILE):
+    """Returns the trending coin list from memory if fresh (< 24 hours old)."""
+    data = _MEM_CACHE
+    if not data:
         return None
     try:
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
         cached_time = datetime.fromisoformat(data.get("timestamp"))
-        now = datetime.now(timezone.utc)
-        age_seconds = (now - cached_time).total_seconds()
-        raw_coins = data.get("coins", [])
-        # Ensure only supported tokens
-        valid_coins = [c for c in raw_coins if c in SUPPORTED_1CLICK_TOKENS]
+        age_seconds = (datetime.now(timezone.utc) - cached_time).total_seconds()
+        valid_coins = [c for c in data.get("coins", []) if c in SUPPORTED_1CLICK_TOKENS]
         if age_seconds < CACHE_TTL_SECONDS and len(valid_coins) >= 6:
-            data["is_cached"] = True
-            data["age_hours"] = round(age_seconds / 3600, 1)
-            data["coins"] = valid_coins
-            return data
+            return {**data, "is_cached": True, "age_hours": round(age_seconds / 3600, 1), "coins": valid_coins}
     except Exception as e:
         print(f"[TRENDING] Cache read error: {e}")
     return None
 
 
 def _write_cache(coins: List[str], source: str) -> Dict[str, Any]:
-    """Writes updated trending coin list to disk."""
+    """Stores the updated trending coin list in memory."""
     now = datetime.now(timezone.utc)
     filtered = [c for c in coins if c in SUPPORTED_1CLICK_TOKENS]
     if not filtered:
@@ -62,12 +57,8 @@ def _write_cache(coins: List[str], source: str) -> Dict[str, Any]:
         "count": len(filtered),
         "coins": filtered
     }
-    try:
-        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-    except Exception as e:
-        print(f"[TRENDING] Cache write error: {e}")
+    global _MEM_CACHE
+    _MEM_CACHE = payload
     return payload
 
 

@@ -2,7 +2,7 @@
 Simple focused crawler + RAG for crypto research topics with date filtering & classification.
 
 Install:
-    pip install httpx beautifulsoup4 chromadb python-dateutil
+    pip install httpx beautifulsoup4 python-dateutil
 
 Usage:
     # Crawl with default min-date (2024-01-01)
@@ -35,7 +35,6 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple, Set
 from urllib.parse import urljoin, urlparse, urldefrag, parse_qsl, urlencode
 
-import chromadb
 import httpx
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
@@ -80,9 +79,10 @@ TOPICS = {
 }
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_DIR = str(BASE_DIR / "research_db")
-STATE_FILE = BASE_DIR / "crawl_state.json"  # url -> content hash (skip unchanged pages)
-DELAY_SECONDS = 0.5                      # per-request politeness delay
+MAX_CHUNKS_PER_TOPIC = 4000              # DB cap per topic (oldest chunks are pruned)
+MAX_QUERY_CANDIDATES = 2500              # rows scored per query (bounds memory)
+CRAWL_WORKERS = 6                        # parallel page fetches per seed
+DELAY_SECONDS = 0.3                      # per-request politeness delay
 CHUNK_WORDS = 300                        # ~400 tokens
 CHUNK_OVERLAP = 50
 USER_AGENT = "ResearchBot/0.1 (personal research agent)"
@@ -337,18 +337,181 @@ def chunk(text: str):
         yield c
 
 
+class DBCollection:
+    """
+    Research knowledge base stored in the DATABASE (table research_chunks), not on disk.
+    Exposes the small slice of the Chroma API the crawler uses (upsert / query / count / get) but ranks with
+    a lightweight keyword (TF-IDF style) score, so no vector DB or embedding model is loaded into RAM.
+    """
+    _table_ready = False
+    _WORD = re.compile(r"[a-z0-9]{3,}")
+
+    @staticmethod
+    def _conn():
+        from database.connection import get_connection
+        conn = get_connection()
+        if not DBCollection._table_ready:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS research_chunks (
+                    chunk_id TEXT PRIMARY KEY,
+                    topic TEXT NOT NULL,
+                    url TEXT, title TEXT,
+                    published_date TEXT, year TEXT, classification TEXT,
+                    crawled_at TEXT, depth INTEGER DEFAULT 0,
+                    text TEXT NOT NULL
+                )"""
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_research_chunks_topic ON research_chunks(topic, crawled_at)")
+            conn.commit()
+            DBCollection._table_ready = True
+        return conn
+
+    @staticmethod
+    def _topic_from_where(where):
+        if not where:
+            return None
+        if "topic" in where:
+            return where["topic"]
+        for cond in where.get("$and", []):
+            if "topic" in cond:
+                return cond["topic"]
+        return None
+
+    @staticmethod
+    def _class_from_where(where):
+        if not where:
+            return None
+        if "classification" in where:
+            return where["classification"]
+        for cond in where.get("$and", []):
+            if "classification" in cond:
+                return cond["classification"]
+        return None
+
+    def upsert(self, ids, documents, metadatas):
+        rows = [
+            (cid, m.get("topic", ""), m.get("url"), m.get("title"), m.get("published_date"),
+             str(m.get("year", "")), m.get("classification"), m.get("crawled_at"), int(m.get("depth", 0) or 0), doc)
+            for cid, doc, m in zip(ids, documents, metadatas)
+        ]
+        if not rows:
+            return
+        topic = rows[0][1]
+        conn = self._conn()
+        try:
+            conn.executemany(
+                "INSERT OR REPLACE INTO research_chunks (chunk_id, topic, url, title, published_date, year, "
+                "classification, crawled_at, depth, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+            # keep the table bounded: drop the oldest chunks beyond the per-topic cap
+            conn.execute(
+                "DELETE FROM research_chunks WHERE topic = ? AND chunk_id NOT IN "
+                "(SELECT chunk_id FROM research_chunks WHERE topic = ? ORDER BY crawled_at DESC LIMIT ?)",
+                (topic, topic, MAX_CHUNKS_PER_TOPIC))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def count(self, where=None) -> int:
+        conn = self._conn()
+        try:
+            topic = self._topic_from_where(where)
+            if topic:
+                return conn.execute("SELECT COUNT(*) FROM research_chunks WHERE topic = ?", (topic,)).fetchone()[0]
+            return conn.execute("SELECT COUNT(*) FROM research_chunks").fetchone()[0]
+        finally:
+            conn.close()
+
+    def get(self, where=None, limit=None):
+        conn = self._conn()
+        try:
+            topic = self._topic_from_where(where)
+            sql = "SELECT chunk_id, topic, url, title, published_date, year, classification, crawled_at FROM research_chunks"
+            params = []
+            if topic:
+                sql += " WHERE topic = ?"
+                params.append(topic)
+            if limit:
+                sql += " LIMIT ?"
+                params.append(int(limit))
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        finally:
+            conn.close()
+        return {
+            "ids": [r["chunk_id"] for r in rows],
+            "metadatas": [{k: r[k] for k in ("topic", "url", "title", "published_date", "year", "classification", "crawled_at")} for r in rows],
+        }
+
+    def query(self, query_texts, n_results=5, where=None):
+        import math
+        q_terms = list(dict.fromkeys(self._WORD.findall((query_texts[0] if query_texts else "").lower())))
+        topic = self._topic_from_where(where)
+        cls = self._class_from_where(where)
+        sql = "SELECT topic, url, title, published_date, year, classification, crawled_at, depth, text FROM research_chunks"
+        conds, params = [], []
+        if topic:
+            conds.append("topic = ?")
+            params.append(topic)
+        if cls:
+            conds.append("classification = ?")
+            params.append(cls)
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
+        sql += " ORDER BY crawled_at DESC LIMIT ?"
+        params.append(MAX_QUERY_CANDIDATES)
+        conn = self._conn()
+        try:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        docs_tokens = [self._WORD.findall((r["text"] or "").lower()) for r in rows]
+        n_docs = len(rows)
+        df = {t: sum(1 for toks in docs_tokens if t in set(toks)) for t in q_terms}
+        scored = []
+        for r, toks in zip(rows, docs_tokens):
+            if not toks:
+                continue
+            tf = {}
+            for w in toks:
+                if w in df:
+                    tf[w] = tf.get(w, 0) + 1
+            head = f"{r['title'] or ''} {r['url'] or ''}".lower()
+            score = 0.0
+            for t in q_terms:
+                if df.get(t):
+                    idf = math.log(1 + n_docs / df[t])
+                    score += (1 + math.log(tf[t]) if t in tf else 0.0) * idf
+                    if t in head:
+                        score += 1.5 * idf
+            score /= math.sqrt(len(toks) + 50)
+            scored.append((score, r))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = [x for x in scored if x[0] > 0][:n_results]
+        if not top:  # no keyword overlap: fall back to the freshest chunks of the topic so evidence is never empty
+            top = [(0.0, r) for _, r in scored[:n_results]]
+        docs, metas, dists = [], [], []
+        for score, r in top:
+            docs.append(r["text"])
+            metas.append({k: r[k] for k in ("topic", "url", "title", "published_date", "year", "classification", "crawled_at", "depth")})
+            dists.append(1.0 / (1.0 + score))
+        return {"documents": [docs], "metadatas": [metas], "distances": [dists]}
+
+
 def get_collection():
-    client = chromadb.PersistentClient(path=DB_DIR)
-    # Uses Chroma's default local embedding model (no API key needed)
-    return client.get_or_create_collection("research", metadata={"hnsw:space": "cosine"})
+    return DBCollection()
+
+
+_CRAWL_STATE: dict = {}  # url -> content hash for this process (skips unchanged pages); never written to disk
 
 
 def load_state():
-    return json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+    return _CRAWL_STATE
 
 
 def save_state(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2))
+    _CRAWL_STATE.update(state)
 
 
 # --------------------------------------------------------------------------
@@ -548,21 +711,34 @@ def _crawl_single_seed_worker(
     sub_skipped = 0
     urls_processed = []
 
-    client = httpx.Client(timeout=15.0, follow_redirects=False, headers={"User-Agent": USER_AGENT})
+    client = httpx.Client(timeout=12.0, follow_redirects=False, headers={"User-Agent": USER_AGENT})
+
+    def _fetch(item):
+        """Fetch one (url, depth) in a worker thread; returns (url, depth, response|None)."""
+        f_url, f_depth = item
+        try:
+            if not allowed_by_robots(f_url):
+                return f_url, f_depth, None
+            resp = safe_get(client, f_url)
+            time.sleep(DELAY_SECONDS)
+            if not resp or resp.status_code != 200 or "text/html" not in resp.headers.get("content-type", ""):
+                return f_url, f_depth, None
+            return f_url, f_depth, resp
+        except Exception:
+            print(f"  - source unavailable, continuing: {f_url}")
+            return f_url, f_depth, None
+
+    def _batches():
+        """BFS frontier fetched CRAWL_WORKERS pages at a time (parallel), yielded in order."""
+        with ThreadPoolExecutor(max_workers=CRAWL_WORKERS) as pool:
+            while queue and pages < max_pages_per_seed:
+                batch = [queue.popleft() for _ in range(min(CRAWL_WORKERS, len(queue), max_pages_per_seed - pages))]
+                for fetched in pool.map(_fetch, batch):
+                    yield fetched
+
     try:
-        while queue and pages < max_pages_per_seed:
-            url, depth = queue.popleft()
-            if not allowed_by_robots(url):
-                continue
-            try:
-                r = safe_get(client, url)
-                if not r:
-                    continue
-                time.sleep(DELAY_SECONDS)
-                if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
-                    continue
-            except Exception as e:
-                print(f"  - source unavailable, continuing: {url}")
+        for url, depth, r in _batches():
+            if r is None:
                 continue
             pages += 1
 

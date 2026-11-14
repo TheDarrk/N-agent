@@ -23,7 +23,6 @@ matplotlib
 numpy
 py-near
 requests
-chromadb
 beautifulsoup4
 python-dateutil
 json-repair

@@ -40,7 +40,7 @@ from database import (
     create_active_trade, get_user, count_trades_today, count_trades_this_week,
     log_agent_action, get_agent_key, validate_agent_execution_wallet, record_dropped_trade
 )
-from decentralized_storage import upload_trade_trace
+from history_store import record_trade_trace
 from autonomous_agents.llm_council_judge import LLMCouncilJudge
 from autonomous_agents.trading_pipeline import TradingPipeline
 
@@ -184,7 +184,7 @@ class TraderAgent:
                 "screener_result": screener_res
             }
             print(f"[STORAGE] Uploading stand-aside audit trace to decentralized storage...")
-            cid = await upload_trade_trace(trace)
+            cid = await record_trade_trace(trace)
             print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent 10 preserved)")
             return {
                 "success": False,
@@ -468,7 +468,7 @@ class TraderAgent:
                 "expected_roi_pct": 0.0,
                 "reasoning": "No qualifying tokens met pre-scanner tradeability criteria. Standing aside to protect capital."
             }
-            cid = await upload_trade_trace(trace)
+            cid = await record_trade_trace(trace)
             return {
                 "success": False,
                 "status": "NO_CANDIDATES",
@@ -638,7 +638,7 @@ class TraderAgent:
                 "chart_image": None,
                 "pipeline": pipeline_res
             }
-            cid = await upload_trade_trace(trace)
+            cid = await record_trade_trace(trace)
             return {
                 "success": False,
                 "status": "ERROR",
@@ -718,7 +718,7 @@ class TraderAgent:
             "chart_image": chart_image_info,
             "pipeline": pipeline_res
         }
-        cid = await upload_trade_trace(trace)
+        cid = await record_trade_trace(trace)
 
         # Dispatch scan report email notification
         try:
@@ -734,7 +734,7 @@ class TraderAgent:
                     "Pipeline Verdict": "STAND_ASIDE (Capital Preserved)",
                     "Confidence Score": f"{conf_val}% (Threshold: {min_confidence}%)",
                     "Capital Status": "100% Liquid in Wallet",
-                    "Decentralized Trace": cid
+                    "Trace ID": cid
                 },
                 reasoning=stand_aside_reason,
                 cid_reference=cid
@@ -1036,7 +1036,7 @@ class TraderAgent:
                     "chart_image": None,
                     "pipeline": {"screener": screener_output.model_dump(), "status": "no_candidates"}
                 }
-                cid = await upload_trade_trace(trace)
+                cid = await record_trade_trace(trace)
                 yield json.dumps({
                     "type": "final",
                     "result": {
@@ -1220,7 +1220,7 @@ class TraderAgent:
                         "status": "stand_aside"
                     }
                 }
-                cid = await upload_trade_trace(trace)
+                cid = await record_trade_trace(trace)
 
                 stand_aside_res = {
                     "success": False,
@@ -1792,7 +1792,7 @@ class TraderAgent:
                 "researcher_intel": node1_data.get("researcher_intel")
             }
             print(f"[STORAGE] Uploading stand-aside audit trace to decentralized storage...")
-            cid = await upload_trade_trace(trace)
+            cid = await record_trade_trace(trace)
             print(f"[STORAGE] Trade reasoning trace saved: {cid} (recent 10 preserved)")
 
             return {
@@ -1891,7 +1891,7 @@ class TraderAgent:
                 "twitter_sentiment": node1_data["twitter_sentiment"],
                 "researcher_intel": node1_data.get("researcher_intel")
             }
-            cid = await upload_trade_trace(trace)
+            cid = await record_trade_trace(trace)
             return {
                 "success": False,
                 "status": "DROPPED",
@@ -2080,7 +2080,7 @@ class TraderAgent:
                 "twitter_sentiment": node1_data.get("twitter_sentiment", {}),
                 "researcher_intel": node1_data.get("researcher_intel")
             }
-            cid = await upload_trade_trace(quote_trace)
+            cid = await record_trade_trace(quote_trace)
             return {
                 "success": False,
                 "status": "DROPPED",
@@ -2291,7 +2291,7 @@ class TraderAgent:
             "researcher_intel": node1_data.get("researcher_intel")
         }
         print(f"[STORAGE] Uploading trade execution trace to decentralized storage...")
-        cid = await upload_trade_trace(trace)
+        cid = await record_trade_trace(trace)
         print(f"[STORAGE] Trade execution trace saved: {cid} (recent 10 preserved)")
 
         # Log action to general agent log

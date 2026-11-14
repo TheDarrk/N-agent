@@ -1,5 +1,6 @@
 "use client";
 
+import { dedupedGetJson } from "@/lib/dedupe-fetch";
 import { tilt3d } from "./trader/tilt-3d";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
@@ -15,7 +16,7 @@ import {
   waitForRun,
   findRunningRun,
 } from "@/lib/agent-runs";
-import { loadAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
+import { loadAgentConfig, peekAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
 import {
   Scale,
   RotateCw,
@@ -168,7 +169,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   const [allowCrossChain, setAllowCrossChain] = useState<boolean>(false);
 
   // ─── DB-PERSISTED CONFIG (loaded once per wallet; skeleton until ready) ───
-  const [configLoaded, setConfigLoaded] = useState(false);
+  const [configLoaded, setConfigLoaded] = useState<boolean>(() => !accountId || !!peekAgentConfig(accountId, "rebalancer"));
   const [fleetActive, setFleetActive] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -176,17 +177,19 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
       setConfigLoaded(true);
       return;
     }
-    setConfigLoaded(false);
+    const apply = (cfg: Record<string, any> | null) => {
+      if (!cfg) return;
+      if (Array.isArray(cfg.selectedCoins) && cfg.selectedCoins.length) setSelectedCoins(cfg.selectedCoins);
+      if (typeof cfg.userExpectation === "string" && cfg.userExpectation) setUserExpectation(cfg.userExpectation);
+      if (typeof cfg.cadenceDays === "number") setCadenceDays(cfg.cadenceDays);
+      if (typeof cfg.driftThreshold === "number") setDriftThreshold(cfg.driftThreshold);
+      if (typeof cfg.minStablePct === "number") setMinStablePct(cfg.minStablePct);
+    };
     const ctrl = new AbortController();
-    loadAgentConfig(accountId, "rebalancer", ctrl.signal).then((cfg) => {
+    if (!peekAgentConfig(accountId, "rebalancer")) setConfigLoaded(false);
+    loadAgentConfig(accountId, "rebalancer", ctrl.signal, apply).then((cfg) => {
       if (ctrl.signal.aborted) return;
-      if (cfg) {
-        if (Array.isArray(cfg.selectedCoins) && cfg.selectedCoins.length) setSelectedCoins(cfg.selectedCoins);
-        if (typeof cfg.userExpectation === "string" && cfg.userExpectation) setUserExpectation(cfg.userExpectation);
-        if (typeof cfg.cadenceDays === "number") setCadenceDays(cfg.cadenceDays);
-        if (typeof cfg.driftThreshold === "number") setDriftThreshold(cfg.driftThreshold);
-        if (typeof cfg.minStablePct === "number") setMinStablePct(cfg.minStablePct);
-      }
+      apply(cfg);
       setConfigLoaded(true);
     });
     return () => ctrl.abort();
@@ -324,17 +327,15 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
 
       // 3b. Fleet activation flag (same source as the suite cards / sidebar)
       try {
-        const fleetRes = await fetch(`/api/fleet/${encodeURIComponent(accountId)}`);
-        if (fleetRes.ok) {
-          const fleet = await fleetRes.json();
+        const fleet = await dedupedGetJson<any>(`/api/fleet/${encodeURIComponent(accountId)}`, 3000);
+        if (fleet) {
           setFleetActive(Boolean(fleet?.agents?.rebalancer?.is_active));
         }
       } catch {}
 
       // 4. User wallet config
-      const cfgRes = await fetch(`/api/agent-wallet/config/${accountId}`);
-      if (cfgRes.ok) {
-        const cfgData = await cfgRes.json();
+      const cfgData = await dedupedGetJson<any>(`/api/agent-wallet/config/${accountId}`, 3000);
+      if (cfgData) {
         setAllowCrossChain(Boolean(cfgData.allow_cross_chain_trades));
       }
     } catch (e) {

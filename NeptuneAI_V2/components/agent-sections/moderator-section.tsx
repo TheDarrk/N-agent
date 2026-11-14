@@ -1,5 +1,6 @@
 "use client";
 
+import { dedupedGetJson } from "@/lib/dedupe-fetch";
 import { toast } from "@/hooks/use-toast";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import { startRun, streamRun, getRun, getActiveRun, setActiveRun, waitForRun, findRunningRun } from "@/lib/agent-runs";
@@ -80,9 +81,8 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
     isFetchingRef.current = true;
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/moderator/status/${encodeURIComponent(accountId)}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await dedupedGetJson<any>(`/api/moderator/status/${encodeURIComponent(accountId)}`, 4000);
+      if (data) {
         setStatus(data);
         // Only seed the editable fields on the first load; later polls must not clobber unsaved edits.
         if (!formSeededRef.current) {
@@ -847,6 +847,39 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
             across your fleet.
           </span>
         </div>
+      )}
+
+      {/* Latest audit stamp + previous audits (older reports live in the database history) */}
+      {status?.has_evaluation && (
+        <section aria-label="Audit history" className="p-4 rounded-2xl border border-border bg-card space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-sm font-bold text-foreground">Audit history</h2>
+            <span className="text-xs text-muted-foreground">
+              Latest report: {status.report_created_at ? new Date(String(status.report_created_at).replace(" ", "T") + (String(status.report_created_at).includes("Z") || String(status.report_created_at).includes("+") ? "" : "Z")).toLocaleString() : "just now"}
+              {status.verdict ? ` - ${String(status.verdict).replace(/_/g, " ")}` : ""}
+            </span>
+          </div>
+          {Array.isArray(status.history) && status.history.length > 0 ? (
+            <ul className="divide-y divide-border text-xs">
+              {status.history.map((h: any) => (
+                <li key={h.cid || h.created_at} className="py-2 flex items-center justify-between gap-3 flex-wrap">
+                  <span className="text-muted-foreground">
+                    {h.created_at ? new Date(String(h.created_at).replace(" ", "T") + (String(h.created_at).includes("Z") ? "" : "Z")).toLocaleString() : "-"}
+                  </span>
+                  <span className="font-semibold text-foreground">{String(h.verdict || "").replace(/_/g, " ")}</span>
+                  <span className="font-mono text-muted-foreground">
+                    Fleet {h.total_mean_score ?? "-"} / Trader {h.trader_score ?? "-"} / Rebal {h.rebalancer_score ?? "-"} / Research {h.research_score ?? "-"}
+                  </span>
+                  {Array.isArray(h.killed_agents) && h.killed_agents.length > 0 && (
+                    <span className="text-red-400 font-semibold">Halted: {h.killed_agents.join(", ")}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">No earlier audits yet. Each new audit moves the previous one into this history.</p>
+          )}
+        </section>
       )}
 
       {/* Live 4-step audit progress */}

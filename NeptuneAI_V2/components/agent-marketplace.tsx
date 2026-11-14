@@ -47,6 +47,8 @@ interface MarketplaceListing {
   status: string;
   sales_count: number;
   created_at: string;
+  can_edit?: boolean;
+  edit_lock_seconds_remaining?: number;
 }
 
 interface MarketplaceOrder {
@@ -93,7 +95,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
 
   // Publish Modal State
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
-  const [publishAgentType, setPublishAgentType] = useState<"trader" | "rebalancer">("trader");
+  const [publishAgentType, setPublishAgentType] = useState<"trader" | "rebalancer" | "research">("trader");
   const [publishTitle, setPublishTitle] = useState("");
   const [publishDesc, setPublishDesc] = useState("");
   const [publishPrice, setPublishPrice] = useState("25.00");
@@ -373,6 +375,37 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
     }, 1000);
   };
 
+  // Delete my own listing (always allowed; the 24h lock only covers edits)
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const handleDeleteListing = async (item: MarketplaceListing) => {
+    if (!accountId) return;
+    if (!window.confirm(`Delete "${item.title}"? It disappears from the marketplace immediately. Buyers who already paid keep their config.`)) return;
+    setDeletingId(item.listing_id);
+    try {
+      const res = await fetch(
+        `/api/marketplace/listings/${encodeURIComponent(item.listing_id)}?wallet=${encodeURIComponent(accountId)}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to delete listing.");
+      setListings((prev) => prev.filter((l) => l.listing_id !== item.listing_id));
+      setPublishSuccessMsg(`Listing "${item.title}" deleted. You can list this agent again.`);
+      setTimeout(() => setPublishSuccessMsg(null), 6000);
+      fetchListings();
+    } catch (e: any) {
+      alert(e.message || "Failed to delete listing.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const formatLock = (secs?: number) => {
+    if (!secs || secs <= 0) return "";
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
   // Handle Publish Listing
   const handlePublishListing = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -596,15 +629,15 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                       {/* Performance Stats */}
                       <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-secondary/30 border border-border text-center">
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Sharpe Ratio</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Risk</span>
                           <p className="text-sm font-mono font-bold text-emerald-400">
-                            {item.public_stats?.sharpe_ratio ?? 2.35}
+                            {item.public_stats?.risk_level ?? "MODERATE"}
                           </p>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Win Rate</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-bold">Regime</span>
                           <p className="text-sm font-mono font-bold text-primary">
-                            {item.public_stats?.win_rate_pct ?? 78.5}%
+                            {item.public_stats?.market_regime ?? "-"}
                           </p>
                         </div>
                         <div>
@@ -629,9 +662,27 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
 
                       <div className="flex items-center gap-2">
                         {isSeller ? (
-                          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-secondary text-muted-foreground border border-border">
-                            Your Listing
-                          </span>
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-secondary text-muted-foreground border border-border">
+                                Your Listing
+                              </span>
+                              <button
+                                onClick={() => handleDeleteListing(item)}
+                                disabled={deletingId === item.listing_id}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold transition-all disabled:opacity-50"
+                                title="Remove this listing from the marketplace"
+                              >
+                                {deletingId === item.listing_id ? <RefreshCw size={12} className="animate-spin" /> : <XCircle size={12} />}
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                            {item.can_edit === false && (
+                              <span className="text-[10px] text-muted-foreground">
+                                Editing locked for {formatLock(item.edit_lock_seconds_remaining)}
+                              </span>
+                            )}
+                          </div>
                         ) : alreadyBought ? (
                           <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/40">
                             <CheckCircle2 size={13} />
@@ -984,7 +1035,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
             <form onSubmit={handlePublishListing} className="space-y-4 text-xs">
               <div className="space-y-1.5">
                 <label className="text-muted-foreground font-semibold">Agent Strategy Type</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setPublishAgentType("trader")}
@@ -1007,7 +1058,23 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                   >
                     Portfolio Rebalancer
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setPublishAgentType("research")}
+                    className={`p-2.5 rounded-xl border text-center font-bold transition-all ${
+                      publishAgentType === "research"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
+                    }`}
+                  >
+                    Deep Researcher
+                  </button>
                 </div>
+                {listings.some((l) => accountId && l.seller_wallet.toLowerCase() === accountId.toLowerCase() && l.agent_type === publishAgentType) && (
+                  <p className="text-[11px] text-amber-400">
+                    You already have an active {publishAgentType} listing. Delete it first to list this agent again.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1">

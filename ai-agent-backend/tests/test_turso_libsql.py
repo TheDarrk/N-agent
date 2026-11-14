@@ -55,9 +55,9 @@ from marketplace_verify import (
     verify_usdt_payment,
     REASON_ALREADY_USED
 )
-from decentralized_storage import (
-    upload_trade_trace,
-    upload_research_report,
+from history_store import (
+    record_trade_trace,
+    record_research_report,
     get_recent_trade_traces,
     get_recent_research_reports
 )
@@ -302,8 +302,8 @@ async def test_decentralized_storage_db_truth():
         "confidence_score": 88,
         "strategy_notes": "RSI sweet spot with volume breakout"
     }
-    cid_trace = await upload_trade_trace(trace)
-    assert cid_trace.startswith("bafy")
+    cid_trace = await record_trade_trace(trace)
+    assert cid_trace.startswith("TRC-")
 
     # 2. Upload research report
     report = {
@@ -313,8 +313,8 @@ async def test_decentralized_storage_db_truth():
         "executive_summary": "Strong growth in user-owned AI agents.",
         "key_findings": ["Intents engine leads cross-chain volume"]
     }
-    cid_report = await upload_research_report(report)
-    assert cid_report.startswith("bafy")
+    cid_report = await record_research_report(report)
+    assert cid_report.startswith("RSH-")
 
     # 3. Query from DB (source of truth)
     traces = get_recent_trade_traces(limit=10, wallet_address=test_wallet)

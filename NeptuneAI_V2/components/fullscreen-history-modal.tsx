@@ -279,7 +279,7 @@ export default function FullScreenHistoryModal({
         );
       }
 
-      // 2. Fetch decentralized traces scoped to connected wallet
+      // 2. Fetch reasoning traces scoped to connected wallet
       const tracesRes = await fetch(`/api/trader/traces/${encodeURIComponent(targetWallet)}`);
       if (tracesRes.ok) {
         const data = await tracesRes.json();
@@ -441,7 +441,7 @@ export default function FullScreenHistoryModal({
     { key: "open", label: "Active Positions", value: openCount, unit: "Open", icon: <TrendingUp size={22} />, tone: "var(--color-primary)", text: "text-primary" },
     { key: "done", label: "Completed Trades", value: completedCount, unit: "Verified", icon: <CheckCircle2 size={22} />, tone: "var(--color-emerald-500)", text: "text-emerald-400" },
     { key: "drop", label: "Dropped / Failed", value: droppedCount, unit: "Dropped", icon: <AlertTriangle size={22} />, tone: "var(--color-rose-500)", text: "text-rose-400" },
-    { key: "ipfs", label: "Decentralized Traces", value: traces.length, unit: "on IPFS", icon: <Shield size={22} />, tone: "var(--color-cyan-500)", text: "text-cyan-400" },
+    { key: "ipfs", label: "Reasoning Traces", value: traces.length, unit: "saved", icon: <Shield size={22} />, tone: "var(--color-cyan-500)", text: "text-cyan-400" },
   ];
 
   const statusOptions = [
@@ -480,7 +480,7 @@ export default function FullScreenHistoryModal({
               </span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground text-pretty">
-              Full-screen inspection of active positions, historical trades, dropped executions &amp; IPFS reasoning runs.
+              Full-screen inspection of active positions, historical trades, dropped executions &amp; reasoning runs.
             </p>
           </div>
         </div>
@@ -617,7 +617,7 @@ export default function FullScreenHistoryModal({
                 <input
                   type="text"
                   aria-label="Search history"
-                  placeholder="Search symbol, CID, reason..."
+                  placeholder="Search symbol, ID, reason..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-11 w-full rounded-2xl border border-border bg-background/70 pl-10 pr-10 text-sm text-foreground shadow-inner transition placeholder:text-muted-foreground/60 focus:border-primary/60 focus:outline-none focus:ring-4 focus:ring-primary/15"
@@ -769,14 +769,14 @@ export default function FullScreenHistoryModal({
               <div>
                 <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2">
                   <Brain size={16} className="text-primary" />
-                  Decentralized Reasoning Traces (Recent Verified Runs)
+                  Reasoning Traces (Recent Runs)
                 </h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   Click any trace to expand the complete step-by-step pipeline of what the agent thought, evaluated, and executed.
                 </p>
               </div>
               <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-xl border border-cyan-500/20">
-                IPFS Content-Addressed
+                Saved in database
               </span>
             </div>
 
@@ -1062,11 +1062,11 @@ export default function FullScreenHistoryModal({
                               )}
                             </div>
 
-                            {/* Step 7 & 8: Intents Routing & IPFS Trace */}
+                            {/* Step 7 & 8: Intents Routing & Audit Trail */}
                             <div className="p-3.5 rounded-xl bg-secondary/30 border border-border space-y-1 md:col-span-2 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
                               <div>
                                 <span className="text-[11px] font-bold text-primary block">
-                                  Steps 7 &amp; 8: NEAR Intents Protocol &amp; Decentralized Audit
+                                  Steps 7 &amp; 8: NEAR Intents Protocol &amp; Audit Trail
                                 </span>
                                 <span className="font-mono text-muted-foreground text-[10px]">
                                   Tx Hash / Quote: {tr.tx_hash || "Simulated / Intents Payload"}
@@ -1155,7 +1155,7 @@ export default function FullScreenHistoryModal({
 
                       {log.cid_reference && log.cid_reference !== "local" && (
                         <div className="mt-2 pt-2 border-t border-border flex items-center justify-between text-[10px]">
-                          <span className="text-muted-foreground">IPFS Provenance:</span>
+                          <span className="text-muted-foreground">Record ID:</span>
                           <span className="font-mono text-primary">{log.cid_reference}</span>
                         </div>
                       )}

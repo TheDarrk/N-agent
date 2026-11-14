@@ -12,8 +12,8 @@ from autonomous_agents.trade_poller import poll_active_trades
 from autonomous_agents.rebalancer_agent import RebalancerAgent
 from autonomous_agents.research_agent import ResearchAgent
 from autonomous_agents.moderator_agent import ModeratorAgent
-from decentralized_storage import (
-    upload_trade_trace, upload_research_report,
+from history_store import (
+    record_trade_trace, record_research_report,
     get_recent_trade_traces, get_recent_research_reports
 )
 
@@ -40,17 +40,20 @@ def test_rag_retrieval():
     assert "Retrieved Trading Knowledge" in context
 
 
-def test_decentralized_storage_recent_10():
-    for i in range(15):
-        asyncio.run(upload_trade_trace({"test_trade_id": i, "symbol": "NEAR"}))
-        asyncio.run(upload_research_report({"test_report_id": i, "topic": "Yields"}))
+def test_history_store_db_only_with_ids():
+    import uuid
+    wallet = f"hist_{uuid.uuid4().hex[:6]}.near"
+    t_ids = [asyncio.run(record_trade_trace({"user_wallet": wallet, "symbol": "NEAR", "verdict": "BUY", "test_trade_id": i})) for i in range(3)]
+    r_ids = [asyncio.run(record_research_report({"requester": wallet, "topic": "Yields", "test_report_id": i})) for i in range(3)]
+    assert all(i.startswith("TRC-") for i in t_ids) and all(i.startswith("RSH-") for i in r_ids)
+    assert len(set(t_ids)) == 3 and len(set(r_ids)) == 3
 
-    traces = get_recent_trade_traces(limit=20)
-    reports = get_recent_research_reports(limit=20)
-
-    # Must be capped at at most 10
-    assert len(traces) <= 10
-    assert len(reports) <= 10
+    traces = get_recent_trade_traces(limit=20, wallet_address=wallet)
+    reports = get_recent_research_reports(limit=20, wallet_address=wallet)
+    assert {t["cid"] for t in traces} == set(t_ids)
+    assert {r["cid"] for r in reports} == set(r_ids)
+    # never leaks across tenants / without a wallet
+    assert get_recent_trade_traces(limit=20) == [] and get_recent_research_reports(limit=20) == []
 
 
 def test_rebalancer_agent():
