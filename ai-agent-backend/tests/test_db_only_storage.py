@@ -86,8 +86,18 @@ def test_chart_rendered_in_memory_only():
 
 # ---------------- scheduler: coalescing + concurrency ----------------
 
+@pytest.fixture(autouse=True)
+def _fast_moderator(monkeypatch):
+    """Scheduler tests must not run a real fleet audit; the cadence check is stubbed."""
+    from autonomous_agents.moderator_agent import ModeratorAgent
+
+    async def _noop(self, wallet):
+        return None
+    monkeypatch.setattr(ModeratorAgent, "run_cadence_check", _noop)
+
+
 def _job(next_run_at, interval=3600, jid=None):
-    return {"job_id": jid or f"w.near:unknown:{uuid.uuid4().hex[:4]}", "wallet": "w.near", "agent_type": "unknown",
+    return {"job_id": jid or f"w.near:moderator:{uuid.uuid4().hex[:4]}", "wallet": "w.near", "agent_type": "moderator",
             "interval_seconds": interval, "next_run_at": next_run_at, "config": {}}
 
 

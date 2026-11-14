@@ -10,6 +10,7 @@ import uuid
 import asyncio
 import uvicorn
 import os
+import time
 import sys
 import io
 import logging
@@ -1804,12 +1805,25 @@ async def rebalancer_evaluate(body: RebalanceRequest):
     )
     return result
 
+_REB_STATUS_CACHE: Dict[str, tuple] = {}
+_REB_STATUS_TTL = 45  # seconds
+
+
 @app.get("/api/rebalancer/status/{wallet_address}")
 async def rebalancer_status(wallet_address: str):
     """Get current Rebalancer Agent telemetry (strictly read-only, zero trade side-effects)."""
+    # The ~2s here is external HTTP (token prices + on-chain balances), not the DB. Cache it briefly per wallet.
+    key = normalize_wallet(wallet_address)
+    hit = _REB_STATUS_CACHE.get(key)
+    if hit and time.time() - hit[0] < _REB_STATUS_TTL:
+        return hit[1]
     from autonomous_agents.rebalancer_agent import RebalancerAgent
     rebalancer = RebalancerAgent()
-    return await rebalancer.get_portfolio_drift_status(user_wallet=wallet_address)
+    data = await rebalancer.get_portfolio_drift_status(user_wallet=wallet_address)
+    _REB_STATUS_CACHE[key] = (time.time(), data)
+    if len(_REB_STATUS_CACHE) > 500:
+        _REB_STATUS_CACHE.pop(next(iter(_REB_STATUS_CACHE)), None)
+    return data
 
 @app.post("/api/rebalancer/dry-run-quote")
 async def rebalancer_dry_run_quote(body: DryRunQuoteRequest):

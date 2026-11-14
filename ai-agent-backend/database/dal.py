@@ -251,6 +251,11 @@ def init_db(db_path: Optional[str] = None):
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_wallet ON scheduled_jobs(wallet, agent_type);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_enabled ON scheduled_jobs(enabled, next_run_at);")
+        # create the UI-config table once at startup (not lazily on the first request, which costs a remote write)
+        try:
+            _ensure_agent_ui_config_table(conn)
+        except Exception as _ue:
+            print(f"[DB: agent_ui_config migration warning] {_ue}")
     except Exception as e:
         print(f"[DB: scheduled_jobs migration warning] {e}")
 
@@ -670,12 +675,21 @@ def upsert_user(wallet_address: str, settings: Dict[str, Any] = None) -> Dict[st
     settings = settings or {}
     conn = get_connection()
 
-    # 1. Ensure master user record exists
-    conn.execute("INSERT OR IGNORE INTO core_user_wallets (wallet_address) VALUES (?)", (wallet_address,))
-    conn.execute("INSERT OR IGNORE INTO trader_config (wallet_address) VALUES (?)", (wallet_address,))
-    conn.execute("INSERT OR IGNORE INTO rebalancer_config (wallet_address) VALUES (?)", (wallet_address,))
-    conn.execute("INSERT OR IGNORE INTO research_config (wallet_address) VALUES (?)", (wallet_address,))
-    conn.execute("INSERT OR IGNORE INTO moderator_config (wallet_address) VALUES (?)", (wallet_address,))
+    # 1. Ensure master user record exists. One cheap LOCAL read first: writes go to the remote primary
+    # (~1s each), so the five INSERT OR IGNOREs only run for users that are really missing rows.
+    _have = conn.execute("""
+        SELECT (SELECT COUNT(*) FROM core_user_wallets WHERE wallet_address = ?) +
+               (SELECT COUNT(*) FROM trader_config WHERE wallet_address = ?) +
+               (SELECT COUNT(*) FROM rebalancer_config WHERE wallet_address = ?) +
+               (SELECT COUNT(*) FROM research_config WHERE wallet_address = ?) +
+               (SELECT COUNT(*) FROM moderator_config WHERE wallet_address = ?)
+    """, (wallet_address,) * 5).fetchone()[0]
+    if _have < 5:
+        conn.execute("INSERT OR IGNORE INTO core_user_wallets (wallet_address) VALUES (?)", (wallet_address,))
+        conn.execute("INSERT OR IGNORE INTO trader_config (wallet_address) VALUES (?)", (wallet_address,))
+        conn.execute("INSERT OR IGNORE INTO rebalancer_config (wallet_address) VALUES (?)", (wallet_address,))
+        conn.execute("INSERT OR IGNORE INTO research_config (wallet_address) VALUES (?)", (wallet_address,))
+        conn.execute("INSERT OR IGNORE INTO moderator_config (wallet_address) VALUES (?)", (wallet_address,))
 
     # 2. Update core_user_wallets fields
     core_updates = []
@@ -2831,7 +2845,13 @@ def update_agent_fleet_config(user_wallet: str, agent_id: str, is_active: bool, 
     return get_fleet_activity(user_wallet)
 
 
+_UI_CFG_TABLE_READY = False
+
+
 def _ensure_agent_ui_config_table(conn) -> None:
+    global _UI_CFG_TABLE_READY
+    if _UI_CFG_TABLE_READY:
+        return
     conn.execute(
         """CREATE TABLE IF NOT EXISTS agent_ui_config (
             wallet_address TEXT NOT NULL,
@@ -2848,6 +2868,7 @@ def _ensure_agent_ui_config_table(conn) -> None:
             conn.execute("ALTER TABLE agent_ui_config ADD COLUMN config_hash TEXT DEFAULT NULL")
     except Exception:
         pass
+    _UI_CFG_TABLE_READY = True
 
 
 def compute_config_hash(config: Dict[str, Any]) -> str:
@@ -2923,7 +2944,14 @@ def save_agent_ui_config(user_wallet: str, agent_id: str, config: Dict[str, Any]
         conn.close()
 
 
+_HL_TABLE_READY = False
+
+
 def _ensure_hyperliquid_config_table(conn) -> None:
+    global _HL_TABLE_READY
+    if _HL_TABLE_READY:
+        return
+    _HL_TABLE_READY = True
     conn.execute(
         """CREATE TABLE IF NOT EXISTS hyperliquid_config (
             wallet_address TEXT PRIMARY KEY,

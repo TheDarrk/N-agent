@@ -37,6 +37,7 @@ import { AgentAvatar } from "@/components/agent-avatars";
 import { AgentCardScene } from "@/components/agent-card-scene";
 import { tilt3d } from "@/components/agent-sections/trader/tilt-3d";
 import ShareAgentModal from "@/components/share-agent-modal";
+import { dedupedGetJson, peekCachedJson } from "@/lib/dedupe-fetch";
 
 type Props = {
   accountId: string | null;
@@ -72,7 +73,9 @@ export default function NeptuneAgentSuite({
   onSelectAgentSubView,
   onConnectWallet
 }: Props) {
-  const [fleetData, setFleetData] = useState<FleetData | null>(null);
+  const [fleetData, setFleetData] = useState<FleetData | null>(() =>
+    peekCachedJson<FleetData>(`/api/fleet/${accountId || "guest.near"}`)
+  );
   const [myHires, setMyHires] = useState<any[]>([]);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
@@ -83,17 +86,15 @@ export default function NeptuneAgentSuite({
   const fetchFleet = async () => {
     const wallet = accountId || "guest.near";
     try {
-      const res = await fetch(`/api/fleet/${wallet}`);
-      if (res.ok) {
-        const data = await res.json();
-        setFleetData(data);
-      }
+      const [data, hiresData] = await Promise.all([
+        dedupedGetJson<FleetData>(`/api/fleet/${wallet}`, 2000, true),
+        accountId
+          ? dedupedGetJson<any>(`/api/marketplace/hires/${encodeURIComponent(accountId)}`, 2000, true)
+          : Promise.resolve(null),
+      ]);
+      if (data) setFleetData(data);
       if (accountId) {
-        const hiresRes = await fetch(`/api/marketplace/hires/${encodeURIComponent(accountId)}`);
-        if (hiresRes.ok) {
-          const hiresData = await hiresRes.json();
-          setMyHires(hiresData.my_hires || []);
-        }
+        if (hiresData) setMyHires(hiresData.my_hires || []);
       } else {
         setMyHires([]);
       }

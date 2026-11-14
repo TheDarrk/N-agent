@@ -59,10 +59,32 @@ export type DashboardActions = {
   setCadence: (frequency: string) => Promise<void>;
 };
 
+const dashKey = (w: string) => `neptune_dash_${w.trim().toLowerCase()}`;
+
+function readDashSnapshot(wallet: string): DashboardData | null {
+  if (typeof window === "undefined" || !wallet) return null;
+  try {
+    const raw = localStorage.getItem(dashKey(wallet));
+    return raw ? ({ ...EMPTY_DASHBOARD, ...JSON.parse(raw) } as DashboardData) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDashSnapshot(wallet: string, data: DashboardData) {
+  try {
+    // keep it small: drop heavy chart images from cached traces
+    const slim = { ...data, traces: (data.traces || []).slice(0, 8).map((t: any) => ({ ...t, chart_image: undefined })) };
+    localStorage.setItem(dashKey(wallet), JSON.stringify(slim));
+  } catch {
+    /* quota: best effort */
+  }
+}
+
 export function useDashboardData(accountId: string | null) {
   const wallet = accountId || "";
-  const [data, setData] = useState<DashboardData>(EMPTY_DASHBOARD);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<DashboardData>(() => readDashSnapshot(accountId || "") ?? EMPTY_DASHBOARD);
+  const [loading, setLoading] = useState<boolean>(() => !readDashSnapshot(accountId || ""));
   const [offline, setOffline] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [deliberating, setDeliberating] = useState(false);
@@ -108,6 +130,10 @@ export function useDashboardData(accountId: string | null) {
       }));
       setOffline(!fleet && !trades && !moderator);
       setUpdatedAt(Date.now());
+      if (fleet || trades || moderator) {
+        // persist the merged view for the next visit (read via ref so we store what is on screen)
+        setTimeout(() => writeDashSnapshot(wallet, dataRef.current), 0);
+      }
     } finally {
       busy.current = false;
       setLoading(false);
@@ -115,8 +141,10 @@ export function useDashboardData(accountId: string | null) {
   }, [wallet]);
 
   useEffect(() => {
-    setData(EMPTY_DASHBOARD);
-    setLoading(true);
+    // switch wallet => show that wallet's cached snapshot at once (skeleton only when nothing is cached)
+    const cached = readDashSnapshot(wallet);
+    setData(cached ?? EMPTY_DASHBOARD);
+    setLoading(!cached);
     refresh();
 
     const handleVisibility = () => {

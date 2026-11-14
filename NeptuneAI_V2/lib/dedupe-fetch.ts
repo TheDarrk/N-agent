@@ -6,7 +6,32 @@
 type Entry = { at: number; promise: Promise<any>; done: boolean };
 const entries = new Map<string, Entry>();
 
-export function dedupedGetJson<T = any>(url: string, ttlMs = 3000): Promise<T | null> {
+const PERSIST_PREFIX = "neptune_swr_";
+const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Last good response for `url` from localStorage (instant first paint; survives refresh / new tab). */
+export function peekCachedJson<T = any>(url: string): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PERSIST_PREFIX + url);
+    if (!raw) return null;
+    const { t, v } = JSON.parse(raw);
+    return Date.now() - t < PERSIST_MAX_AGE_MS ? (v as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeCachedJson(url: string, value: unknown) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(PERSIST_PREFIX + url, JSON.stringify({ t: Date.now(), v: value }));
+  } catch {
+    /* quota / private mode: cache is best-effort */
+  }
+}
+
+export function dedupedGetJson<T = any>(url: string, ttlMs = 3000, persist = false): Promise<T | null> {
   const now = Date.now();
   const hit = entries.get(url);
   // in flight => always share; finished => reuse only inside the TTL window
@@ -19,7 +44,9 @@ export function dedupedGetJson<T = any>(url: string, ttlMs = 3000): Promise<T | 
         entries.delete(url);
         return null;
       }
-      return (await res.json()) as T;
+      const json = (await res.json()) as T;
+      if (persist) storeCachedJson(url, json);
+      return json;
     } catch {
       entries.delete(url);
       return null;

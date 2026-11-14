@@ -20,6 +20,15 @@ const nextConfig = {
   compiler: {
     styledComponents: true,
   },
+  async headers() {
+    const longCache = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
+    return [
+      { source: "/images/:path*", headers: longCache },
+      { source: "/agents/:path*", headers: longCache },
+      { source: "/neptune-logo.png", headers: longCache },
+      { source: "/favicon.png", headers: longCache },
+    ];
+  },
   logging: {
     fetches: {
       fullUrl: false

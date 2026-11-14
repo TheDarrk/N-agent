@@ -371,6 +371,41 @@ def normalize_wallet(wallet: Optional[str]) -> str:
     return str(wallet).strip().lower()
 
 
+_pull_thread_started = False
+
+
+def _ensure_background_pull(target_path: str, url: str, token: str) -> None:
+    """Starts (once per process) a daemon thread that pulls remote changes into the local replica every N seconds."""
+    global _pull_thread_started
+    if _pull_thread_started:
+        return
+    _pull_thread_started = True
+    try:
+        interval = float(os.getenv("TURSO_PULL_INTERVAL_SECONDS", "5"))
+    except ValueError:
+        interval = 5.0
+
+    def _loop():
+        global _last_sync_time, _last_sync_ok
+        raw = None
+        while True:
+            try:
+                if raw is None:
+                    raw = libsql.connect(target_path, sync_url=url, auth_token=token, autocommit=True)
+                with _sync_lock:
+                    raw.sync()
+                _last_sync_time = time.monotonic()
+                _last_sync_ok = True
+            except Exception as e:  # keep going; a failed pull must never take the server down
+                _last_sync_ok = False
+                logger.warning(f"[Turso background pull warning] {e}")
+                raw = None
+            time.sleep(interval)
+
+    threading.Thread(target=_loop, name="turso-pull", daemon=True).start()
+    logger.info(f"[Turso] background replica pull started (every {interval:g}s)")
+
+
 def get_connection(db_path: Optional[str] = None) -> Union[sqlite3.Connection, LibsqlConnectionWrapper]:
     """
     Get a database connection configured for concurrent reads and resilient writes.
@@ -411,13 +446,12 @@ def get_connection(db_path: Optional[str] = None) -> Union[sqlite3.Connection, L
                 time.sleep(0.15 * (_attempt + 1))
         wrapper = LibsqlConnectionWrapper(raw, is_replica=True)
 
-        # Pull latest state from Turso Cloud. Throttled: a blocking network sync on EVERY
-        # connection serialized all API calls (each request opens several) and stalled the server.
-        try:
-            pull_interval = float(os.getenv("TURSO_PULL_INTERVAL_SECONDS", "15"))
-        except ValueError:
-            pull_interval = 15.0
-        _debounced_sync(raw, force=fresh_replica, min_interval=pull_interval)
+        # Pull latest state from Turso Cloud. The FIRST open of a fresh replica must sync inline (nothing to read yet);
+        # afterwards a background thread keeps the replica fresh, so no API request ever pays the ~1.4s sync.
+        if fresh_replica:
+            _debounced_sync(raw, force=True)
+        else:
+            _ensure_background_pull(target_path, url, token)
 
         # NOTE: do NOT run PRAGMA foreign_keys here. On an embedded replica it is forwarded to
         # Turso as a network round trip (~1s) and get_connection() runs several times per request.
