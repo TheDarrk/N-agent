@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import React, { useState, useEffect, useCallback } from "react";
 import { MessageSquare, Bot, User, RefreshCw, Trash2, ArrowUpRight, Wallet } from "lucide-react";
 
@@ -74,7 +75,7 @@ export default function SidebarChatHistory({
     fetchHistory(false);
     const interval = setInterval(() => {
       fetchHistory(false);
-    }, 15000);
+    }, POLL_HISTORY_MS);
     return () => clearInterval(interval);
   }, [fetchHistory]);
 

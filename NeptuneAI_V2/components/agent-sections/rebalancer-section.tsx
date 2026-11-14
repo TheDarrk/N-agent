@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { dedupedGetJson } from "@/lib/dedupe-fetch";
 import { tilt3d } from "./trader/tilt-3d";
 import InfoTip from "./shared/info-tip";
@@ -370,7 +371,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
     };
     document.addEventListener("visibilitychange", handleVisibility);
 
-    const cleanup = setVisibleInterval(() => fetchStrategyAndStatus(false), 20000);
+    const cleanup = setVisibleInterval(() => fetchStrategyAndStatus(false), POLL_HISTORY_MS);
 
     const abortCtrl = new AbortController();
     async function checkActiveRebalanceRun() {

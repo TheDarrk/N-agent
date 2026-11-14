@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { RefreshCw, Brain, Maximize2, ChevronRight } from "lucide-react";
@@ -116,7 +117,7 @@ export default function SidebarAgentFeed({
 
   useEffect(() => {
     fetchLogs(false);
-    return setVisibleInterval(() => fetchLogs(false), 12000);
+    return setVisibleInterval(() => fetchLogs(false), POLL_HISTORY_MS);
   }, [fetchLogs]);
 
   const groups = useMemo(() => {

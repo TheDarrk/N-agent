@@ -7,8 +7,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 # Prevent test suite from syncing test databases with remote production Turso
 # unless explicitly requested via TEST_WITH_LIVE_TURSO=1
 if os.environ.get("TEST_WITH_LIVE_TURSO") != "1":
-    os.environ["TURSO_DATABASE_URL"] = ""
-    os.environ["TURSO_AUTH_TOKEN"] = ""
+    # NOTE: on Windows `os.environ[k] = ""` DELETES the variable and python-dotenv then reloads the real credentials
+    # from .env, so the old guard silently let tests write to production Turso. Use an explicit kill switch.
+    os.environ["NEPTUNE_DISABLE_TURSO"] = "1"
+    os.environ["TURSO_DATABASE_URL"] = " "
+    os.environ["TURSO_AUTH_TOKEN"] = " "
 
 # Direct all test database operations to an isolated test database (neptune_test.db)
 # immediately at module load time so neptune_v2.db remains 100% clean and unpolluted.

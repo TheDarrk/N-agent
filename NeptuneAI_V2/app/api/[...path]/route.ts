@@ -10,8 +10,25 @@ export const runtime = "nodejs";
 
 const BACKEND_URL = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
-// Short reads fail fast so a stalled backend can't pin Vercel functions for 300s each.
-const GET_TIMEOUT_MS = 20000;
+// Reads give up after 35s (Render's free tier can need ~30s to wake from sleep or finish a redeploy) and are
+// retried once; still short enough that a dead backend can't pin Vercel functions for 300s each.
+const GET_TIMEOUT_MS = 35000;
+
+function isTransientNetworkError(e: unknown) {
+    const name = (e as any)?.name || "";
+    const code = (e as any)?.cause?.code || (e as any)?.code;
+    return name === "TimeoutError" || name === "AbortError" || ["ECONNRESET", "ECONNREFUSED", "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT"].includes(code);
+}
+
+async function fetchGetWithRetry(url: string, init: RequestInit): Promise<Response> {
+    try {
+        return await fetch(url, { ...init, signal: AbortSignal.timeout(GET_TIMEOUT_MS) });
+    } catch (e) {
+        if (!isTransientNetworkError(e)) throw e;
+        await new Promise((r) => setTimeout(r, 1500));
+        return await fetch(url, { ...init, signal: AbortSignal.timeout(GET_TIMEOUT_MS) });
+    }
+}
 const WRITE_TIMEOUT_MS = 120000;
 
 function isStreamPath(p: string) {
@@ -41,12 +58,15 @@ export async function GET(
     const queryString = url.search;
 
     try {
-        const response = await fetch(`${BACKEND_URL}${backendPath}${queryString}`, {
+        const getInit: RequestInit = {
             method: "GET",
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
-            ...(isStreamPath(backendPath) ? {} : { signal: AbortSignal.timeout(GET_TIMEOUT_MS) }),
-        });
+        };
+        const targetUrl = `${BACKEND_URL}${backendPath}${queryString}`;
+        const response = isStreamPath(backendPath)
+            ? await fetch(targetUrl, getInit)
+            : await fetchGetWithRetry(targetUrl, getInit);
 
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("text/event-stream") || contentType.includes("application/x-ndjson") || backendPath.includes("/stream")) {
@@ -62,10 +82,10 @@ export async function GET(
 
         return await toJsonResponse(response);
     } catch (e) {
-        console.error(`[AUTONOMY PROXY] GET ${backendPath} error:`, e);
+        console.error(`[AUTONOMY PROXY] GET ${backendPath} failed (BACKEND_URL=${BACKEND_URL}):`, (e as any)?.name || e);
         return Response.json(
-            { error: "Cannot reach backend" },
-            { status: 502 }
+            { error: "Cannot reach backend", waking: isTransientNetworkError(e) },
+            { status: isTransientNetworkError(e) ? 503 : 502 }
         );
     }
 }

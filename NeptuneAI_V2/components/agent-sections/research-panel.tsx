@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { tilt3d } from "./trader/tilt-3d";
 import ReportView from "./research/report-view";
 import InfoTip from "./shared/info-tip";
@@ -187,6 +188,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [currentActiveStep, setCurrentActiveStep] = useState<number>(0);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const [stepCards, setStepCards] = useState<CoTStepCard[]>([]);
   const [liveToolCalls, setLiveToolCalls] = useState<{ tool: string; args: any; thought?: string }[]>([]);
   const [showSteps, setShowSteps] = useState(false);
@@ -235,7 +237,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
 
   useEffect(() => {
     fetchReports();
-    return setVisibleInterval(fetchReports, 20000);
+    return setVisibleInterval(fetchReports, POLL_HISTORY_MS);
   }, [fetchReports]);
 
   // Tab visibility: refresh reports when user returns to this tab
@@ -301,6 +303,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   useEffect(() => {
     if (!accountId) return;
     const abortCtrl = new AbortController();
+    streamAbortRef.current = abortCtrl;
 
     async function checkActiveOrLatest() {
       try {
@@ -372,7 +375,10 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       return;
     }
 
-    // Immediately clear previous cards to avoid stale context
+    // New run => stop any earlier stream and empty ALL step cards (older runs live in history)
+    streamAbortRef.current?.abort();
+    const runAbort = new AbortController();
+    streamAbortRef.current = runAbort;
     setActiveReport(null);
     setStepCards([]);
     setLiveToolCalls([]);
@@ -412,7 +418,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       startedRunId = run_id;
       setActiveRun("research", accountId, run_id);
 
-      await streamRun(run_id, handleStreamEvent, 0);
+      await streamRun(run_id, handleStreamEvent, 0, runAbort.signal);
 
       setActiveRun("research", accountId, null);
       await fetchReports();
@@ -454,9 +460,12 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       }
       }
     } finally {
-      setIsLoading(false);
-      setCurrentActiveStep(0);
-      if (!keepActiveRun) setActiveRun("research", accountId, null);
+      // only the newest run may switch the loader off (an older, aborted stream must not stop a newer run's UI)
+      if (streamAbortRef.current === runAbort) {
+        setIsLoading(false);
+        setCurrentActiveStep(0);
+        if (!keepActiveRun) setActiveRun("research", accountId, null);
+      }
     }
   };
 

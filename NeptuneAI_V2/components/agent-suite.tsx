@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect } from "react";
 import {
@@ -105,7 +106,7 @@ export default function NeptuneAgentSuite({
 
   useEffect(() => {
     fetchFleet();
-    return setVisibleInterval(fetchFleet, 15000);
+    return setVisibleInterval(fetchFleet, POLL_LIVE_MS);
   }, [accountId]);
 
   const handleCancelHire = async (hireId: string) => {

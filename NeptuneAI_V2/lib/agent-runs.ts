@@ -177,6 +177,11 @@ export async function streamRun(
             if (typeof ev.seq === "number") {
               currentAfter = Math.max(currentAfter, ev.seq);
             }
+            // "on hold" = backend is waiting for a busy database; the run is NOT failed and resumes by itself
+            if (typeof window !== "undefined") {
+              if (ev.type === "on_hold") window.dispatchEvent(new CustomEvent("neptune-run-hold", { detail: ev }));
+              else if (ev.type === "run_resumed" || ev.type === "run_finished") window.dispatchEvent(new Event("neptune-run-resume"));
+            }
             onEvent(ev);
             if (ev.type === "run_finished" || (ev.type === "done" && ev.status !== "in_progress")) {
               return;
@@ -194,6 +199,11 @@ export async function streamRun(
       }
     } catch (e: any) {
       if (signal?.aborted || e.name === "AbortError") return;
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("neptune-run-hold", {
+          detail: { message: "Reconnecting to the server - your run keeps going in the background." },
+        }));
+      }
       attempts++;
       if (attempts > maxRetries) {
         console.error(`[STREAM] Exceeded max retries (${maxRetries}) for run ${runId}`);

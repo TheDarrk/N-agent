@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -387,7 +388,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
 
   useEffect(() => {
     fetchTrades(false);
-    return setVisibleInterval(() => fetchTrades(false), 15000);
+    return setVisibleInterval(() => fetchTrades(false), POLL_LIVE_MS);
   }, [accountId]);
 
   // Tab visibility: refresh instantly when user switches back to this tab
@@ -884,8 +885,8 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
         <div className="space-y-4">
           {/* Active Live Run & Real-Time Chart: derived from manual scanResult OR latest autonomous background trace */}
           {(() => {
-            const latestTrace = traces.length > 0 ? traces[0] : null;
-            const baseRun = (scanResult && typeof scanResult === "object" && !scanResult.error ? scanResult : null) || (latestTrace ? {
+            const latestTrace = !isScanning && traces.length > 0 ? traces[0] : null; // new scan => previous run cards are cleared (history has them)
+            const baseRun = (!isScanning && scanResult && typeof scanResult === "object" && !scanResult.error ? scanResult : null) || (latestTrace ? {
               success: latestTrace.verdict === "ENTER_LONG",
               verdict: latestTrace.verdict,
               symbol: latestTrace.symbol,

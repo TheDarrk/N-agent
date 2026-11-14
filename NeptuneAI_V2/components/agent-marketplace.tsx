@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import React, { useState, useEffect, useRef } from "react";
 import {
   Store,
@@ -150,11 +151,11 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
     fetchListings();
     fetchUserOrdersAndSales();
 
-    // Auto-refresh listings every 30s per Task 3.6
+    // Auto-refresh listings every minute (history-type data)
     const interval = setInterval(() => {
       fetchListings();
       fetchUserOrdersAndSales();
-    }, 30000);
+    }, POLL_HISTORY_MS);
 
     return () => clearInterval(interval);
   }, [accountId]);

@@ -77,6 +77,9 @@ logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 GLOBAL_SCHEDULER: Optional[Any] = None
 # Background jobs run on Render by default; locally only when RUN_SCHEDULER=1 (local + Render share one Turso DB).
 SCHEDULER_ENABLED = os.getenv("RUN_SCHEDULER", "1" if os.getenv("RENDER") else "0").strip() == "1"
+# Two poller speeds. FREQUENT = time-sensitive (due agent runs, strategy triggers); LAZY = everything else.
+FREQUENT_POLL_SECONDS = max(10, int(os.getenv("FREQUENT_POLL_SECONDS", "30")))
+LAZY_POLL_SECONDS = max(60, int(os.getenv("LAZY_POLL_SECONDS", "300")))
 
 # -- App Lifespan (init DB + autonomy scheduler) ------------------
 @asynccontextmanager
@@ -137,105 +140,26 @@ async def lifespan(app):
 
         scheduler = AsyncIOScheduler()
         if not SCHEDULER_ENABLED:
-            logger.warning("[STARTUP] Background scheduler DISABLED on this instance (not on Render and RUN_SCHEDULER!=1). "
+            logger.warning("[STARTUP] Background pollers DISABLED on this instance (not on Render and RUN_SCHEDULER!=1). "
                            "Set RUN_SCHEDULER=1 to enable. This prevents a local server from double-running the shared database's jobs.")
-        scheduler.add_job(
-            check_all_strategies,
-            'interval',
-            seconds=30,
-            id='strategy_check',
-            misfire_grace_time=3600,
-            coalesce=True,
-            replace_existing=True
-        )
-        # Active trade poller deactivated: Defuse 1-Click / NEAR Intents trades settle atomically on-chain
-        print("[STARTUP] Trade poller disabled (Defuse 1-Click instant settlement active)")
-
-        # Register 5-minute autonomous Moderator Watchdog cadence checker
-        try:
-            async def check_all_moderator_cadences():
-                try:
-                    from database import get_connection
-                    from autonomous_agents.moderator_agent import ModeratorAgent
-                    conn = get_connection()
-                    rows = conn.execute("""
-                        SELECT u.wallet_address 
-                        FROM core_user_wallets u
-                        LEFT JOIN moderator_config m ON u.wallet_address = m.wallet_address
-                        WHERE COALESCE(m.agent_active, 0) = 1 AND (u.kill_switch_active IS NULL OR u.kill_switch_active = 0)
-                    """).fetchall()
-                    conn.close()
-                    if not rows:
-                        return
-                    moderator = ModeratorAgent()
-                    for r in rows:
-                        wallet = r["wallet_address"]
-                        mod_res = await moderator.run_cadence_check(wallet)
-                        if mod_res and isinstance(mod_res, dict):
-                            m_run_id = create_run(wallet, "moderator", title="Autonomous Fleet Deliberation", params={"source": "cadence_scheduler"})
-                            cid_val = mod_res.get("cid")
-                            finish_run(m_run_id, result=mod_res, cid=cid_val, error=None)
-                except Exception as me:
-                    print(f"[STARTUP] Moderator cadence runner error: {me}")
-
+        else:
+            # FREQUENT poller: time-sensitive work that must keep being checked (due agent runs, strategy triggers).
             scheduler.add_job(
-                check_all_moderator_cadences,
-                'interval',
-                minutes=5,
-                id='moderator_cadence_job',
-                misfire_grace_time=3600,
-                coalesce=True,
-                replace_existing=True
+                frequent_poll_tick, 'interval', seconds=FREQUENT_POLL_SECONDS, id='frequent_poller',
+                max_instances=1, misfire_grace_time=3600, coalesce=True, replace_existing=True
             )
-            print("[STARTUP] Moderator Watchdog cadence poller registered (every 5 min)")
-        except Exception as mod_err:
-            print(f"[STARTUP] Moderator cadence registration error: {mod_err}")
-
-        # Register Marketplace Order Expiry Job (every 10 min) per Task 3.3
-        try:
-            from marketplace_service import expire_stale_orders
-            swept = expire_stale_orders()
-            if swept > 0:
-                print(f"[STARTUP] Cleaned {swept} expired marketplace orders.")
-
+            # LAZY poller: everything else (moderator cadence, expired marketplace orders, housekeeping).
             scheduler.add_job(
-                expire_stale_orders,
-                'interval',
-                minutes=10,
-                id='marketplace_order_expiry_job',
-                misfire_grace_time=3600,
-                coalesce=True,
-                replace_existing=True
+                lazy_poll_tick, 'interval', seconds=LAZY_POLL_SECONDS, id='lazy_poller',
+                max_instances=1, misfire_grace_time=3600, coalesce=True, replace_existing=True
             )
-            print("[STARTUP] Marketplace order expiry job registered (every 10 min)")
-        except Exception as exp_err:
-            print(f"[STARTUP] Marketplace order expiry registration error: {exp_err}")
-
-        if SCHEDULER_ENABLED:
             scheduler.start()
             GLOBAL_SCHEDULER = scheduler
-            active_jobs = [j.id for j in scheduler.get_jobs()]
-            print(f"[STARTUP] Autonomy engine started with active jobs: {active_jobs}")
-
-            # GLOBAL JOB POLLER: every 60s read ALL enabled scheduled_jobs (every user, every agent)
-            # from the database and run whichever are due (next_run_at <= now). State lives in the DB,
-            # not in process memory, so a Render spin-down/wake-up simply catches up overdue jobs.
-            try:
-                scheduler.add_job(
-                    run_due_persisted_jobs,
-                    'interval',
-                    seconds=60,
-                    id='global_job_poller',
-                    max_instances=1,
-                    misfire_grace_time=3600,
-                    coalesce=True,
-                    replace_existing=True
-                )
-                # Immediate catch-up pass after boot (jobs that came due while the service was asleep)
-                asyncio.create_task(run_due_persisted_jobs())
-                print("[STARTUP: SCHEDULER] Global job poller registered (60s) + catch-up pass queued")
-            except Exception as p_err:
-                print(f"[STARTUP: SCHEDULER] Warning registering global job poller: {p_err}")
+            print(f"[STARTUP] Pollers started: frequent every {FREQUENT_POLL_SECONDS}s (due agent runs + strategy triggers), "
+                  f"lazy every {LAZY_POLL_SECONDS}s (moderator cadence, order expiry, housekeeping)")
+            # Immediate catch-up pass after boot (jobs that came due while the service was asleep)
+            asyncio.create_task(frequent_poll_tick())
+            asyncio.create_task(lazy_poll_tick())
     except ImportError:
         print("[STARTUP] APScheduler not installed   autonomy engine disabled")
     except Exception as e:
@@ -1012,6 +936,90 @@ async def _create_run_fast(norm_w, agent_type, title, params, setup=None):
     return run_id
 
 
+# run_id -> {"since": epoch, "reason": str}: runs whose database writes are currently waiting (shown as "on hold").
+_HOLD_STATE: Dict[str, Dict[str, Any]] = {}
+
+
+def _is_transient_db_error(e: Exception) -> bool:
+    m = str(e).lower()
+    return any(k in m for k in ("locked", "busy", "checkpoint", "timed out", "timeout", "connection", "stream", "hrana", "network", "unavailable", "reset"))
+
+
+class _RunDbWriter:
+    """
+    Persists one run's events/heartbeat/result OFF the event loop and OUTSIDE the pipeline's critical path.
+    The pipeline only enqueues (instant). A background pump writes batches to the DB; if the DB is locked/busy it
+    WAITS and retries with backoff (logging what is blocked) - the run is put "on hold" but never failed.
+    """
+
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+        self.events: list = []
+        self.finish_args = None
+        self.done = asyncio.Event()
+        self._wake = asyncio.Event()
+        self.task = asyncio.create_task(self._pump())
+
+    # ---- producer side (non-blocking) ----
+    def event(self, ev: Dict[str, Any]) -> None:
+        self.events.append(ev)
+        self._wake.set()
+
+    def finish(self, result, cid, error) -> None:
+        self.finish_args = (result, cid, error)
+        self._wake.set()
+
+    # ---- hold bookkeeping ----
+    def _hold(self, reason: str) -> None:
+        if self.run_id not in _HOLD_STATE:
+            logger.warning("[RUN-HOLD] run %s is ON HOLD: %s", self.run_id, reason)
+            _HOLD_STATE[self.run_id] = {"since": time.time(), "reason": reason}
+
+    def _resume(self) -> None:
+        info = _HOLD_STATE.pop(self.run_id, None)
+        if info:
+            logger.warning("[RUN-HOLD] run %s RESUMED after %.1fs", self.run_id, time.time() - info["since"])
+
+    async def _retry(self, label: str, fn):
+        attempt = 0
+        while True:
+            try:
+                out = await asyncio.to_thread(fn)
+                self._resume()
+                return out
+            except Exception as e:
+                if not _is_transient_db_error(e):
+                    raise
+                attempt += 1
+                self._hold(f"database busy while saving {label}: {str(e)[:120]}")
+                if attempt == 1 or attempt % 10 == 0:
+                    logger.warning("[RUN-DB] %s for run %s still waiting (retry %d): %s", label, self.run_id, attempt, e)
+                await asyncio.sleep(min(10.0, 0.5 * (2 ** min(attempt, 5))))
+
+    async def _pump(self):
+        from database import append_run_events_batch
+        try:
+            while True:
+                await self._wake.wait()
+                self._wake.clear()
+                while self.events:
+                    batch, self.events = self.events[:40], self.events[40:]
+                    try:
+                        await self._retry("progress events", lambda b=batch: append_run_events_batch(self.run_id, b))
+                    except Exception as e:  # non-transient (bad data): log, drop this batch, keep the run alive
+                        logger.error("[RUN-DB] dropping %d event(s) of run %s (non-retryable): %s", len(batch), self.run_id, e)
+                if self.finish_args is not None:
+                    result, cid, error = self.finish_args
+                    try:
+                        await self._retry("final result", lambda: finish_run(self.run_id, result, cid, error))
+                    except Exception as e:
+                        logger.error("[RUN-DB] could not store final result of run %s: %s", self.run_id, e)
+                    break
+        finally:
+            self._resume()
+            self.done.set()
+
+
 async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
     """
     Executes an agent pipeline independently of any HTTP connection.
@@ -1022,20 +1030,21 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
     from database import update_run_heartbeat
 
     result, cid, error = None, None, None
+    writer = _RunDbWriter(run_id)
 
     async def _heartbeat_worker():
         try:
             while True:
                 await asyncio.sleep(15)
-                update_run_heartbeat(run_id)
+                try:
+                    await asyncio.to_thread(update_run_heartbeat, run_id)
+                except Exception as he:  # a missed heartbeat must never affect the run
+                    logger.debug("Heartbeat for %s skipped: %s", run_id, he)
         except asyncio.CancelledError:
             pass
-        except Exception as he:
-            logger.debug("Heartbeat worker notice for %s: %s", run_id, he)
 
     heartbeat_task = asyncio.create_task(_heartbeat_worker())
     try:
-        update_run_heartbeat(run_id)
         async for raw_item in gen_factory():
             if isinstance(raw_item, str):
                 try:
@@ -1045,7 +1054,7 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
             else:
                 event = raw_item
 
-            append_run_event(run_id, event)  # events live in the DB; not accumulated in memory
+            writer.event(event)  # instant; the writer persists in batches and waits out a busy DB
 
             evt_type = event.get("type")
             if evt_type == "result":
@@ -1069,13 +1078,22 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
     except Exception as e:
         logger.exception("Run %s failed: %s", run_id, e)
         error = f"{type(e).__name__}: {e}"
-        append_run_event(run_id, {"type": "error", "message": error})
+        writer.event({"type": "error", "message": error})
     finally:
         heartbeat_task.cancel()
-        finish_run(run_id, result, cid, error)
+        writer.finish(result, cid, error)  # persisted by the writer (it waits as long as the DB needs)
         RUNNING_TASKS.pop(run_id, None)
         if _LIVE_RUNS.get((wallet, agent_type)) == run_id:
             _LIVE_RUNS.pop((wallet, agent_type), None)
+        # keep the writer alive until everything is saved, without blocking this task's caller
+        asyncio.create_task(_await_writer(writer))
+
+
+async def _await_writer(writer: "_RunDbWriter"):
+    try:
+        await asyncio.wait_for(writer.done.wait(), timeout=3600)
+    except asyncio.TimeoutError:
+        logger.error("[RUN-DB] writer for run %s still not finished after 1h", writer.run_id)
 
 
 # Jobs currently executing (job_id) and the cap on how many may run at once.
@@ -1319,25 +1337,121 @@ async def run_due_persisted_jobs() -> Dict[str, Any]:
         return {"status": "ok", "launched": launched}
 
 
-@app.get("/api/scheduler/tick")
-@app.post("/api/scheduler/tick")
-async def scheduler_tick():
+_last_lazy_run = 0.0
+
+
+async def check_all_moderator_cadences():
+    """Lazy task: run the moderator cadence check for every user with an active moderator."""
+    try:
+        from database import get_connection
+        from autonomous_agents.moderator_agent import ModeratorAgent
+
+        def _active_wallets():
+            conn = get_connection()
+            try:
+                return [r["wallet_address"] for r in conn.execute("""
+                    SELECT u.wallet_address
+                    FROM core_user_wallets u
+                    LEFT JOIN moderator_config m ON u.wallet_address = m.wallet_address
+                    WHERE COALESCE(m.agent_active, 0) = 1 AND (u.kill_switch_active IS NULL OR u.kill_switch_active = 0)
+                """).fetchall()]
+            finally:
+                conn.close()
+
+        wallets = await asyncio.to_thread(_active_wallets)
+        if not wallets:
+            return
+        moderator = ModeratorAgent()
+        for wallet in wallets:
+            mod_res = await moderator.run_cadence_check(wallet)
+            if mod_res and isinstance(mod_res, dict):
+                m_run_id = await asyncio.to_thread(create_run, wallet, "moderator", title="Autonomous Fleet Deliberation", params={"source": "cadence_scheduler"})
+                await asyncio.to_thread(finish_run, m_run_id, mod_res, mod_res.get("cid"), None)
+    except Exception as me:
+        logger.warning("[POLLER:LAZY] moderator cadence error: %s", me)
+
+
+async def frequent_poll_tick() -> Dict[str, Any]:
+    """FREQUENT poller (default every 30s): time-sensitive work that must keep being checked."""
+    t0 = time.monotonic()
+    out: Dict[str, Any] = {}
+    try:
+        out["due_jobs"] = await run_due_persisted_jobs()
+    except Exception as e:
+        logger.warning("[POLLER:FREQUENT] due-jobs pass failed: %s", e)
+    try:
+        from autonomy_engine import check_all_strategies
+        await check_all_strategies()
+    except Exception as e:
+        logger.warning("[POLLER:FREQUENT] strategy check failed: %s", e)
+    took = time.monotonic() - t0
+    launched = (out.get("due_jobs") or {}).get("launched", 0)
+    if launched or took > 2:
+        logger.info("[POLLER:FREQUENT] tick done in %.1fs (launched %s due job(s))", took, launched)
+    return out
+
+
+async def lazy_poll_tick() -> Dict[str, Any]:
+    """LAZY poller (default every 5 min): everything that is not time-sensitive."""
+    global _last_lazy_run
+    t0 = time.monotonic()
+    _last_lazy_run = time.time()
+    out: Dict[str, Any] = {}
+    await check_all_moderator_cadences()
+    try:
+        from marketplace_service import expire_stale_orders
+        out["expired_orders"] = await asyncio.to_thread(expire_stale_orders)
+    except Exception as e:
+        logger.warning("[POLLER:LAZY] marketplace order expiry failed: %s", e)
+    logger.info("[POLLER:LAZY] tick done in %.1fs %s", time.monotonic() - t0, out)
+    return out
+
+
+async def _run_tick_passes() -> Dict[str, Any]:
+    res = await frequent_poll_tick()
+    lazy_ran = False
+    if time.time() - _last_lazy_run >= LAZY_POLL_SECONDS:
+        await lazy_poll_tick()
+        lazy_ran = True
+    return {**(res.get("due_jobs") or {}), "lazy_ran": lazy_ran}
+
+
+@app.api_route("/api/scheduler/tick", methods=["GET", "POST", "HEAD"])
+async def scheduler_tick(wait: bool = False):
     """
     Keep-alive + catch-up endpoint for an external pinger (UptimeRobot / cron-job.org / GitHub Actions).
-    Hitting it every <=10 min stops Render's free tier spinning down AND runs any overdue agent jobs.
+    Accepts GET, POST and HEAD (UptimeRobot's free plan probes with HEAD). It answers IMMEDIATELY and runs the
+    FREQUENT pass (and the LAZY pass when overdue) in the background, so a monitor never times out.
+    Use ?wait=true to wait for the passes and get their result.
     """
-    res = await run_due_persisted_jobs()
-    return {**res, "timestamp": datetime.now(timezone.utc).isoformat()}
+    if wait:
+        res = await _run_tick_passes()
+        return {**res, "timestamp": datetime.now(timezone.utc).isoformat()}
+    asyncio.create_task(_run_tick_passes())
+    return {"status": "accepted", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 async def _stream_run_events(run_id: str, wallet: Optional[str], after: int, request: Request):
     """
     NDJSON event stream generator reading committed events from DB.
     Resumable via after=seq. Disconnection never cancels the underlying task.
+    A busy/locked DB never ends the stream: it emits `on_hold` events and keeps retrying.
     """
     current_after = after
     db_errors = 0
+    announced_hold = False
     while True:
+        # in-memory hold flag (this process owns the run's writer)
+        hold = _HOLD_STATE.get(run_id)
+        if hold:
+            announced_hold = True
+            yield json.dumps({"type": "on_hold", "run_id": run_id, "reason": hold["reason"],
+                              "held_seconds": int(time.time() - hold["since"]),
+                              "message": "On hold - waiting for the database. Your run continues automatically."}) + "\n"
+        elif announced_hold:
+            announced_hold = False
+            yield json.dumps({"type": "run_resumed", "run_id": run_id, "message": "Database is back - run continuing."}) + "\n"
+
         try:
             events = await asyncio.to_thread(get_run_events, run_id, after_seq=current_after)
             for ev in events:
@@ -1347,13 +1461,15 @@ async def _stream_run_events(run_id: str, wallet: Optional[str], after: int, req
             run = await asyncio.to_thread(get_run, run_id, wallet=wallet)
             db_errors = 0
         except Exception as de:
-            # Transient DB hiccup (e.g. "database is locked"): keep the stream alive and retry.
+            # Busy/locked DB: keep the stream alive, tell the UI the run is on hold, retry (never fail the run).
             db_errors += 1
-            logger.warning("Run %s stream DB error (%d): %s", run_id, db_errors, de)
-            if db_errors >= 10:
-                yield json.dumps({"type": "error", "message": f"Run stream lost database access: {de}"}) + "\n"
+            logger.warning("Run %s stream DB read error (%d): %s", run_id, db_errors, de)
+            yield json.dumps({"type": "on_hold", "run_id": run_id, "reason": str(de)[:120],
+                              "message": "On hold - waiting for the database. Your run continues automatically."}) + "\n"
+            announced_hold = True
+            if await request.is_disconnected():
                 break
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(min(5.0, 1.0 + db_errors * 0.5))
             continue
 
         if not run:

@@ -7,6 +7,7 @@ Dual-engine architecture:
 
 import os
 import time
+import asyncio
 import sqlite3
 import tempfile
 import threading
@@ -38,15 +39,78 @@ except ImportError:
 # Global synchronization tracking for Turso libSQL.
 # EVERY write, commit and sync against the local replica file goes through this one process-wide lock,
 # so two threads never write/checkpoint the replica WAL at the same moment ("database is locked").
-_sync_lock = threading.RLock()
+class _TrackedLock:
+    """
+    Re-entrant write lock that remembers WHO holds it and running WHAT, so when someone has to wait we can log
+    exactly which query/thread is blocking them.
+    """
+
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._depth = 0
+        self.owner_thread = ""
+        self.owner_sql = ""
+        self.since = 0.0
+
+    def acquire_for(self, label: str, max_wait: float) -> None:
+        t0 = time.monotonic()
+        last_log = -5.0  # first warning as soon as we have waited >= 1s
+        while not self._lock.acquire(timeout=0.5):
+            waited = time.monotonic() - t0
+            if waited >= 1.0 and waited - last_log >= 5.0:
+                last_log = waited
+                logger.warning(
+                    "[DB-WAIT] %s has waited %.1fs for the write lock | held by thread=%s for %.1fs running: %s",
+                    f"'{label[:80]}'", waited, self.owner_thread or "?", time.monotonic() - self.since if self.since else 0.0,
+                    (self.owner_sql or "?")[:100],
+                )
+            if waited > max_wait:
+                raise TimeoutError(f"waited {waited:.0f}s for the database write lock held by {self.owner_thread}: {self.owner_sql[:80]}")
+        self._depth += 1
+        if self._depth == 1:
+            self.owner_thread = threading.current_thread().name
+            self.owner_sql = label
+            self.since = time.monotonic()
+
+    def release(self) -> None:
+        self._depth -= 1
+        if self._depth == 0:
+            self.owner_thread = ""
+            self.owner_sql = ""
+            self.since = 0.0
+        self._lock.release()
+
+    # `with _sync_lock:` (used by the background pull and _debounced_sync) keeps working
+    def __enter__(self):
+        self.acquire_for("replica sync", _max_wait())
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+def _max_wait() -> float:
+    """How long a DB operation may wait for a busy database before giving up.
+    On the asyncio event-loop thread we cap it low (sleeping there freezes the whole server); worker threads and
+    background run writers wait much longer. Nothing waits forever, but a busy DB must never kill an agent run."""
+    try:
+        asyncio.get_running_loop()
+        return float(os.getenv("DB_LOOP_MAX_WAIT_SECONDS", "20"))
+    except RuntimeError:
+        return float(os.getenv("DB_MAX_WAIT_SECONDS", "300"))
+
+
+SLOW_QUERY_MS = float(os.getenv("DB_SLOW_MS", "1000"))
+_sync_lock = _TrackedLock()
 _write_lock = _sync_lock
-_LOCK_RETRIES = 6
 _last_sync_time: float = 0.0
 _last_sync_ok: bool = True
 
 
 def is_turso_enabled() -> bool:
     """Returns True if Turso credentials are provided and libsql is available."""
+    if os.getenv("NEPTUNE_DISABLE_TURSO") == "1":  # tests / local dev: never touch the cloud database
+        return False
     url = os.getenv("TURSO_DATABASE_URL", TURSO_DATABASE_URL).strip()
     token = os.getenv("TURSO_AUTH_TOKEN", TURSO_AUTH_TOKEN).strip()
     return bool(libsql is not None and url and token)
@@ -100,24 +164,43 @@ def _is_locked_error(e: Exception) -> bool:
     return "locked" in msg or "busy" in msg
 
 
-def _run_with_retry(fn, write: bool = True):
+def _run_with_retry(fn, write: bool = True, label: str = ""):
     """
-    Runs fn(); writes hold the process-wide write lock. If the replica is still momentarily locked
-    (e.g. a reader holds it while the WAL checkpoints), back off OUTSIDE the lock and retry
-    (0.1s, 0.2s, 0.4s ... up to ~3s total) instead of failing the request.
+    Runs fn(). Writes hold the process-wide write lock. If the database reports "locked/busy" we WAIT and retry
+    with backoff (0.1s -> 2s) until _max_wait() is reached, logging what is blocked and for how long.
+    Slow statements (> DB_SLOW_MS) are logged with their SQL.
     """
-    for attempt in range(_LOCK_RETRIES + 1):
+    t_start = time.monotonic()
+    max_wait = _max_wait()
+    attempt = 0
+    while True:
         try:
+            t0 = time.monotonic()
             if write:
-                with _write_lock:
-                    return fn()
-            return fn()
+                _write_lock.acquire_for(label or "write", max_wait)
+                try:
+                    out = fn()
+                finally:
+                    _write_lock.release()
+            else:
+                out = fn()
+            took_ms = (time.monotonic() - t0) * 1000
+            if attempt:
+                logger.warning("[DB-RESUMED] '%s' succeeded after waiting %.1fs (%d retries)", label[:80], time.monotonic() - t_start, attempt)
+            elif took_ms >= SLOW_QUERY_MS:
+                logger.warning("[DB-SLOW] %.0f ms %s: %s", took_ms, "WRITE" if write else "READ", label[:140])
+            return out
         except Exception as e:
-            if not _is_locked_error(e) or attempt == _LOCK_RETRIES:
+            waited = time.monotonic() - t_start
+            if not _is_locked_error(e) or waited >= max_wait:
+                if _is_locked_error(e):
+                    logger.error("[DB-GIVEUP] '%s' still locked after %.0fs: %s", label[:80], waited, e)
                 raise
-            if attempt == 0:
-                logger.warning(f"[Turso] replica busy, retrying write: {e}")
-            time.sleep(min(1.5, 0.1 * (2 ** attempt)))
+            attempt += 1
+            if attempt == 1 or attempt % 5 == 0:
+                logger.warning("[DB-BLOCKED] %s blocked by a busy database (retry %d, waited %.1fs, holder=%s): %s",
+                               f"'{label[:80]}'", attempt, waited, _write_lock.owner_thread or "another connection", e)
+            time.sleep(min(2.0, 0.1 * (2 ** min(attempt, 5))))
 
 
 def _is_read_statement(sql: str) -> bool:
@@ -215,21 +298,21 @@ class LibsqlCursorWrapper:
             else:
                 self._raw.execute(sql)
         try:
-            _run_with_retry(_do, write=not _is_read_statement(sql))
+            _run_with_retry(_do, write=not _is_read_statement(sql), label=" ".join((sql or "").split()))
             return self
         except Exception as e:
             _translate_error(e)
 
     def executemany(self, sql: str, seq_of_parameters):
         try:
-            _run_with_retry(lambda: self._raw.executemany(sql, seq_of_parameters), write=True)
+            _run_with_retry(lambda: self._raw.executemany(sql, seq_of_parameters), write=True, label="executemany " + " ".join((sql or "").split()))
             return self
         except Exception as e:
             _translate_error(e)
 
     def executescript(self, sql_script: str):
         try:
-            _run_with_retry(lambda: self._raw.executescript(sql_script), write=True)
+            _run_with_retry(lambda: self._raw.executescript(sql_script), write=True, label="executescript")
             return self
         except Exception as e:
             _translate_error(e)
@@ -317,7 +400,7 @@ class LibsqlConnectionWrapper:
     def commit(self):
         """Commits the transaction and triggers a debounced sync if running as replica."""
         try:
-            _run_with_retry(self._raw_conn.commit, write=True)
+            _run_with_retry(self._raw_conn.commit, write=True, label="COMMIT")
         except Exception as e:
             _translate_error(e)
 

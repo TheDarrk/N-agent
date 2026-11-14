@@ -3879,10 +3879,29 @@ def append_run_event(run_id: str, event: Dict[str, Any]) -> int:
             VALUES (?, ?, ?, ?)
         """, (run_id, seq, json.dumps(event_copy), now_iso))
         conn.commit()
-        if hasattr(conn, "sync"):
-            conn.sync()
     conn.close()
     return seq
+
+
+def append_run_events_batch(run_id: str, events: List[Dict[str, Any]]) -> int:
+    """Appends many progress events in ONE multi-row INSERT (one remote round trip instead of one per event)."""
+    if not events:
+        return 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn = get_connection()
+    try:
+        base = conn.execute("SELECT COALESCE(MAX(seq), 0) FROM agent_run_events WHERE run_id = ?", (run_id,)).fetchone()[0]
+        rows, params = [], []
+        for i, ev in enumerate(events, start=1):
+            ev_copy = dict(ev)
+            ev_copy["seq"] = base + i
+            rows.append("(?, ?, ?, ?)")
+            params += [run_id, base + i, json.dumps(ev_copy, default=str), now_iso]
+        conn.execute("INSERT INTO agent_run_events (run_id, seq, event_json, created_at) VALUES " + ", ".join(rows), tuple(params))
+        conn.commit()
+        return base + len(events)
+    finally:
+        conn.close()
 
 
 def get_run_events(run_id: str, after_seq: int = 0) -> List[Dict[str, Any]]:

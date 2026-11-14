@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { dedupedGetJson } from "@/lib/dedupe-fetch";
 import { toast } from "@/hooks/use-toast";
 import { setVisibleInterval } from "@/lib/visible-interval"
@@ -104,7 +105,7 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
     formSeededRef.current = false;
     setStatusLoaded(!accountId);
     fetchStatus();
-    return setVisibleInterval(fetchStatus, 25000);
+    return setVisibleInterval(fetchStatus, POLL_HISTORY_MS);
   }, [accountId]);
 
   // Toggle Moderator Agent Active / Standby Status

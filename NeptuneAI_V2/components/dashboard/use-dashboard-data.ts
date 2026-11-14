@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { setVisibleInterval } from "@/lib/visible-interval";
 import {
@@ -154,7 +155,7 @@ export function useDashboardData(accountId: string | null) {
     };
     document.addEventListener("visibilitychange", handleVisibility);
 
-    const cleanupInterval = setVisibleInterval(refresh, 15000);
+    const cleanupInterval = setVisibleInterval(refresh, POLL_HISTORY_MS);
 
     return () => {
       cleanupInterval();

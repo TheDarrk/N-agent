@@ -1,5 +1,6 @@
 "use client";
 
+import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect } from "react";
 import { AgentAvatar } from "@/components/agent-avatars";
@@ -64,7 +65,7 @@ export default function SidebarFleetBar({
       }
     };
     fetchFleet();
-    return setVisibleInterval(fetchFleet, 12000);
+    return setVisibleInterval(fetchFleet, POLL_LIVE_MS);
   }, [accountId]);
 
   const agents = [

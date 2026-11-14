@@ -14,7 +14,7 @@ export async function GET(
     const res = await fetch(`${backendUrl}/api/chat/history/${encodeURIComponent(wallet)}`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(30000), // Render can take ~30s to wake/redeploy; 8s made every poll fail
     });
 
     if (!res.ok) {
@@ -25,7 +25,7 @@ export async function GET(
     const data = await res.json();
     return NextResponse.json(data);
   } catch (error: any) {
-    console.error("[API] Chat history fetch error:", error);
+    console.error("[API] Chat history fetch error:", error?.name || error);
     return NextResponse.json({ status: "error", detail: error?.message || "Internal error", history: [] }, { status: 500 });
   }
 }
