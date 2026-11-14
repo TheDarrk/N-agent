@@ -30,10 +30,12 @@ function uid() {
 }
 
 const SUGGESTIONS = [
-  { icon: TrendingUp, label: "What is my Trader Agent doing right now?", desc: "Check active trades & TP/SL" },
-  { icon: Sparkles, label: "Scan NEAR market for high confidence setups", desc: "4-node LLM Judge pipeline" },
-  { icon: Coins, label: "Have my Trader hire Research Agent for 0.1 NEAR", desc: "Track 7 Agent-to-Agent demo" },
-  { icon: ShieldAlert, label: "What is my portfolio health and risk score?", desc: "Moderator status" },
+  { icon: ShieldAlert, label: "Which of my agents are really running right now?", desc: "Truthful status: schedule, last run, wallet" },
+  { icon: TrendingUp, label: "What were my Trader's last 5 decisions and why?", desc: "Verdicts, confidence, TP/SL, reasoning" },
+  { icon: Sparkles, label: "Run my Researcher on NEAR staking and yield opportunities", desc: "Your links + Fear & Greed + coin sources" },
+  { icon: Wallet, label: "How far has my Rebalancer drifted from its target?", desc: "Drift on the wallet assigned to it" },
+  { icon: Coins, label: "Switch on my Trader and schedule it, then confirm", desc: "Activates, schedules and verifies" },
+  { icon: ArrowDownUp, label: "Swap 5 NEAR to USDC on the best route", desc: "Cross-chain via NEAR Intents" },
 ];
 
 /* ── Draggable floating About button ── */
@@ -394,6 +396,23 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
     }
   };
 
+  // Re-open a saved conversation from the sidebar history: show all its turns and continue in the same session.
+  const openPastChat = useCallback((chat: { turns: { human_message: string; ai_message: string }[]; session_id?: string }) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    const restored: Message[] = [];
+    for (const t of chat.turns) {
+      if (t.human_message) restored.push({ id: uid(), role: "user", content: t.human_message });
+      if (t.ai_message) restored.push({ id: uid(), role: "ai", content: t.ai_message });
+    }
+    setMessages(restored);
+    if (chat.session_id) setSessionId(chat.session_id);
+    navigateTab("chat", null);
+  }, [navigateTab]);
+
   const resetChat = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -422,6 +441,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
         onOpenFleetModal={() => setIsFleetModalOpen(true)}
         onOpenAgentSuite={() => navigateTab("agent-suite", null)}
         onSelectAgent={(agentId) => navigateTab("agent-suite", agentId)}
+        onSelectChat={openPastChat}
       />
 
       <div className="flex flex-1 flex-col min-w-0">
@@ -503,7 +523,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
                   What can Neptune AI do for you?
                 </h2>
                 <p className="text-sm text-muted-foreground mb-6 leading-relaxed text-pretty">
-                  Swap tokens, explore chains, and automate strategies — all powered by NEAR.
+                  Swap across chains and run your AI agents (Trader, Rebalancer, Researcher, Moderator) — all powered by NEAR.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
@@ -572,7 +592,7 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Swap tokens, create payment links, or ask anything..."
+                placeholder="Swap tokens, ask what your agents are doing, or tell them what to do..."
                 rows={1}
                 className="flex-1 resize-none bg-transparent px-1 text-sm text-foreground outline-none placeholder:text-muted-foreground leading-normal"
                 style={{ height: "20px", maxHeight: "120px" }}
@@ -605,13 +625,13 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
             className="absolute inset-0 bg-black/65"
             onClick={() => setShowAbout(false)}
           />
-          <div className="relative w-full max-w-md rounded-2xl border border-primary/15 bg-card shadow-2xl shadow-primary/5 animate-fade-in">
+          <div className="relative w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl border border-primary/15 bg-card shadow-2xl shadow-primary/5 animate-fade-in">
             <div className="flex items-center justify-between px-5 pt-5 pb-0">
               <div className="flex items-center gap-3">
                 <img src="/neptune-logo.png" alt="Neptune AI" width={36} height={36} className="rounded-full" />
                 <div>
                   <h2 className="text-base font-bold text-foreground">Neptune AI</h2>
-                  <p className="text-[11px] text-muted-foreground">Multi-chain AI Assistant</p>
+                  <p className="text-[11px] text-muted-foreground">Autonomous multi-chain finance, powered by NEAR</p>
                 </div>
               </div>
               <button
@@ -624,24 +644,53 @@ export default function ChatInterface({ initialTab }: { initialTab?: string }) {
 
             <div className="px-5 py-4 space-y-3 text-[13px] leading-relaxed text-foreground/85">
               <p>
-                Neptune AI is your intelligent gateway to decentralized finance. Powered by
-                <strong className="text-foreground"> NEAR</strong>, it brings the power of multi-chain
-                operations into a simple conversational interface.
+                Neptune AI is a chat assistant plus a <strong className="text-foreground">fleet of AI agents</strong> that work
+                for you. It runs on <strong className="text-foreground">NEAR Intents</strong> for cross-chain swaps, and every agent
+                keeps a real history you can inspect.
               </p>
+
               <div className="rounded-xl bg-secondary/30 border border-primary/8 p-3 space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Assistant</p>
                 <div className="flex items-start gap-2">
                   <ArrowDownUp size={14} className="text-primary mt-0.5 flex-shrink-0" />
-                  <p><strong className="text-foreground">Token Swaps</strong> — Cross-chain swaps across 30+ blockchains with best-route optimization.</p>
+                  <p><strong className="text-foreground">Swaps</strong> - cross-chain token swaps with best-route optimization.</p>
                 </div>
                 <div className="flex items-start gap-2">
                   <CreditCard size={14} className="text-primary mt-0.5 flex-shrink-0" />
-                  <p><strong className="text-foreground">Payments</strong> — Create shareable payment links that accept crypto from any chain.</p>
+                  <p><strong className="text-foreground">Payments</strong> - shareable links that accept crypto from any chain.</p>
                 </div>
                 <div className="flex items-start gap-2">
                   <Coins size={14} className="text-primary mt-0.5 flex-shrink-0" />
-                  <p><strong className="text-foreground">Portfolio</strong> — View balances, track tokens, and manage your assets in one place.</p>
+                  <p><strong className="text-foreground">Portfolio</strong> - balances, tokens and assets in one place.</p>
                 </div>
               </div>
+
+              <div className="rounded-xl bg-secondary/30 border border-primary/8 p-3 space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Agent Suite</p>
+                <div className="flex items-start gap-2">
+                  <TrendingUp size={14} className="text-primary mt-0.5 flex-shrink-0" />
+                  <p><strong className="text-foreground">Trader</strong> - scans markets on your schedule, explains every decision, sets take-profit and stop-loss within your risk limits.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Wallet size={14} className="text-primary mt-0.5 flex-shrink-0" />
+                  <p><strong className="text-foreground">Rebalancer</strong> - keeps your target allocation, watches drift on its own wallet and swaps at market price when needed.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Sparkles size={14} className="text-primary mt-0.5 flex-shrink-0" />
+                  <p><strong className="text-foreground">Researcher</strong> - crawls your links and trusted sources, writes cited reports, and gives the Trader and Rebalancer a second opinion (Fear &amp; Greed, coin sources).</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <ShieldAlert size={14} className="text-primary mt-0.5 flex-shrink-0" />
+                  <p><strong className="text-foreground">Moderator</strong> - the watchdog: audits the whole fleet, scores it and can halt agents with a kill switch.</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-secondary/30 border border-primary/8 p-3 space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Wallets &amp; Marketplace</p>
+                <p><strong className="text-foreground">Agent Wallets</strong> - give each agent its own wallet (up to 4); its assets and activity stay separate from yours.</p>
+                <p><strong className="text-foreground">Agent Marketplace</strong> - sell or buy agent setups for USDT. Buyers see the seller&apos;s real history first (agent wallet, last decisions, strategies and reports), and a purchase copies the configuration into their own agent.</p>
+              </div>
+
               <p className="text-[11px] text-muted-foreground/60 text-center pt-1">
                 Built by the Neptune team
               </p>

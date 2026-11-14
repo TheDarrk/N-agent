@@ -16,6 +16,12 @@ export const HELP_TOPICS: { id: HelpTopic; label: string }[] = [
   { id: "change", label: "What should I change?" },
   { id: "drift", label: "What is drift?" },
   { id: "research", label: "What did research find?" },
+  { id: "market", label: "What is the market saying?" },
+  { id: "trader", label: "What is my Trader doing?" },
+  { id: "rebalancer", label: "How is my Rebalancer?" },
+  { id: "wallets", label: "Which wallets do my agents use?" },
+  { id: "activity", label: "What just happened?" },
+  { id: "history", label: "Show me the recent runs" },
 ];
 
 export interface HelpAnswer {

@@ -35,6 +35,8 @@ SYSTEM_MESSAGE = MASTER_SYSTEM_PROMPT + """
 - configure_agent_tool -> Toggle agent active/inactive state and update risk or rebalance parameters
 - fetch_agent_history_tool -> Fetch trade records, pending limit orders, rebalance logs, or research reports
 
+AGENT QUESTIONS: for anything about the user's Trader/Rebalancer/Researcher/Moderator (what is it doing, is it active, run it, configure it) ALWAYS call agent_suite_mcp_tool (get_status first) and report its Verdict line; never answer from memory or from an on/off switch.
+
 REMEMBER: If user asks about a SPECIFIC token -> get_token_chains_tool. If user wants ALL tokens -> get_available_tokens_tool.
 If user asks about payment links or tracking -> use hot_pay_coming_soon_tool.
 Be conversational, friendly, and concise. You are Neptune AI.
@@ -61,6 +63,11 @@ AUTONOMY_KEYWORDS = {
     "research agent", "hire research", "research report", "alpha report",
     "rebalancer", "rebalance agent", "moderator", "health score",
     "watchdog", "exposure", "scan market",
+    # Asking about / controlling agents in plain language
+    "my agent", "my agents", "the agent", "agents", "agent suite", "fleet", "researcher", "research agent",
+    "is my", "doing", "active", "inactive", "activate", "deactivate", "switch on", "switch off", "turn on", "turn off",
+    "run my", "run the", "start my", "stop my", "configure", "schedule", "scheduled", "drift", "marketplace", "my listing",
+    "agent status", "what happened", "last decision", "recent decisions", "history",
 }
 
 def _is_autonomy_message(msg: str) -> bool:
@@ -645,9 +652,17 @@ async def _process_autonomy_message(
 
     try:
         history = user_context.get("history", [])
-        recent_history = history[-4:] if len(history) > 4 else history
+        recent_history = history[-8:] if len(history) > 8 else history
 
-        messages = [SystemMessage(content=AUTONOMY_SYSTEM_PROMPT)]
+        # Authoritative snapshot of the user's agents, rebuilt every turn (no stale "active", no dropped context)
+        try:
+            from agent_metrics import build_chat_snapshot
+            snapshot = await asyncio.to_thread(build_chat_snapshot, account_id if account_id != "Not connected" else "")
+        except Exception as snap_err:
+            snapshot = f"(live snapshot unavailable: {snap_err}) - call agent_suite_mcp_tool get_status before stating agent state."
+        system_prompt = AUTONOMY_SYSTEM_PROMPT + "\n\n## LIVE SNAPSHOT (authoritative, facts as of this message)\n" + snapshot
+
+        messages = [SystemMessage(content=system_prompt)]
 
         for msg in recent_history:
             if msg["role"] == "user":
@@ -707,7 +722,7 @@ async def _process_autonomy_message(
         # Get final response with tool results
         tool_results_text = "\n\n".join(msg.content for msg in tool_messages)
 
-        final_messages = [SystemMessage(content=AUTONOMY_SYSTEM_PROMPT)]
+        final_messages = [SystemMessage(content=system_prompt)]
         for msg in recent_history:
             if msg["role"] == "user":
                 final_messages.append(HumanMessage(content=msg["content"]))

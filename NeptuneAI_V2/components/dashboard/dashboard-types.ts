@@ -168,7 +168,13 @@ export function timeAgo(value?: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export type HelpTopic = "overview" | "profit" | "risk" | "change" | "drift" | "research";
+export type HelpTopic =
+  | "overview" | "profit" | "risk" | "change" | "drift" | "research"
+  | "market" | "trader" | "rebalancer" | "wallets" | "marketplace" | "activity" | "history";
+
+/** What the dashboard is showing when a question is asked (sent to the Moderator as extra context). */
+export type AskContext = Record<string, unknown>;
+export type AskFn = (topic: HelpTopic, context?: AskContext) => void;
 
 export const POSITIVE = "hsl(158 64% 52%)";
 export const NEGATIVE = "hsl(350 89% 60%)";

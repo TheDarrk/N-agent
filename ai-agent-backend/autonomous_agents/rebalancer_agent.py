@@ -19,6 +19,7 @@ import json
 import re
 import math
 import asyncio
+import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Dict, Any, List, Optional, Literal
@@ -859,6 +860,21 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 }
             }) + "\n"
 
+            # Researcher sub-agent runs in parallel with the strategy LLM (shown as its own step, never a silent wait)
+            research_task = None
+            try:
+                from autonomous_agents.research_agent import run_research_subagent
+                research_task = asyncio.create_task(run_research_subagent(
+                    wallet=user_wallet, coins=norm_selected, calling_agent="rebalancer", depth=2, date_range_days=30
+                ))
+                yield json.dumps({
+                    "type": "step", "step_number": 4, "step_name": "Researcher Sub-Agent",
+                    "title": "Researcher (depth 2): Fear & Greed + coin sources", "status": "running",
+                    "message": f"Researcher is crawling the agent sources (depth 2) for {', '.join(norm_selected[:5])} while the strategy is formulated..."
+                }) + "\n"
+            except Exception as e:
+                print(f"[REBALANCER STREAM] Could not start research sub-agent: {e}")
+
             # Node 4: Strategy Formulation
             yield json.dumps({
                 "type": "step",
@@ -1178,15 +1194,39 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "type": "step", "step_number": 5, "step_name": "Market Swaps",
                 "title": "Execute at market price", "status": "running", "message": step5_msg
             }) + "\n"
-            for _i in range(6):
-                try:
-                    sw = await self.evaluate_and_rebalance(
-                        user_wallet=user_wallet,
-                        target_allocation=allocations_dict,
-                        drift_threshold_pct=exec_threshold,
-                    )
-                except Exception as sw_err:
-                    sw = {"success": False, "status": "EXECUTION_ERROR", "reason": str(sw_err)[:200]}
+            swap_budget = float(os.getenv("REBALANCER_SWAP_BUDGET_SECONDS", "240"))
+            step5_deadline = time.monotonic() + swap_budget
+            for _i in range(4):
+                if time.monotonic() >= step5_deadline:
+                    swap_log.append({"status": "TIMEOUT", "reason": "Swap time budget used up; remaining swaps continue on the next cycle"})
+                    break
+                swap_task = asyncio.create_task(self.evaluate_and_rebalance(
+                    user_wallet=user_wallet,
+                    target_allocation=allocations_dict,
+                    drift_threshold_pct=exec_threshold,
+                ))
+                waited = 0
+                sw = None
+                while True:
+                    done_set, _pending = await asyncio.wait({swap_task}, timeout=8)
+                    if swap_task in done_set:
+                        try:
+                            sw = swap_task.result()
+                        except Exception as sw_err:
+                            sw = {"success": False, "status": "EXECUTION_ERROR", "reason": str(sw_err)[:200]}
+                        break
+                    waited += 8
+                    yield json.dumps({
+                        "type": "step", "step_number": 5, "step_name": "Market Swaps",
+                        "title": "Execute at market price", "status": "running",
+                        "message": f"Swap {_i + 1}: waiting for on-chain settlement ({waited}s) - this can take a minute..."
+                    }) + "\n"
+                    if time.monotonic() >= step5_deadline:
+                        # stop WAITING (the swap itself keeps settling in the background) so the run never hangs here
+                        swap_task.add_done_callback(lambda t: print(f"[REBALANCER] late swap result: {t.exception() or t.result()}"))
+                        sw = {"success": False, "status": "SETTLING",
+                              "reason": "Swap is still settling on-chain; it will be reconciled in the background"}
+                        break
                 swap_log.append({k: sw.get(k) for k in ("status", "terminal_status", "action_taken", "reason")})
                 yield json.dumps({
                     "type": "step", "step_number": 5, "step_name": "Market Swaps",
@@ -1209,17 +1249,34 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             }) + "\n"
 
             research_intel = None
-            try:
-                from autonomous_agents.research_agent import run_research_subagent
-                research_intel = await run_research_subagent(
-                    wallet=user_wallet,
-                    coins=norm_selected,
-                    calling_agent="rebalancer",
-                    depth=1,
-                    date_range_days=30
-                )
-            except Exception as e:
-                print(f"[REBALANCER STREAM] Subagent research notice: {e}")
+            if research_task is not None:
+                research_budget = float(os.getenv("REBALANCER_RESEARCH_BUDGET_SECONDS", "150"))
+                r_started = time.monotonic()
+                while True:
+                    done_set, _p = await asyncio.wait({research_task}, timeout=8)
+                    if research_task in done_set:
+                        try:
+                            research_intel = research_task.result()
+                        except Exception as e:
+                            print(f"[REBALANCER STREAM] Subagent research notice: {e}")
+                        break
+                    elapsed = int(time.monotonic() - r_started)
+                    if elapsed >= research_budget:
+                        research_task.cancel()
+                        print(f"[REBALANCER STREAM] research sub-agent exceeded {research_budget:.0f}s; continuing without it")
+                        break
+                    yield json.dumps({
+                        "type": "step", "step_number": 6, "step_name": "Researcher Sub-Agent",
+                        "title": "Researcher (depth 2) second opinion", "status": "running",
+                        "message": f"Researcher is still writing its second opinion ({elapsed}s)..."
+                    }) + "\n"
+                yield json.dumps({
+                    "type": "step", "step_number": 6, "step_name": "Researcher Sub-Agent",
+                    "title": "Researcher (depth 2) second opinion", "status": "completed",
+                    "message": (f"Researcher finished: {research_intel.get('sources_count', 0)} sources, "
+                                f"{(research_intel.get('crawl') or {}).get('pages_indexed', 0)} pages crawled (depth 2)"
+                                if research_intel else "Researcher second opinion unavailable this cycle")
+                }) + "\n"
 
             result = {
                 "success": True,
@@ -1312,6 +1369,29 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         active_strategy = get_active_rebalancer_strategy(user_wallet)
         is_active = bool(user.get("rebalancer_active", 0))
 
+        # Telemetry and assets belong to the wallet HANDED TO THIS AGENT. No assigned agent wallet => say so,
+        # never fall back to showing the user's main wallet.
+        try:
+            from agent_metrics import get_assigned_agent_wallets
+            assigned = await asyncio.to_thread(get_assigned_agent_wallets, user_wallet, "rebalancer")
+        except Exception:
+            assigned = []
+        if not assigned:
+            return {
+                "status": "NO_WALLET",
+                "wallet_required": True,
+                "agent_wallet": None,
+                "max_drift_pct": 0.0,
+                "drift_threshold_pct": drift_threshold_pct,
+                "current_allocation": {},
+                "target_allocation": {},
+                "total_portfolio_usd": 0.0,
+                "action_taken": "Give this agent a wallet first (Agent Wallets -> assign to Rebalancer).",
+                "is_active": is_active,
+                "active_strategy": active_strategy,
+            }
+        agent_wallet_info = assigned[0]
+
         if not target_allocation:
             if active_strategy and active_strategy.get("allocations"):
                 target_allocation = {k.lower(): float(v) for k, v in active_strategy["allocations"].items()}
@@ -1348,7 +1428,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "total_portfolio_usd": 0.0,
                 "action_taken": "No funded asset balances detected in wallet",
                 "is_active": is_active,
-                "active_strategy": active_strategy
+                "active_strategy": active_strategy,
+                "agent_wallet": agent_wallet_info
             }
 
         current_pcts = {
@@ -1369,7 +1450,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             + (f" (unpriced, excluded: {', '.join(unpriced_tokens)})" if unpriced_tokens else ""),
             "unpriced_tokens": unpriced_tokens,
             "is_active": is_active,
-            "active_strategy": active_strategy
+            "active_strategy": active_strategy,
+            "agent_wallet": agent_wallet_info
         }
 
     async def evaluate_and_rebalance(

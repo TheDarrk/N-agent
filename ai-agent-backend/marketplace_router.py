@@ -117,6 +117,18 @@ async def get_listing_endpoint(listing_id: str):
     return {"success": True, "listing": listing}
 
 
+@router.get("/listings/{listing_id}/analytics")
+async def listing_analytics_endpoint(listing_id: str):
+    """Real analytics for a listing from the seller's history: agent wallet address, last 10 decisions / strategies /
+    trades, last 3 research reports and counts. No keys, configs or emails; no placeholder numbers."""
+    import asyncio
+    from agent_metrics import get_listing_analytics
+    data = await asyncio.to_thread(get_listing_analytics, listing_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return {"success": True, "analytics": data}
+
+
 @router.patch("/listings/{listing_id}")
 async def update_listing_endpoint(listing_id: str, body: UpdateListingRequest):
     """Update listing price, title, or status. Seller only."""

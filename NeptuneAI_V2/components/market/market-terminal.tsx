@@ -93,7 +93,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "go
   );
 }
 
-export default function MarketTerminal({ data }: { data: DashboardData }) {
+export default function MarketTerminal({ data, onAsk }: { data: DashboardData; onAsk?: (topic: "market", ctx?: Record<string, unknown>) => void }) {
   const agentSymbols = useMemo(() => collectAgentSymbols(data), [data]);
   const symbols = useMemo(() => [...new Set([...agentSymbols, ...DEFAULT_SYMBOLS])].slice(0, 14), [agentSymbols]);
 
@@ -585,7 +585,20 @@ export default function MarketTerminal({ data }: { data: DashboardData }) {
           title={`Your agents on ${selected}`}
           subtitle="Positions are marked to the live price above, so profit and loss update as the market moves."
           className="lg:col-span-3"
-          action={<Activity size={18} className="text-primary" aria-hidden="true" />}
+          action={
+            onAsk ? (
+              <button
+                type="button"
+                onClick={() => onAsk("market", { selected_symbol: selected, interval, range: rangeId, symbols, source: candleData?.source })}
+                className="key3d inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs font-semibold text-foreground"
+              >
+                <Activity size={14} className="text-primary" aria-hidden="true" />
+                Ask Moderator about {selected}
+              </button>
+            ) : (
+              <Activity size={18} className="text-primary" aria-hidden="true" />
+            )
+          }
         >
           <AgentPositions symbol={selected} livePrice={livePrice} data={data} />
         </Panel>

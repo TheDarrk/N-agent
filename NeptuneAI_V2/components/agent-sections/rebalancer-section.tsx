@@ -1,5 +1,6 @@
 "use client";
 
+import { HistoryLoader } from "./shared/history-loader";
 import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { dedupedGetJson } from "@/lib/dedupe-fetch";
 import { tilt3d } from "./trader/tilt-3d";
@@ -214,12 +215,15 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   const [generationStep, setGenerationStep] = useState("");
   const [activeStrategy, setActiveStrategy] = useState<ActiveStrategy | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   // ─── LIVE DRIFT & TELEMETRY ───
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const [isRebalancing, setIsRebalancing] = useState(false);
   const [driftStatus, setDriftStatus] = useState<any>(null);
+  // Address of the wallet assigned to the Rebalancer (null = none assigned yet). Assets/drift belong to THIS wallet.
+  const [agentWalletAddress, setAgentWalletAddress] = useState<string | null | undefined>(undefined);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -301,8 +305,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
       setIsLoadingStatus(true);
     }
     try {
-      // 1. Fetch real holdings from blockchain
-      await fetchRealHoldings(accountId, isManual);
+      // 1. (holdings are loaded below from the wallet handed to this agent)
 
       // 2. Fetch active strategy from Rebalancer DB
       const stratRes = await fetch(`/api/rebalancer/strategy/${accountId}`);
@@ -334,14 +337,21 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         }
       } catch {}
 
-      // 4. User wallet config
+      // 4. User wallet config + the wallet handed to THIS agent
       const cfgData = await dedupedGetJson<any>(`/api/agent-wallet/config/${accountId}`, 3000);
       if (cfgData) {
+        const rebId = String(cfgData.assignments?.rebalancer || "").split(",")[0].trim();
+        const w = (cfgData.wallets || []).find((x: any) => String(x.id) === rebId);
+        const addr: string | null = w?.agent_wallet_address || null;
+        setAgentWalletAddress(addr);
+        if (addr) await fetchRealHoldings(addr, isManual);
+        else setCurrentHoldings({});
         setAllowCrossChain(Boolean(cfgData.allow_cross_chain_trades));
       }
     } catch (e) {
       console.error("Rebalancer status fetch error:", e);
     } finally {
+      setHistoryLoaded(true);
       setIsLoadingStatus(false);
     }
   };
@@ -1100,9 +1110,9 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
                   USDT.
                 </InfoTip>
               </div>
-              {accountId && (
+              {accountId && agentWalletAddress && (
                 <button
-                  onClick={() => fetchRealHoldings(accountId, true)}
+                  onClick={() => fetchRealHoldings(agentWalletAddress, true)}
                   disabled={isLoadingHoldings}
                   className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
                   title="Refresh on-chain balances"
@@ -1113,8 +1123,25 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               )}
             </div>
 
+            {agentWalletAddress && (
+              <p className="text-[11px] text-muted-foreground font-mono truncate" title={agentWalletAddress}>
+                Agent wallet: <span className="text-foreground">{agentWalletAddress}</span>
+              </p>
+            )}
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {Object.keys(currentHoldings).length > 0 ? (
+              {accountId && agentWalletAddress === null ? (
+                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center text-xs text-amber-300 space-y-2">
+                  <p className="font-semibold">No wallet is assigned to the Rebalancer yet.</p>
+                  <p className="text-muted-foreground">Give this agent a wallet first. Its assets and drift telemetry are read from that wallet.</p>
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new Event("neptune-open-agent-wallets"))}
+                    className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-bold"
+                  >
+                    Assign an agent wallet
+                  </button>
+                </div>
+              ) : Object.keys(currentHoldings).length > 0 ? (
                 Object.entries(currentHoldings).map(([sym, amt]) => (
                   <div
                     key={sym}
@@ -1202,14 +1229,14 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
               <div className="p-3 rounded-xl bg-secondary/40 border border-border flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Total Valuation</span>
                 <span className="text-base font-bold font-mono text-foreground">
-                  ${liveTotalUsd.toFixed(2)}
+                  {driftStatus?.status === "NO_WALLET" ? "-" : `$${liveTotalUsd.toFixed(2)}`}
                 </span>
               </div>
 
               <div className="p-3 rounded-xl bg-secondary/40 border border-border flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Current Max Drift</span>
                 <span className="text-sm font-bold font-mono text-primary">
-                  {driftStatus?.max_drift_pct !== undefined ? `${driftStatus.max_drift_pct}%` : "0.0%"}
+                  {driftStatus?.status === "NO_WALLET" ? "-" : driftStatus?.max_drift_pct !== undefined ? `${driftStatus.max_drift_pct}%` : "0.0%"}
                 </span>
               </div>
 
@@ -1439,18 +1466,27 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
             </div>
           )}
 
-          {/* Research Sub-Agent Sources Section (Depth 1 Second Opinion) */}
+          {/* Research Sub-Agent Sources Section (Depth 2 Second Opinion) */}
           {Boolean((activeStrategy.sources && activeStrategy.sources.length > 0) || (activeStrategy.research?.sources && activeStrategy.research.sources.length > 0)) && (
             <div className="p-4 rounded-xl bg-secondary/30 border border-border text-xs space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 font-bold text-foreground text-xs">
                   <BrainCircuit size={14} className="text-purple-400" />
-                  Verified Source Links (Depth 1 Macro Research Second Opinion)
+                  Verified Source Links (Depth 2 Researcher Second Opinion)
                 </span>
                 <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-semibold">
                   {(activeStrategy.sources || activeStrategy.research?.sources || []).length} Verified Sources
                 </span>
               </div>
+              {activeStrategy.research && (
+                <p className="text-[10px] font-mono text-purple-300/80">
+                  depth {activeStrategy.research.depth ?? 2}
+                  {activeStrategy.research.crawl?.pages_indexed != null ? ` · ${activeStrategy.research.crawl.pages_indexed} pages crawled` : ""}
+                  {activeStrategy.research.fear_greed?.value != null
+                    ? ` · Fear & Greed ${activeStrategy.research.fear_greed.value}/100 (${activeStrategy.research.fear_greed.value_classification || ""})`
+                    : ""}
+                </p>
+              )}
               {activeStrategy.research?.executive_summary && (
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {activeStrategy.research.executive_summary}
@@ -1492,7 +1528,9 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
                 <History size={14} className="text-primary" />
                 Previous Rebalancer Strategies (Rebalancer DB)
               </h4>
-              {history.length > 0 ? (
+              {!historyLoaded && history.length === 0 ? (
+                <HistoryLoader label="Loading strategy history..." />
+              ) : history.length > 0 ? (
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {history.map((histItem) => (
                     <div

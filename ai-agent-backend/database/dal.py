@@ -2773,7 +2773,7 @@ def get_fleet_activity(user_wallet: str) -> Dict[str, Any]:
     research_active = bool(user.get("research_active", 0))
     moderator_active = bool(user.get("moderator_active", 0))
 
-    return {
+    result = {
         "user_wallet": user_wallet,
         "near_network": network,
         "kill_switch_active": kill_switch,
@@ -2822,6 +2822,17 @@ def get_fleet_activity(user_wallet: str) -> Dict[str, Any]:
         "dropped_trades_count": len(dropped),
         "recent_activity": recent_actions
     }
+
+    # Real per-agent metrics (counts / last items straight from the DB; nothing is made up)
+    try:
+        from agent_metrics import compute_fleet_metrics
+        metrics = compute_fleet_metrics(user_wallet)
+        for key, extra in metrics.items():
+            if key in result["agents"]:
+                result["agents"][key].update(extra)
+    except Exception as _me:
+        print(f"[FLEET] metrics unavailable: {_me}")
+    return result
 
 
 def update_agent_fleet_config(user_wallet: str, agent_id: str, is_active: bool, config: Dict[str, Any] = None) -> Dict[str, Any]:

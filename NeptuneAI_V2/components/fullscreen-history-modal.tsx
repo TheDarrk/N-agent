@@ -1,5 +1,6 @@
 "use client";
 
+import { HistoryLoader } from "@/components/agent-sections/shared/history-loader";
 import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
@@ -210,7 +211,7 @@ export default function FullScreenHistoryModal({
   accountId,
   onSelectAgent,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<"trades" | "traces" | "logs">("trades");
+  const [activeTab, setActiveTab] = useState<"trades" | "traces" | "rebalancer" | "research" | "moderator" | "logs">("trades");
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -223,6 +224,12 @@ export default function FullScreenHistoryModal({
   const [traces, setTraces] = useState<TradeTrace[]>([]);
   const [fleetLogs, setFleetLogs] = useState<FleetLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // Other agents' history (the panel used to show the Trader only)
+  const [rebStrategies, setRebStrategies] = useState<any[]>([]);
+  const [rebSwaps, setRebSwaps] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [audits, setAudits] = useState<any[]>([]);
+  const [agentHistoryLoaded, setAgentHistoryLoaded] = useState(false);
 
   // Close on ESC
   useEffect(() => {
@@ -258,6 +265,25 @@ export default function FullScreenHistoryModal({
     setDroppedTrades(readCachedHistory<DroppedTrade>(targetWallet, "dropped", (t) => t.created_at));
     setTraces(readCachedHistory<TradeTrace>(targetWallet, "traces", (t) => t.stored_at));
     setFleetLogs(readCachedHistory<FleetLog>(targetWallet, "logs", (l) => l.created_at));
+
+    // Rebalancer / Research / Moderator history, fetched in parallel (each one failing never blocks the others)
+    setAgentHistoryLoaded(false);
+    const w = encodeURIComponent(targetWallet);
+    const safeJson = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    Promise.all([
+      safeJson(`/api/rebalancer/strategy/${w}`),
+      safeJson(`/api/rebalancer/executions/${w}`),
+      safeJson(`/api/research/reports/${w}`),
+      safeJson(`/api/moderator/history/${w}?limit=15`),
+    ]).then(([strat, execs, reps, mods]) => {
+      const strategies = [...(strat?.active_strategy ? [strat.active_strategy] : []), ...((strat?.history as any[]) || [])];
+      const seen = new Set<string>();
+      setRebStrategies(strategies.filter((x) => (seen.has(String(x.id)) ? false : (seen.add(String(x.id)), true))));
+      setRebSwaps(execs?.executions || []);
+      setReports(reps?.reports || []);
+      setAudits(mods?.evaluations || []);
+      setAgentHistoryLoaded(true);
+    });
 
     try {
       // 1. Fetch trades strictly scoped to connected wallet
@@ -453,7 +479,10 @@ export default function FullScreenHistoryModal({
 
   const tabs = [
     { key: "trades" as const, label: "Trade History & Positions", icon: Clock, count: allCombinedTrades.length },
-    { key: "traces" as const, label: "Agent Reasoning Traces", icon: Brain, count: traces.length },
+    { key: "traces" as const, label: "Trader Decisions", icon: Brain, count: traces.length },
+    { key: "rebalancer" as const, label: "Rebalancer", icon: Layers, count: rebStrategies.length },
+    { key: "research" as const, label: "Research Reports", icon: Brain, count: reports.length },
+    { key: "moderator" as const, label: "Moderator Audits", icon: Shield, count: audits.length },
     { key: "logs" as const, label: "Suite Audit Logs", icon: Activity, count: fleetLogs.length },
   ];
 
@@ -1083,6 +1112,106 @@ export default function FullScreenHistoryModal({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: REBALANCER STRATEGIES & SWAPS */}
+        {activeTab === "rebalancer" && (
+          <div className="space-y-4">
+            <div className="hist-tile hist-in rounded-3xl p-5">
+              <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2"><Layers size={16} className="text-primary" /> Rebalancer strategies &amp; swaps</h3>
+              <p className="text-sm text-muted-foreground mt-1">{rebStrategies.length} strategies, {rebSwaps.length} swaps recorded.</p>
+            </div>
+            {!agentHistoryLoaded && rebStrategies.length === 0 ? (
+              <HistoryLoader label="Loading Rebalancer history..." />
+            ) : rebStrategies.length === 0 ? (
+              <EmptyState icon={<Layers size={28} />} title="No strategies yet" description="Run the Rebalancer to create its first strategy." onClose={onClose} />
+            ) : (
+              <div className="space-y-2">
+                {rebStrategies.map((st: any) => (
+                  <div key={st.id} className="hist-tile rounded-2xl p-4 text-sm space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-foreground">Strategy #{st.id} - {String(st.market_regime || "").replace(/_/g, " ") || "n/a"}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{st.status} - {st.created_at}</span>
+                    </div>
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {Object.entries(st.allocations || {}).map(([k, v]) => `${k} ${v}%`).join(" - ") || "no allocation recorded"}
+                    </p>
+                    {st.overall_strategy_text && <p className="text-xs text-muted-foreground line-clamp-2">{st.overall_strategy_text}</p>}
+                    {st.drop_reason && <p className="text-xs text-rose-400">{st.drop_reason}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {rebSwaps.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-bold text-foreground">Swaps</p>
+                {rebSwaps.map((x: any, i: number) => (
+                  <div key={x.execution_uuid || i} className="hist-tile rounded-2xl p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground">{String(x.token_in || "").toUpperCase()} to {String(x.token_out || "").toUpperCase()} - ${Number(x.amount_in_usd || 0).toFixed(2)}</span>
+                    <span className="font-mono text-muted-foreground">{x.terminal_status || x.state} - {x.created_at}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: RESEARCH REPORTS */}
+        {activeTab === "research" && (
+          <div className="space-y-4">
+            <div className="hist-tile hist-in rounded-3xl p-5">
+              <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2"><Brain size={16} className="text-primary" /> Research reports</h3>
+              <p className="text-sm text-muted-foreground mt-1">{reports.length} reports saved.</p>
+            </div>
+            {!agentHistoryLoaded && reports.length === 0 ? (
+              <HistoryLoader label="Loading research reports..." />
+            ) : reports.length === 0 ? (
+              <EmptyState icon={<Brain size={28} />} title="No reports yet" description="Run the Researcher to create its first report." onClose={onClose} />
+            ) : (
+              <div className="space-y-2">
+                {reports.map((r: any, i: number) => (
+                  <div key={r.cid || i} className="hist-tile rounded-2xl p-4 text-sm space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-foreground">{r.title || "Research report"}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{r.stored_at || r.created_at_utc || ""}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-3">{r.executive_summary || r.summary || ""}</p>
+                    <p className="text-[11px] font-mono text-muted-foreground">ID {r.cid} - {(r.sources_cited || []).length} sources</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: MODERATOR AUDITS */}
+        {activeTab === "moderator" && (
+          <div className="space-y-4">
+            <div className="hist-tile hist-in rounded-3xl p-5">
+              <h3 className="text-lg font-extrabold text-foreground flex items-center gap-2"><Shield size={16} className="text-primary" /> Moderator audits</h3>
+              <p className="text-sm text-muted-foreground mt-1">{audits.length} fleet audits saved.</p>
+            </div>
+            {!agentHistoryLoaded && audits.length === 0 ? (
+              <HistoryLoader label="Loading Moderator audits..." />
+            ) : audits.length === 0 ? (
+              <EmptyState icon={<Shield size={28} />} title="No audits yet" description="Run a fleet audit from the Moderator page." onClose={onClose} />
+            ) : (
+              <div className="space-y-2">
+                {audits.map((a: any, i: number) => (
+                  <div key={a.cid || i} className="hist-tile rounded-2xl p-4 text-sm space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-foreground">{String(a.verdict || "").replace(/_/g, " ")} - fleet {a.overall_performance_score ?? a.overall_fleet_score ?? "-"}/100</span>
+                      <span className="text-xs font-mono text-muted-foreground">{a.created_at}</span>
+                    </div>
+                    <p className="text-xs font-mono text-muted-foreground">
+                      Trader {a.trader_score ?? "-"} - Rebalancer {a.rebalancer_score ?? "-"} - Research {a.research_score ?? "-"}
+                      {Array.isArray(a.killed_agents) && a.killed_agents.length ? ` - halted: ${a.killed_agents.join(", ")}` : ""}
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { HistoryLoader } from "./shared/history-loader";
 import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect, useCallback } from "react";
@@ -324,6 +325,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   const [fleetActive, setFleetActive] = useState(false);
   const [traces, setTraces] = useState<TradeTrace[]>([]);
   const [isLoadingTrades, setIsLoadingTrades] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [activeTraceTab, setActiveTraceTab] = useState<"traces" | "history">("traces");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<"all" | "open" | "completed" | "dropped">("all");
   const [expandedTraceCid, setExpandedTraceCid] = useState<string | null>(null);
@@ -383,6 +385,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       console.error("Error fetching trader data:", e);
     } finally {
       setIsLoadingTrades(false);
+      setHistoryLoaded(true);
     }
   };
 
@@ -1289,6 +1292,14 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                           ? JSON.stringify(activeRun.researcher_intel.executive_summary)
                           : String(activeRun.researcher_intel.executive_summary || '')}
                       </p>
+                      <p className="text-[10px] font-mono text-purple-300/80">
+                        depth {(activeRun.researcher_intel as any).depth ?? 2}
+                        {(activeRun.researcher_intel as any).crawl?.pages_indexed != null ? ` · ${(activeRun.researcher_intel as any).crawl.pages_indexed} pages crawled` : ""}
+                        {Array.isArray(activeRun.researcher_intel.sources) ? ` · ${activeRun.researcher_intel.sources.length} sources` : ""}
+                        {(activeRun.researcher_intel as any).fear_greed?.value != null
+                          ? ` · Fear & Greed ${(activeRun.researcher_intel as any).fear_greed.value}/100 (${(activeRun.researcher_intel as any).fear_greed.value_classification || ""})`
+                          : ""}
+                      </p>
                     </div>
                   )}
 
@@ -1546,6 +1557,9 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
             </div>
 
             {/* ── VIEW 1: AGENT REASONING TRACES (WITH STEP-BY-STEP EVAL BREAKDOWN) ── */}
+            {!historyLoaded && traces.length === 0 && openTrades.length === 0 && tradeHistory.length === 0 && (
+              <HistoryLoader label="Loading decisions and trade history..." />
+            )}
             {activeTraceTab === "traces" && (
               <div className="space-y-3 pt-1">
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-border bg-background/40 px-3.5 py-2.5 text-sm text-muted-foreground">

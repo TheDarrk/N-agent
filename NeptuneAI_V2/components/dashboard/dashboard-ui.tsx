@@ -66,15 +66,17 @@ export function AskModeratorButton({
   topic,
   onAsk,
   label = "Ask Moderator",
+  context,
 }: {
   topic: HelpTopic;
-  onAsk: (topic: HelpTopic) => void;
+  onAsk: (topic: HelpTopic, context?: Record<string, unknown>) => void;
   label?: string;
+  context?: Record<string, unknown>;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onAsk(topic)}
+      onClick={() => onAsk(topic, context)}
       className="key3d inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1.5 text-xs font-semibold text-foreground"
     >
       <ModeratorAgentAvatar size={18} />

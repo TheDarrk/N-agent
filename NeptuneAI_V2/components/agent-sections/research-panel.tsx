@@ -1,5 +1,6 @@
 "use client";
 
+import { HistoryLoader } from "./shared/history-loader";
 import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { tilt3d } from "./trader/tilt-3d";
 import ReportView from "./research/report-view";
@@ -189,6 +190,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [currentActiveStep, setCurrentActiveStep] = useState<number>(0);
   const streamAbortRef = useRef<AbortController | null>(null);
+  const [reportsLoaded, setReportsLoaded] = useState(false);
   const [stepCards, setStepCards] = useState<CoTStepCard[]>([]);
   const [liveToolCalls, setLiveToolCalls] = useState<{ tool: string; args: any; thought?: string }[]>([]);
   const [showSteps, setShowSteps] = useState(false);
@@ -229,6 +231,8 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       }
     } catch (e) {
       console.error("Error fetching reports:", e);
+    } finally {
+      setReportsLoaded(true);
     }
   }, [accountId, activeReport, isLoading]);
 
@@ -860,7 +864,11 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {reports.length > 0 ? (
+          {!reportsLoaded && reports.length === 0 ? (
+            <div className="md:col-span-2">
+              <HistoryLoader label="Loading your report history..." />
+            </div>
+          ) : reports.length > 0 ? (
             reports.map((r, i) => (
               <button
                 type="button"

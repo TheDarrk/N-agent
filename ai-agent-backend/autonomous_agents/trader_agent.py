@@ -1472,13 +1472,22 @@ class TraderAgent:
                 topic = f"Deep Fundamental & Alpha Second Opinion for {selected_symbol} Spot Execution"
                 focus_area = f"Microstructure, DEX Liquidity Depth, Smart Contract Audits, Whale Flows, Catalyst Unlocks for {selected_symbol}"
                 print(f"[TRADER-PLUGIN] Requesting Research Second Opinion for {selected_symbol} (0 NEAR Fee - Free Inter-Agent Alpha)...")
-                hire_result = await self.research_agent.hire_by_trader_agent(
-                    trader_wallet=user_wallet,
-                    symbol=selected_symbol,
-                    research_topic=topic,
-                    focus_area=focus_area,
-                    caller_agent="Trader"
-                )
+                # The second opinion is OPTIONAL: bound it so a slow crawl / LLM can never stall the trade decision.
+                research_budget = float(os.getenv("TRADER_RESEARCH_BUDGET_SECONDS", "450"))
+                try:
+                    hire_result = await asyncio.wait_for(
+                        self.research_agent.hire_by_trader_agent(
+                            trader_wallet=user_wallet,
+                            symbol=selected_symbol,
+                            research_topic=topic,
+                            focus_area=focus_area,
+                            caller_agent="Trader"
+                        ),
+                        timeout=research_budget,
+                    )
+                except asyncio.TimeoutError:
+                    print(f"[TRADER-PLUGIN] Researcher exceeded {research_budget:.0f}s; deciding without its second opinion.")
+                    return None
                 full_rep = hire_result.get("full_report", {})
                 return {
                     "hired": True,
@@ -1491,7 +1500,10 @@ class TraderAgent:
                     "info_note": hire_result.get("info_note", "Make sure Researcher Agent (or you) have configured the data source in source links accordingly."),
                     "executive_summary": full_rep.get("executive_summary", ""),
                     "risk_factors": full_rep.get("risk_factors", ""),
-                    "sources": hire_result.get("sources", [])
+                    "sources": hire_result.get("sources", []),
+                    "depth": hire_result.get("depth", 2),
+                    "crawl": hire_result.get("crawl"),
+                    "fear_greed": hire_result.get("fear_greed"),
                 }
             except Exception as e:
                 print(f"[TRADER-PLUGIN] Research agent second opinion notice: {e}")

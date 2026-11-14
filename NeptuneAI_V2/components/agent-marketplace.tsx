@@ -1,5 +1,6 @@
 "use client";
 
+import ListingAnalyticsModal from "@/components/listing-analytics-modal";
 import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import React, { useState, useEffect, useRef } from "react";
 import {
@@ -77,6 +78,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
   const signAndSendTransaction = walletContext.signAndSendTransaction;
 
   const [activeTab, setActiveTab] = useState<"browse" | "purchases" | "sales">("browse");
+  const [analyticsFor, setAnalyticsFor] = useState<MarketplaceListing | null>(null);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [myOrders, setMyOrders] = useState<MarketplaceOrder[]>([]);
   const [mySales, setMySales] = useState<any[]>([]);
@@ -650,6 +652,14 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                       </div>
                     </div>
 
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsFor(item)}
+                      className="w-full text-xs font-semibold px-3 py-2 rounded-xl bg-secondary/60 hover:bg-secondary border border-border text-foreground transition-all"
+                    >
+                      View real analytics, agent wallet and recent history
+                    </button>
+
                     {/* Price & Action */}
                     <div className="pt-3 border-t border-border flex items-center justify-between gap-3">
                       <div>
@@ -1023,6 +1033,13 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
       )}
 
       {/* ─── PUBLISH MY AGENT MODAL ─── */}
+      <ListingAnalyticsModal
+        listingId={analyticsFor?.listing_id || null}
+        title={analyticsFor?.title}
+        agentType={analyticsFor?.agent_type}
+        onClose={() => setAnalyticsFor(null)}
+      />
+
       {isPublishModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl relative animate-in fade-in-0 zoom-in-95">

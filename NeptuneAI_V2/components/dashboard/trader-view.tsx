@@ -152,7 +152,7 @@ export default function TraderView({ data, onAsk, onOpenAgent }: Props) {
       </section>
 
       <section aria-label="Positions" className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Panel title="Open positions" subtitle={`${open.length} live`} className="xl:col-span-2">
+        <Panel title="Open positions" subtitle={`${open.length} live`} className="xl:col-span-2" action={<AskModeratorButton topic="trader" onAsk={onAsk} label="Ask" />}>
           {open.length === 0 ? (
             <EmptyState title="No open positions" hint="The Trader opens positions when a setup passes your confidence and safety limits." />
           ) : (
@@ -190,7 +190,7 @@ export default function TraderView({ data, onAsk, onOpenAgent }: Props) {
           )}
         </Panel>
 
-        <Panel title="Fleet status" subtitle={killed ? "Kill switch is ON" : "Live agent health"}>
+        <Panel title="Fleet status" subtitle={killed ? "Kill switch is ON" : "Live agent health"} action={<AskModeratorButton topic="overview" onAsk={onAsk} label="Ask" />}>
           <ul className="flex flex-col gap-3">
             {AGENT_ORDER.map((a) => {
               const s = data.fleet?.agents?.[a];

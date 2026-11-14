@@ -112,5 +112,27 @@
       "snippet": "Native cross-chain burn-and-mint throughput between NEAR, Ethereum, and Solana.",
       "date": "2026-04-11"
     }
+  ],
+  "_GLOBAL": [
+    {
+      "title": "Crypto Fear & Greed Index",
+      "url": "https://alternative.me/crypto/fear-and-greed-index/",
+      "snippet": "Daily market-wide sentiment score (0-100) used by the Trader to judge where the market is heading."
+    },
+    {
+      "title": "CoinMarketCap Fear & Greed",
+      "url": "https://coinmarketcap.com/charts/fear-and-greed-index/",
+      "snippet": "Second opinion on market sentiment with history."
+    },
+    {
+      "title": "CoinGecko Global Market Charts",
+      "url": "https://www.coingecko.com/en/global-charts",
+      "snippet": "Total market cap, volume and dominance."
+    },
+    {
+      "title": "DefiLlama Chains TVL",
+      "url": "https://defillama.com/chains",
+      "snippet": "Where liquidity is flowing across chains."
+    }
   ]
 }

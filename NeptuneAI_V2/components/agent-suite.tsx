@@ -82,6 +82,11 @@ export default function NeptuneAgentSuite({
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [shareModalAgent, setShareModalAgent] = useState<"trader" | "rebalancer" | "research" | null>(null);
   const [isAgentWalletModalOpen, setIsAgentWalletModalOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setIsAgentWalletModalOpen(true);
+    window.addEventListener("neptune-open-agent-wallets", open);
+    return () => window.removeEventListener("neptune-open-agent-wallets", open);
+  }, []);
   const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
 
   const fetchFleet = async () => {
@@ -170,9 +175,15 @@ export default function NeptuneAgentSuite({
       description:
         "Scans cryptocurrency markets and user watchlists using an integrated trading knowledge base of chart patterns, technical indicators, and live social sentiment analysis to automatically identify setups and execute trades within your pre-set limits.",
       tags: ["Chart Pattern Recognition", "Trading Knowledge Base", "Social Sentiment Analysis", "Automated Execution", "Custom Risk Limits"],
-      stats: fleetData?.agents?.trader?.is_active
-        ? `${fleetData.agents.trader.total_trades || 0} Trades Executed (${fleetData.agents.trader.take_profit_hits || 0} at TP)`
-        : "Standby — Configure and activate to deploy"
+      stats: (() => {
+        const t: any = fleetData?.agents?.trader;
+        const parts: string[] = [];
+        if (t?.total_trades) parts.push(`${t.total_trades} trades (${t.take_profit_hits || 0} at TP)`);
+        if (t?.decisions_count) parts.push(`${t.decisions_count} decisions`);
+        if (t?.last_decision) parts.push(`last: ${t.last_decision.verdict} ${t.last_decision.symbol}`);
+        if (parts.length) return parts.join(" · ");
+        return t?.is_active ? "Active - no decisions yet" : "Standby — Configure and activate to deploy";
+      })()
     },
     {
       id: "moderator",
@@ -185,9 +196,13 @@ export default function NeptuneAgentSuite({
       description:
         "Provides real-time safety surveillance across all active agents, evaluating trade validity, risk exposure, and overall portfolio health. Equipped with an emergency circuit breaker to pause execution and safeguard capital during market volatility.",
       tags: ["Fleet Risk Surveillance", "Portfolio Health Scoring", "Emergency Circuit Breaker", "Continuous Safety Monitoring"],
-      stats: fleetData?.agents?.moderator?.is_active
-        ? `Health Score: ${fleetData.agents.moderator.health_score || 94}/100 (Optimal)`
-        : "Standby — Configure and activate for risk protection"
+      stats: (() => {
+        const m: any = fleetData?.agents?.moderator;
+        if (m?.health_score != null) {
+          return `Fleet health ${m.health_score}/100${m.last_verdict ? ` · ${String(m.last_verdict).replace(/_/g, " ")}` : ""} · ${m.audits_count || 1} audit${(m.audits_count || 1) > 1 ? "s" : ""}`;
+        }
+        return m?.is_active ? "Active - no audit yet, run one" : "Standby — Configure and activate for risk protection";
+      })()
     },
     {
       id: "research",
@@ -200,9 +215,14 @@ export default function NeptuneAgentSuite({
       description:
         "Conducts deep market and fundamental analysis across tokens, synthesizing volume trends, on-chain metrics, and social signals into comprehensive intelligence reports on demand.",
       tags: ["Fundamental Analysis", "On-Chain Market Intelligence", "Token Trend Reports", "Automated Due Diligence"],
-      stats: fleetData?.agents?.research?.is_active
-        ? `${fleetData.agents.research.reports_generated || 0} Research Reports Generated`
-        : "Standby — Configure and activate to generate reports"
+      stats: (() => {
+        const r: any = fleetData?.agents?.research;
+        if (r?.reports_generated) {
+          const when = r.latest_report?.created_at ? ` · latest ${new Date(String(r.latest_report.created_at).replace(" ", "T") + (String(r.latest_report.created_at).includes("Z") ? "" : "Z")).toLocaleDateString()}` : "";
+          return `${r.reports_generated} report${r.reports_generated > 1 ? "s" : ""} generated${when}`;
+        }
+        return r?.is_active ? "Active - no report yet" : "Standby — Configure and activate to generate reports";
+      })()
     },
     {
       id: "rebalancer",
@@ -215,9 +235,15 @@ export default function NeptuneAgentSuite({
       description:
         "Maintains your target balance between stablecoins and cryptocurrencies, continuously monitoring portfolio drift and automatically executing low-slippage rebalancing swaps when thresholds are reached.",
       tags: ["Target Asset Allocation", "Portfolio Drift Monitoring", "Automated Rebalancing", "Low-Slippage Swaps"],
-      stats: fleetData?.agents?.rebalancer?.is_active
-        ? `Target: 70% Stables / 30% NEAR (${fleetData.agents.rebalancer.drift_threshold || 5}% drift)`
-        : "Standby — Configure targets and activate to start"
+      stats: (() => {
+        const r: any = fleetData?.agents?.rebalancer;
+        const parts: string[] = [];
+        if (r?.strategies_count) parts.push(`${r.strategies_count} strateg${r.strategies_count > 1 ? "ies" : "y"}`);
+        if (r?.executions_count) parts.push(`${r.executions_success || 0}/${r.executions_count} swaps ok`);
+        if (r?.last_strategy?.regime) parts.push(`regime ${String(r.last_strategy.regime).replace(/_/g, " ")}`);
+        if (parts.length) return parts.join(" · ");
+        return r?.is_active ? "Active - no strategy yet" : "Standby — Configure targets and activate to start";
+      })()
     }
   ];
 

@@ -13,9 +13,17 @@ export type ChatHistoryItem = {
   created_at: string;
 };
 
+export type ChatSelection = {
+  human_message: string;
+  ai_message: string;
+  session_id?: string;
+  /** every saved turn of the same conversation, oldest first (the clicked one is included) */
+  turns: { human_message: string; ai_message: string; created_at: string }[];
+};
+
 type Props = {
   accountId: string | null;
-  onSelectChat?: (chat: { human_message: string; ai_message: string }) => void;
+  onSelectChat?: (chat: ChatSelection) => void;
   onConnectWallet?: () => void;
 };
 
@@ -46,6 +54,19 @@ export default function SidebarChatHistory({
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+
+  // One row per conversation: its first question as the title, its latest answer as the preview.
+  const conversations = React.useMemo(() => {
+    const groups = new Map<string, ChatHistoryItem[]>();
+    for (const c of chats) {
+      const key = c.session_id || `single-${c.id}`;
+      groups.set(key, [...(groups.get(key) || []), c]);
+    }
+    return [...groups.values()]
+      .map((turns) => [...turns].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))))
+      .sort((a, b) => String(b[b.length - 1].created_at).localeCompare(String(a[a.length - 1].created_at)))
+      .slice(0, 8);
+  }, [chats]);
 
   const fetchHistory = useCallback(async (isManual = false) => {
     if (!accountId) {
@@ -130,7 +151,7 @@ export default function SidebarChatHistory({
             Recent Chats
           </h3>
           <span className="rounded bg-secondary px-1.5 py-0.2 text-[10px] font-mono text-muted-foreground">
-            {chats.length}/5
+            {conversations.length}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -172,10 +193,26 @@ export default function SidebarChatHistory({
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {chats.map((chat) => (
+          {conversations.map((turnsOfChat) => {
+            const chat = turnsOfChat[turnsOfChat.length - 1]; // latest turn drives time + preview
+            const first = turnsOfChat[0];
+            return (
             <div
-              key={chat.id}
-              onClick={() => onSelectChat?.({ human_message: chat.human_message, ai_message: chat.ai_message })}
+              key={chat.session_id || chat.id}
+              role="button"
+              tabIndex={0}
+              title="Open this conversation"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") e.currentTarget.click();
+              }}
+              onClick={() => {
+                onSelectChat?.({
+                  human_message: first.human_message,
+                  ai_message: chat.ai_message,
+                  session_id: chat.session_id,
+                  turns: turnsOfChat.map((c) => ({ human_message: c.human_message, ai_message: c.ai_message, created_at: c.created_at })),
+                });
+              }}
               className="group relative flex flex-col gap-1.5 rounded-xl border border-border bg-card/60 p-3 text-left transition-all hover:border-primary/40 hover:bg-card hover:shadow-sm cursor-pointer"
             >
               <div className="flex items-center justify-between gap-2">
@@ -184,8 +221,11 @@ export default function SidebarChatHistory({
                     <User size={10} />
                   </span>
                   <span className="truncate text-[12px] font-semibold text-foreground">
-                    {chat.human_message}
+                    {first.human_message}
                   </span>
+                  {turnsOfChat.length > 1 && (
+                    <span className="shrink-0 rounded bg-secondary px-1 text-[10px] font-mono text-muted-foreground">{turnsOfChat.length}</span>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <span className="text-[10px] text-muted-foreground font-mono">
@@ -208,7 +248,8 @@ export default function SidebarChatHistory({
                 </p>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

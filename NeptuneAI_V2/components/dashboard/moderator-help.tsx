@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { ModeratorAgentAvatar } from "@/components/agent-avatars";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -13,6 +13,8 @@ type Props = {
   data: DashboardData;
   running: boolean;
   onTopic: (topic: HelpTopic) => void;
+  wallet?: string | null;
+  context?: Record<string, unknown>;
   onOpenChange: (open: boolean) => void;
   onRun: () => void;
   onOpenModerator: () => void;
@@ -24,7 +26,49 @@ const SCORES: { key: string; label: string }[] = [
   { key: "research_score", label: "Research" },
 ];
 
-export default function ModeratorHelp({ open, topic, data, running, onTopic, onOpenChange, onRun, onOpenModerator }: Props) {
+type LiveAnswer = { answer: string; highlights: string[]; next_steps: string[]; source: string; nodes_used: string[]; as_of_utc?: string };
+
+export default function ModeratorHelp({ open, topic, data, running, onTopic, onOpenChange, onRun, onOpenModerator, wallet, context }: Props) {
+  const [live, setLive] = useState<LiveAnswer | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [question, setQuestion] = useState("");
+  const reqRef = useRef(0);
+
+  // Ask the backend: each section has its own context nodes that feed the Moderator that section's real data.
+  const askBackend = React.useCallback(async (q: string) => {
+    if (!wallet) return;
+    const id = ++reqRef.current;
+    setAsking(true);
+    setAskError(null);
+    try {
+      const res = await fetch("/api/moderator/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_wallet: wallet, section: topic, question: q || undefined, client: context }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.detail || json.error || "The Moderator could not answer right now");
+      if (id === reqRef.current) setLive(json as LiveAnswer);
+    } catch (e: any) {
+      if (id === reqRef.current) {
+        setLive(null);
+        setAskError(e?.message || "The Moderator could not answer right now");
+      }
+    } finally {
+      if (id === reqRef.current) setAsking(false);
+    }
+  }, [wallet, topic, context]);
+
+  // New topic / panel opened => ask about that section straight away
+  useEffect(() => {
+    if (!open) return;
+    setQuestion("");
+    setLive(null);
+    askBackend("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, topic]);
+
   const answer = useMemo(() => answerFor(topic, data), [topic, data]);
   const mod = data.moderator;
   const lastRun = pickText(mod, "last_run_at");
@@ -64,24 +108,85 @@ export default function ModeratorHelp({ open, topic, data, running, onTopic, onO
             ))}
           </div>
 
-          <article className="rounded-2xl border border-border bg-card p-4" aria-live="polite">
-            <h3 className="text-base font-semibold text-foreground">{answer.title}</h3>
-            <div className="mt-2 flex flex-col gap-2.5">
-              {answer.paragraphs.map((p, i) => (
-                <p key={i} className="text-sm leading-relaxed text-foreground/90 text-pretty">
-                  {p}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              askBackend(question.trim());
+            }}
+            className="flex gap-2"
+          >
+            <input
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Ask about this section (optional)..."
+              className="min-w-0 flex-1 rounded-xl border border-border bg-secondary px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+            />
+            <button
+              type="submit"
+              disabled={asking || !wallet}
+              className="key3d rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              Ask
+            </button>
+          </form>
+
+          <article className="rounded-2xl border border-border bg-card p-4" aria-live="polite" aria-busy={asking}>
+            {asking ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 size={15} className="animate-spin" />
+                Reading your {topic} data and thinking...
+              </div>
+            ) : live ? (
+              <>
+                <h3 className="text-base font-semibold text-foreground">{HELP_TOPICS.find((t) => t.id === topic)?.label || "Moderator"}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-foreground/90 text-pretty">{live.answer}</p>
+                {live.highlights?.length > 0 && (
+                  <ul className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+                    {live.highlights.map((b, i) => (
+                      <li key={i} className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                        <span className="text-pretty">{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {live.next_steps?.length > 0 && (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">What you can do</p>
+                    <ul className="mt-1.5 flex flex-col gap-1.5">
+                      {live.next_steps.map((b, i) => (
+                        <li key={i} className="text-sm leading-relaxed text-foreground/90">- {b}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <p className="mt-3 text-[11px] text-muted-foreground">
+                  Based on your live {live.nodes_used?.join(", ")} data
+                  {live.source === "data-only" ? " (AI explanation unavailable, showing facts only)" : ""}.
                 </p>
-              ))}
-            </div>
-            {answer.bullets.length > 0 && (
-              <ul className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
-                {answer.bullets.map((b, i) => (
-                  <li key={i} className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
-                    <span className="text-pretty">{b}</span>
-                  </li>
-                ))}
-              </ul>
+              </>
+            ) : (
+              <>
+                {askError && <p className="mb-2 text-xs text-amber-400">{askError}. Showing the summary from your dashboard data instead.</p>}
+                <h3 className="text-base font-semibold text-foreground">{answer.title}</h3>
+                <div className="mt-2 flex flex-col gap-2.5">
+                  {answer.paragraphs.map((p, i) => (
+                    <p key={i} className="text-sm leading-relaxed text-foreground/90 text-pretty">
+                      {p}
+                    </p>
+                  ))}
+                </div>
+                {answer.bullets.length > 0 && (
+                  <ul className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+                    {answer.bullets.map((b, i) => (
+                      <li key={i} className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                        <span className="text-pretty">{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </article>
 

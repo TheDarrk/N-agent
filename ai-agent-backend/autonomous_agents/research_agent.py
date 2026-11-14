@@ -711,39 +711,136 @@ class ResearchAgent:
                 print(f"[RESEARCH LLM CALL] Notice: Transient call error after retry ({e}). Node will use fallback.")
                 return None
 
-    async def _stream_crawl(self, urls: List[str], date_range: str, scope: str = "near"):
+    async def index_live_signals(self, coins: List[str], scope: str = "near") -> Dict[str, Any]:
+        """
+        Pull the LIVE market indicators the Trader relies on (global Fear & Greed + per-coin sentiment) and index them
+        as evidence, so every report / second opinion cites where the market and each coin are heading right now.
+        """
+        def _collect() -> Dict[str, Any]:
+            from market_sentiment import get_crypto_fear_and_greed_index, get_token_market_sentiment
+            out: Dict[str, Any] = {"fear_greed": None, "coins": {}}
+            try:
+                out["fear_greed"] = get_crypto_fear_and_greed_index()
+            except Exception as e:
+                print(f"[RESEARCH] fear&greed unavailable: {e}")
+            for c in list(dict.fromkeys(coins))[:6]:
+                try:
+                    out["coins"][c] = get_token_market_sentiment(c)
+                except Exception:
+                    pass
+            return out
+
+        data = await asyncio.to_thread(_collect)
+        docs, metas, ids = [], [], []
+        now = datetime.now(timezone.utc)
+        stamp = now.strftime("%Y-%m-%d")
+        fg = data.get("fear_greed") or {}
+        if fg:
+            docs.append(
+                f"Crypto Fear & Greed Index (live, {stamp}): {fg.get('value', 'n/a')}/100 - {fg.get('value_classification', fg.get('regime', ''))}. "
+                f"Regime: {fg.get('regime', 'n/a')}. Guidance: {fg.get('guidance', '')}"
+            )
+            metas.append({"url": "https://alternative.me/crypto/fear-and-greed-index/", "title": "Crypto Fear & Greed Index (live)"})
+            ids.append(f"live-fng-{stamp}")
+        for coin, sent in data["coins"].items():
+            if not sent:
+                continue
+            docs.append(f"{coin} market sentiment (live, {stamp}): " + json.dumps(sent, default=str)[:900])
+            metas.append({"url": f"https://cfgi.io/{coin.lower()}", "title": f"{coin} sentiment & Fear/Greed (live)"})
+            ids.append(f"live-sent-{coin.lower()}-{stamp}")
+        if docs:
+            def _upsert():
+                col = self.crawler_tool.scrapper.get_collection() if self.crawler_tool.scrapper else None
+                if col is None:
+                    return
+                col.upsert(
+                    ids=ids, documents=docs,
+                    metadatas=[{**m, "topic": scope, "depth": 0, "published_date": stamp, "year": stamp[:4],
+                                "classification": "Latest", "crawled_at": now.isoformat()} for m in metas],
+                )
+            try:
+                await asyncio.to_thread(_upsert)
+            except Exception as e:
+                print(f"[RESEARCH] live-signal indexing failed (non-fatal): {e}")
+        return data
+
+    async def crawl_agent_sources(self, coins: List[str], depth: int = 2, scope: str = "near",
+                                  budget_seconds: float = 45.0, max_pages: int = 6) -> Dict[str, Any]:
+        """Crawl SOURCE SET 2 (system sources for these coins) to `depth`, in parallel, bounded by a time budget."""
+        sources = get_agent_sources(coins)
+        urls = [s["url"] for s in sources]
+        signals_task = asyncio.create_task(self.index_live_signals(coins, scope))
+        summary: Dict[str, Any] = {"indexed": 0, "urls_processed": []}
+        if urls:
+            try:
+                summary = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self.crawler_tool.crawl_custom_sources,
+                        urls=urls, topic=scope, date_range="1_month",
+                        max_pages_per_seed=max_pages, max_depth=depth, budget_seconds=budget_seconds,
+                    ),
+                    timeout=budget_seconds + 15,
+                )
+            except Exception as e:
+                print(f"[RESEARCH] agent-source crawl issue (continuing): {e}")
+        live = await signals_task
+        return {
+            "depth": depth,
+            "sources": sources,
+            "sources_count": len(sources),
+            "pages_indexed": summary.get("indexed", 0),
+            "pages": [u.get("url") for u in summary.get("urls_processed", [])][:20],
+            "fear_greed": (live or {}).get("fear_greed"),
+            "coin_sentiment": list(((live or {}).get("coins") or {}).keys()),
+        }
+
+    async def _stream_crawl(self, urls: List[str], date_range: str, scope: str = "near",
+                            max_depth: Optional[int] = None, max_pages: Optional[int] = None,
+                            extra_groups: Optional[List[Dict[str, Any]]] = None):
         """
         Crawl `urls` in parallel (one worker thread per seed, several page fetches in parallel inside each)
         and yield live `pre_crawl` progress events so the UI shows the crawl as the first step.
         Bounded by RESEARCH_CRAWL_BUDGET_SECONDS so a slow site can never stall the report.
         """
-        if not urls:
+        groups: List[Dict[str, Any]] = []
+        if urls:
+            groups.append({"label": "your links", "urls": list(dict.fromkeys(urls))[:10],
+                           "depth": max_depth if max_depth is not None else int(os.getenv("RESEARCH_OWN_DEPTH", "4") or 4),
+                           "pages": max_pages if max_pages is not None else int(os.getenv("RESEARCH_OWN_PAGES", "20") or 20)})
+        for g in (extra_groups or []):
+            if g.get("urls"):
+                groups.append({"label": g.get("label", "agent sources"), "urls": list(dict.fromkeys(g["urls"]))[:12],
+                               "depth": int(g.get("depth", 2)), "pages": int(g.get("pages", 6))})
+        if not groups:
             return
-        urls = list(dict.fromkeys(urls))[:10]
+        total_seeds = sum(len(g["urls"]) for g in groups)
         loop = asyncio.get_running_loop()
         queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
-        budget = float(os.getenv("RESEARCH_CRAWL_BUDGET_SECONDS", "75") or 75)
-        max_pages = int(os.getenv("RESEARCH_CRAWL_PAGES_PER_SEED", "12") or 12)
-        max_depth = int(os.getenv("RESEARCH_CRAWL_DEPTH", "2") or 2)
+        budget = float(os.getenv("RESEARCH_CRAWL_BUDGET_SECONDS", "90") or 90)
 
         def progress_cb(ev: Dict[str, Any]) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, ev)
 
         started = time.monotonic()
-        msg = (f"Crawling {len(urls)} source(s) in parallel "
-               f"(up to {max_pages} pages each, depth {max_depth}, {int(budget)}s budget)...")
+        desc = " + ".join(f"{len(g['urls'])} {g['label']} (depth {g['depth']})" for g in groups)
+        msg = f"Crawling in parallel: {desc} - {int(budget)}s budget..."
         print(f"[CRAWL] {msg}")
-        yield {"type": "pre_crawl", "status": "started", "links": urls, "message": msg,
-               "pages": 0, "indexed": 0, "seeds_done": 0, "seeds_total": len(urls)}
+        all_urls = [u for g in groups for u in g["urls"]]
+        yield {"type": "pre_crawl", "status": "started", "links": all_urls, "message": msg,
+               "pages": 0, "indexed": 0, "seeds_done": 0, "seeds_total": total_seeds}
 
-        crawl_future = loop.run_in_executor(
-            None,
-            lambda: self.crawler_tool.crawl_custom_sources(
-                urls=urls, topic=scope, date_range=date_range,
-                max_pages_per_seed=max_pages, max_depth=max_depth,
-                progress_cb=progress_cb, budget_seconds=budget,
-            ),
-        )
+        futures = [
+            loop.run_in_executor(
+                None,
+                lambda g=g: self.crawler_tool.crawl_custom_sources(
+                    urls=g["urls"], topic=scope, date_range=date_range,
+                    max_pages_per_seed=g["pages"], max_depth=g["depth"],
+                    progress_cb=progress_cb, budget_seconds=budget,
+                ),
+            )
+            for g in groups
+        ]
+        all_done = asyncio.gather(*futures, return_exceptions=True)
         pages = indexed = seeds_done = 0
         last_sent = 0.0
         last_url = ""
@@ -751,7 +848,7 @@ class ResearchAgent:
             try:
                 ev = await asyncio.wait_for(queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
-                if crawl_future.done() and queue.empty():
+                if all_done.done() and queue.empty():
                     break
                 continue
             if ev.get("event") == "page":
@@ -767,19 +864,21 @@ class ResearchAgent:
             if now - last_sent >= 0.4 or ev.get("event") == "seed_done":
                 last_sent = now
                 yield {"type": "pre_crawl", "status": "progress", "pages": pages, "indexed": indexed,
-                       "seeds_done": seeds_done, "seeds_total": len(urls), "current_url": last_url,
-                       "message": f"Crawled {pages} pages ({indexed} new) - {seeds_done}/{len(urls)} sources done"}
+                       "seeds_done": seeds_done, "seeds_total": total_seeds, "current_url": last_url,
+                       "message": f"Crawled {pages} pages ({indexed} new) - {seeds_done}/{total_seeds} sources done"}
 
-        try:
-            summary = await crawl_future
-        except Exception as ce:
-            print(f"[CRAWL] crawl error (continuing with stored knowledge): {ce}")
-            summary = {"indexed": indexed, "skipped": 0}
+        results = await all_done
+        total_indexed = indexed
+        for r in results:
+            if isinstance(r, dict):
+                total_indexed = max(total_indexed, indexed)
+            elif isinstance(r, Exception):
+                print(f"[CRAWL] a source group failed (continuing with stored knowledge): {r}")
         took = time.monotonic() - started
-        print(f"[CRAWL] done in {took:.1f}s: {pages} pages, {summary.get('indexed', indexed)} indexed")
-        yield {"type": "pre_crawl", "status": "done", "pages": pages, "indexed": summary.get("indexed", indexed),
-               "seeds_done": len(urls), "seeds_total": len(urls), "duration_s": round(took, 1),
-               "message": f"Crawl finished in {took:.0f}s: {pages} pages visited, {summary.get('indexed', indexed)} indexed"}
+        print(f"[CRAWL] done in {took:.1f}s: {pages} pages, {total_indexed} indexed")
+        yield {"type": "pre_crawl", "status": "done", "pages": pages, "indexed": total_indexed,
+               "seeds_done": total_seeds, "seeds_total": total_seeds, "duration_s": round(took, 1),
+               "message": f"Crawl finished in {took:.0f}s: {pages} pages visited, {total_indexed} indexed"}
 
     async def _ensure_knowledge_base(self, scope: str, user_links: List[str], date_range: str, force: bool = False) -> None:
         """Crawl default sources (and user links) into Chroma when the store has no chunks for this scope.
@@ -1677,12 +1776,25 @@ class ResearchAgent:
         try:
             # ─── STEP 0: PARALLEL CRAWL (streamed live, always first) ─────────────
             clean_seed_links = [l.strip() for l in (links or []) if l.strip().startswith("http")]
-            crawl_targets = list(clean_seed_links)
-            if not crawl_targets:
-                # no links given: refresh from the built-in default sources
-                crawl_targets = [src["url"] for src in get_default_sources_for_coins(["NEAR"]) if src.get("url")]
-            async for crawl_event in self._stream_crawl(crawl_targets, effective_range):
+            # Two source sets, crawled together: (1) the user's own links -> depth 4; (2) the system "agent" sources
+            # (Fear & Greed index + the coins' pages, the same ones Trader/Rebalancer use) -> depth 2.
+            mentioned = [c for c in ("NEAR", "BTC", "ETH", "SOL", "DOGE", "USDT", "USDC")
+                         if re.search(rf"\b{c}\b", f"{topic} {user_expectations or ''}", re.I)] or ["NEAR"]
+            agent_urls = [src["url"] for src in get_agent_sources(mentioned)]
+            live_task = asyncio.create_task(self.index_live_signals(mentioned))
+            async for crawl_event in self._stream_crawl(
+                clean_seed_links, effective_range,
+                extra_groups=[{"label": "agent sources", "urls": agent_urls, "depth": 2, "pages": 6}],
+            ):
                 yield json.dumps(crawl_event) + "\n"
+            try:
+                live = await live_task
+                fg = (live or {}).get("fear_greed") or {}
+                if fg:
+                    yield json.dumps({"type": "pre_crawl", "status": "progress",
+                                      "message": f"Live market sentiment indexed: Fear & Greed {fg.get('value')}/100 ({fg.get('value_classification', '')})"}) + "\n"
+            except Exception as le:
+                print(f"[RESEARCH] live signals skipped: {le}")
 
             # ─── NODE 1: INTENT ANALYSIS ─────────────────────────────
             print(f"\n[NODE 1: INTENT ANALYSIS] Deconstructing user intent & generic mechanisms...")
@@ -1951,7 +2063,7 @@ class ResearchAgent:
             focus=expectations,
             coins=[clean_symbol],
             date_range_days=30,
-            depth=2 if clean_caller == "trader" else 1,
+            depth=2,
             calling_agent=clean_caller
         )
 
@@ -1971,6 +2083,9 @@ class ResearchAgent:
             "executive_summary": sub_res.get("executive_summary", ""),
             "risk_factors": sub_res.get("risk_factors", ""),
             "actionable_signal_details": {"direction": sub_res.get("signal"), "confidence": sub_res.get("confidence")},
+            "depth": sub_res.get("depth", 2),
+            "crawl": sub_res.get("crawl"),
+            "fear_greed": sub_res.get("fear_greed"),
             "full_report": sub_res
         }
 
@@ -2012,6 +2127,8 @@ def get_default_sources_for_coins(coins: List[str]) -> List[Dict[str, str]]:
     seen_urls = set()
     for c in coins:
         symbol = c.upper().strip()
+        if symbol.startswith("_"):
+            continue
         coin_sources = all_sources.get(symbol, [])
         for s in coin_sources:
             if s.get("url") and s["url"] not in seen_urls:
@@ -2020,6 +2137,27 @@ def get_default_sources_for_coins(coins: List[str]) -> List[Dict[str, str]]:
     if not results:
         results = all_sources.get("NEAR", [])
     return results
+
+
+def get_agent_sources(coins: List[str]) -> List[Dict[str, str]]:
+    """
+    SOURCE SET 2 - the system sources used when the Trader / Rebalancer call the Researcher (crawled to depth 2),
+    and that the Researcher also uses itself next to its own links: market-wide indicators (Fear & Greed index ...)
+    plus the pages for each coin involved. (Set 1 = the user's own links in the Research panel, crawled to depth 4.)
+    """
+    sources_path = os.path.join(os.path.dirname(__file__), "default_sources.json")
+    try:
+        with open(sources_path, "r", encoding="utf-8") as f:
+            all_sources = json.load(f)
+    except Exception:
+        all_sources = {}
+    out: List[Dict[str, str]] = []
+    seen = set()
+    for src in list(all_sources.get("_GLOBAL", [])) + get_default_sources_for_coins(coins):
+        if src.get("url") and src["url"] not in seen:
+            seen.add(src["url"])
+            out.append(src)
+    return out
 
 
 async def run_research_subagent(
@@ -2052,7 +2190,7 @@ async def run_research_subagent(
             val_copy["cached"] = True
             return val_copy
 
-    actual_depth = depth if depth is not None else (2 if clean_calling == "trader" else 1)
+    actual_depth = depth if depth is not None else 2  # trader, rebalancer and the researcher itself all use depth 2 for agent sources
     resolved_sources = get_default_sources_for_coins(target_coins)
     source_urls = [s["url"] for s in resolved_sources if "url" in s]
 
@@ -2081,6 +2219,12 @@ async def run_research_subagent(
             pass
 
     researcher = ResearchAgent()
+    # SOURCE SET 2 at depth 2 (+ live Fear & Greed / per-coin sentiment) is crawled first, so the report has real evidence.
+    crawl_info: Dict[str, Any] = {}
+    try:
+        crawl_info = await researcher.crawl_agent_sources(target_coins, depth=2)
+    except Exception as ce:
+        print(f"[RESEARCH-SUBAGENT] source crawl skipped: {ce}")
     try:
         report = await researcher.generate_research_report(
             topic=final_topic,
@@ -2117,8 +2261,10 @@ async def run_research_subagent(
         "risk_factors": risk_factors,
         "signal": primary_signal,
         "confidence": primary_confidence,
-        "sources": resolved_sources,
-        "sources_count": len(resolved_sources),
+        "sources": crawl_info.get("sources") or resolved_sources,
+        "sources_count": crawl_info.get("sources_count") or len(resolved_sources),
+        "crawl": {"depth": 2, "pages_indexed": crawl_info.get("pages_indexed", 0), "pages": crawl_info.get("pages", [])},
+        "fear_greed": crawl_info.get("fear_greed"),
         "cached": False,
         "timestamp_utc": datetime.now(timezone.utc).isoformat()
     }

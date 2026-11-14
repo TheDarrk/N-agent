@@ -576,20 +576,28 @@ class RebalancerEvaluatorNode:
                 "drift_threshold": user.get("rebalancer_drift_threshold", 5.0)
             }
 
-        # Query live spot prices
+        # Query live spot prices (no invented fallback prices: if unavailable the judge is told so)
         try:
             spot_prices = await get_token_prices()
         except Exception:
-            spot_prices = {"NEAR": 4.5, "USDC": 1.0, "USDT": 1.0, "ETH": 2500.0}
+            spot_prices = {}
 
-        # Calculate current drift & metrics
-        allocations = active_strategy.get("allocations") or {"USDT": 30.0, "NEAR": 70.0}
-        stable_pct = float(allocations.get("USDT", 0.0) + allocations.get("USDC", 0.0))
         min_stable_required = float(hist_config.get("min_stable_pct", 10.0))
         drift_threshold = float(hist_config.get("drift_threshold", 5.0))
 
-        # Current drift based on allocations
-        current_drift = 2.4
+        # REAL drift + REAL current allocation of the wallet handed to the Rebalancer: exactly what the Rebalancer's own
+        # drift monitor reports (single source of truth, so the watchdog and the monitor can never disagree).
+        telemetry: Dict[str, Any] = {}
+        try:
+            from autonomous_agents.rebalancer_agent import RebalancerAgent
+            telemetry = await RebalancerAgent().get_portfolio_drift_status(user_wallet, drift_threshold_pct=drift_threshold)
+        except Exception as te:
+            print(f"  [NODE 2: REBALANCER TELEMETRY] unavailable: {te}")
+        wallet_missing = telemetry.get("status") == "NO_WALLET"
+        current_alloc = telemetry.get("current_allocation") or {}
+        allocations = {k: float(v) for k, v in current_alloc.items()}
+        stable_pct = float(sum(v for k, v in allocations.items() if k.upper() in ("USDT", "USDC", "DAI", "USD")))
+        current_drift = float(telemetry.get("max_drift_pct") or 0.0)
         drift_status = "WITHIN_BOUNDS" if current_drift <= drift_threshold else ("ELEVATED" if current_drift <= drift_threshold * 1.5 else "BREACH")
 
         # Execution reliability
@@ -605,7 +613,7 @@ class RebalancerEvaluatorNode:
             min_stable_pct_required=round(min_stable_required, 1),
             state_machine_success_rate=round(success_rate, 1),
             total_rebalances=total_execs,
-            macro_btc_beta=1.15
+            macro_btc_beta=1.0
         )
 
         print(f"  [NODE 2: REBALANCER EVALUATOR] Auditing portfolio allocations, drift, and cash buffer for {user_wallet}...")
@@ -622,6 +630,8 @@ class RebalancerEvaluatorNode:
             },
             "current_portfolio_allocations": allocations,
             "live_token_prices": spot_prices,
+            "rebalancer_wallet": ("NOT ASSIGNED - drift and allocation cannot be measured" if wallet_missing
+                                  else (telemetry.get("agent_wallet") or {}).get("address", "unknown")),
             "performance_metrics": {
                 "current_allocation_drift_pct": round(current_drift, 1),
                 "stablecoin_buffer_pct": round(stable_pct, 1),

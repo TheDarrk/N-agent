@@ -1,5 +1,6 @@
 "use client";
 
+import { AskModeratorButton } from "./dashboard-ui";
 import React, { useEffect, useState } from "react";
 import { AgentAvatar } from "@/components/agent-avatars";
 import { fmtUsd, pickNum, pickText, scoreToPct, type AgentKey, type DashboardData } from "./dashboard-types";
@@ -36,7 +37,7 @@ function ScoreBar({ agent, label, pct }: { agent: AgentKey; label: string; pct: 
   );
 }
 
-export default function RiskControls({ data, actions }: { data: DashboardData; actions: DashboardActions }) {
+export default function RiskControls({ data, actions, onAsk }: { data: DashboardData; actions: DashboardActions; onAsk?: (topic: "risk", ctx?: Record<string, unknown>) => void }) {
   const mod = data.moderator;
   const saved = pickNum(mod, "kill_switch_threshold") ?? pickNum(mod, "kill_threshold") ?? 30;
   const [threshold, setThreshold] = useState<number>(saved);
@@ -54,7 +55,7 @@ export default function RiskControls({ data, actions }: { data: DashboardData; a
   const saving = actions.pending === "threshold";
 
   return (
-    <Panel title="Risk controls" subtitle="How the Moderator scores your fleet and when it steps in.">
+    <Panel title="Risk controls" subtitle="How the Moderator scores your fleet and when it steps in." action={onAsk ? <AskModeratorButton topic="risk" onAsk={onAsk as any} label="Ask" /> : undefined}>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
           <div className="flex items-end justify-between rounded-xl border border-border bg-secondary/40 p-3.5">

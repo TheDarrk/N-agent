@@ -4,7 +4,7 @@ import React, { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
 import { AGENT_INFO, AGENT_ORDER, agentIdFromName, timeAgo, type ActivityItem, type AgentKey } from "./dashboard-types";
-import { EmptyState, Panel } from "./dashboard-ui";
+import { AskModeratorButton, EmptyState, Panel } from "./dashboard-ui";
 
 type Filter = "all" | AgentKey;
 
@@ -73,7 +73,7 @@ function Row({ item }: { item: ActivityItem }) {
   );
 }
 
-export default function ActivityFeed({ items }: { items: ActivityItem[] }) {
+export default function ActivityFeed({ items, onAsk }: { items: ActivityItem[]; onAsk?: (topic: "activity", ctx?: Record<string, unknown>) => void }) {
   const [filter, setFilter] = useState<Filter>("all");
   const visible = useMemo(
     () => items.filter((i) => filter === "all" || agentIdFromName(i.agent_name) === filter).slice(0, 12),
@@ -85,6 +85,8 @@ export default function ActivityFeed({ items }: { items: ActivityItem[] }) {
       title="Live activity"
       subtitle="What every agent just did and why. Tap a row for the reasoning."
       action={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+        {onAsk && <AskModeratorButton topic="activity" onAsk={onAsk as any} label="Ask" />}
         <div role="radiogroup" aria-label="Filter by agent" className="flex flex-wrap justify-end gap-1">
           {(["all", ...AGENT_ORDER] as Filter[]).map((f) => (
             <button
@@ -100,6 +102,7 @@ export default function ActivityFeed({ items }: { items: ActivityItem[] }) {
               {f === "all" ? "All" : AGENT_INFO[f].label}
             </button>
           ))}
+        </div>
         </div>
       }
     >

@@ -40,6 +40,7 @@ export default function AgentDashboard({ accountId, onSelectAgentTab }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [helpOpen, setHelpOpen] = useState(false);
   const [topic, setTopic] = useState<HelpTopic>("overview");
+  const [askContext, setAskContext] = useState<Record<string, unknown> | undefined>(undefined);
 
   const changeMode = useCallback((next: Mode) => {
     setMode(next);
@@ -48,8 +49,9 @@ export default function AgentDashboard({ accountId, onSelectAgentTab }: Props) {
     window.history.replaceState(null, "", url.toString());
   }, []);
 
-  const ask = useCallback((t: HelpTopic) => {
+  const ask = useCallback((t: HelpTopic, ctx?: Record<string, unknown>) => {
     setTopic(t);
+    setAskContext(ctx);
     setHelpOpen(true);
   }, []);
 
@@ -189,7 +191,7 @@ export default function AgentDashboard({ accountId, onSelectAgentTab }: Props) {
         </div>
 
         <div className="rise-in" style={{ animationDelay: "90ms" }}>
-          <MarketTerminal data={data} />
+          <MarketTerminal data={data} onAsk={ask} />
         </div>
 
         <div className="rise-in" style={{ animationDelay: "120ms" }}>
@@ -201,8 +203,8 @@ export default function AgentDashboard({ accountId, onSelectAgentTab }: Props) {
         </div>
 
         <div className="rise-in grid grid-cols-1 gap-4 xl:grid-cols-2" style={{ animationDelay: "180ms" }}>
-          <ActivityFeed items={data.activity} />
-          <RiskControls data={data} actions={actions} />
+          <ActivityFeed items={data.activity} onAsk={ask} />
+          <RiskControls data={data} actions={actions} onAsk={ask} />
         </div>
 
         {isTrader && (
@@ -221,7 +223,12 @@ export default function AgentDashboard({ accountId, onSelectAgentTab }: Props) {
         topic={topic}
         data={data}
         running={deliberating}
-        onTopic={setTopic}
+        onTopic={(t) => {
+          setAskContext(undefined);
+          setTopic(t);
+        }}
+        wallet={accountId}
+        context={askContext}
         onOpenChange={setHelpOpen}
         onRun={runDeliberation}
         onOpenModerator={() => {

@@ -1,3 +1,4 @@
+import asyncio
 """
 Neptune AI — Inter-Agent Communication & Control Tools
 Enables the Main Conversational Agent to interrogate, trigger,
@@ -33,30 +34,7 @@ async def query_trader_status_tool(user_wallet: str) -> str:
     Args:
         user_wallet: The user's account ID (e.g. user.near)
     """
-    try:
-        open_trades = get_open_trades(user_wallet)
-        history = get_user_trade_history(user_wallet, limit=5)
-
-        msg = f"📈 **Trader Agent Status for {user_wallet}:**\n\n"
-        if open_trades:
-            msg += f"🔥 **Active Positions ({len(open_trades)}):**\n"
-            for t in open_trades:
-                msg += (
-                    f"- **{t['action']} {t['symbol']}** | Entry: ${t['entry_price']} | "
-                    f"🎯 TP: ${t['tp_price']} | 🛑 SL: ${t['sl_price']} | "
-                    f"Confidence: {t['confidence_score']}% | Expected ROI: +{t['expected_roi_pct']}%\n"
-                )
-        else:
-            msg += "• No open positions currently active. Agent is scanning the market on schedule.\n"
-
-        if history:
-            msg += f"\n📜 **Recent Completed Trades:**\n"
-            for h in history[:3]:
-                msg += f"- {h['action']} {h['symbol']} ({h['status']}) @ ${h['current_price']} [Confidence: {h['confidence_score']}%]\n"
-
-        return msg
-    except Exception as e:
-        return f"Error retrieving Trader Agent status: {str(e)}"
+    return await agent_suite_mcp_tool.ainvoke({"agent_name": "trader", "action": "get_status", "user_wallet": user_wallet})
 
 
 @tool
@@ -72,37 +50,12 @@ async def run_trader_scan_tool(user_wallet: str, symbol: str = "NEAR", timeframe
         timeframe: Candle interval ('1h', '2h', '4h', '1d')
         min_confidence: Minimum confidence score required to enter trade (default 75%)
     """
-    try:
-        result = await _trader.run_pipeline(
-            user_wallet=user_wallet,
-            symbol=symbol,
-            force_timeframe=timeframe,
-            force_min_confidence=min_confidence
-        )
-
-        if result.get("success"):
-            return (
-                f"✅ **Trader Agent Executed Trade:**\n"
-                f"- **Pair:** {result['symbol']}\n"
-                f"- **Action:** {result['action']}\n"
-                f"- **Entry Price:** ${result['entry_price']}\n"
-                f"- **Take Profit:** ${result['take_profit_price']}\n"
-                f"- **Stop Loss:** ${result['stop_loss_price']}\n"
-                f"- **Judge Confidence:** {result['confidence_score']}% (Threshold: {min_confidence}%)\n"
-                f"- **Projected ROI:** +{result['expected_roi_pct']}%\n"
-                f"- **Pattern:** {result.get('pattern')}\n"
-                f"- **Reasoning:** {result.get('reasoning')}\n"
-                f"- **Trace CID:** `{result.get('cid')}`"
-            )
-        else:
-            return (
-                f"ℹ️ **Trader Agent Evaluated {symbol} (No Trade Placed):**\n"
-                f"- **Status:** {result.get('status')}\n"
-                f"- **Judge Confidence:** {result.get('confidence_score', 0)}% (Required: {min_confidence}%)\n"
-                f"- **Reasoning:** {result.get('reasoning', result.get('message'))}"
-            )
-    except Exception as e:
-        return f"Error executing Trader Agent scan: {str(e)}"
+    # Starts a TRACKED background run (same as the app's Run button); never an untracked inline trade.
+    import json
+    return await agent_suite_mcp_tool.ainvoke({
+        "agent_name": "trader", "action": "trigger_run", "user_wallet": user_wallet,
+        "params_json": json.dumps({"symbol": symbol, "timeframe": timeframe, "min_confidence": min_confidence}),
+    })
 
 
 @tool
@@ -113,20 +66,8 @@ async def query_rebalancer_status_tool(user_wallet: str) -> str:
     Args:
         user_wallet: The user's account ID
     """
-    try:
-        status = await _rebalancer.evaluate_and_rebalance(user_wallet=user_wallet)
-        msg = (
-            f"⚖️ **Rebalancer Agent Status:**\n"
-            f"- **Status:** {status['status']}\n"
-            f"- **Portfolio Value:** ${status['total_portfolio_usd']}\n"
-            f"- **Current Allocations:** {status['current_allocation']}\n"
-            f"- **Target Allocations:** {status['target_allocation']}\n"
-            f"- **Max Drift:** {status['max_drift_pct']}% (Threshold: {status['drift_threshold_pct']}%)\n"
-            f"- **Action:** {status['action_taken']}"
-        )
-        return msg
-    except Exception as e:
-        return f"Error checking Rebalancer: {str(e)}"
+    # Read-only: status never executes swaps.
+    return await agent_suite_mcp_tool.ainvoke({"agent_name": "rebalancer", "action": "get_status", "user_wallet": user_wallet})
 
 
 @tool
@@ -138,21 +79,11 @@ async def request_research_report_tool(topic: str, user_wallet: str) -> str:
         topic: The research subject (e.g. "NEAR Liquid Staking Yields" or "AI Agent Microstructure")
         user_wallet: The requester wallet address
     """
-    try:
-        report = await _researcher.generate_research_report(topic=topic, requester=user_wallet)
-        signal = report.get("actionable_signal", {})
-        return (
-            f"🔬 **Institutional Research Report Generated:**\n\n"
-            f"**Title:** {report.get('title')}\n"
-            f"**Market Regime:** {report.get('regime')}\n"
-            f"**Actionable Signal:** {signal.get('action')} {signal.get('target_asset')} (Confidence: {signal.get('confidence')}%)\n"
-            f"**Summary:** {report.get('summary')}\n"
-            f"**Key Catalysts:** {', '.join(report.get('key_catalysts', []))}\n"
-            f"**Decentralized Storage CID:** `{report.get('cid')}`\n"
-            f"**Fee Settled:** Free (0 NEAR)"
-        )
-    except Exception as e:
-        return f"Error generating research report: {str(e)}"
+    import json
+    return await agent_suite_mcp_tool.ainvoke({
+        "agent_name": "researcher", "action": "trigger_run", "user_wallet": user_wallet,
+        "params_json": json.dumps({"topic": topic}),
+    })
 
 
 @tool
@@ -189,20 +120,7 @@ async def query_moderator_watchdog_tool(user_wallet: str) -> str:
     Args:
         user_wallet: The user's account ID
     """
-    try:
-        data = await _moderator.get_watchdog_status(user_wallet)
-        msg = (
-            f"🛡️ **Moderator Watchdog Status for {user_wallet}:**\n"
-            f"- **Health Score:** {data['health_score']}/100\n"
-            f"- **Watchdog Status:** {data['status']}\n"
-            f"- **Kill Switch Active:** {data['kill_switch_active']}\n"
-            f"- **Open Positions:** {data['open_trades_count']}\n"
-            f"- **Total Open Exposure:** ${data['total_open_exposure_usd']} / ${data['daily_limit_usd']} Daily Cap\n"
-            f"- **Max Per Trade:** ${data['max_tx_amount_usd']}"
-        )
-        return msg
-    except Exception as e:
-        return f"Error querying Moderator Watchdog: {str(e)}"
+    return await agent_suite_mcp_tool.ainvoke({"agent_name": "moderator", "action": "get_status", "user_wallet": user_wallet})
 
 
 @tool
@@ -243,7 +161,7 @@ async def agent_suite_mcp_tool(
     or trigger runs for any of the 4 autonomous agents:
       - "trader": Autonomous Technical Trading Agent (scans, entries, TP/SL, limit orders)
       - "rebalancer": Spot Portfolio Rebalancing Agent (drift management, stablecoin preservation)
-      - "researcher": Institutional Deep Research Agent (reports, alpha signals, IPFS traces)
+      - "researcher": Institutional Deep Research Agent (cited reports, alpha signals, second opinions)
       - "moderator": Watchdog Surveillance & Safety Agent (fleet audits, health score, kill switch)
       - "fleet": Entire multi-agent fleet overview
 
@@ -275,204 +193,244 @@ async def agent_suite_mcp_tool(
             params = {}
 
     user = get_user(user_wallet) or {}
+    agent_key = {"researcher": "research", "research": "research", "watchdog": "moderator"}.get(clean_agent, clean_agent)
 
-    # 1. STATUS
+    # ---------------------------------------------------------------- 1. STATUS (truth, not just the on/off switch)
     if clean_action == "get_status":
-        if clean_agent == "trader":
+        from agent_metrics import get_agent_truth, get_assigned_agent_wallets
+
+        def _truth_block(agent: str) -> str:
+            t = get_agent_truth(user_wallet, agent)
+            lr = t["last_run"]
+            lines = [f"- **Verdict:** {t['verdict']}"]
+            lines.append(f"- **Switch:** {'on' if t['switched_on'] else 'off'} | **Scheduled:** "
+                         f"{'yes, next run ' + str(t['next_run_at']) + ' (every ' + str(t['every_seconds']) + 's)' if t['scheduled'] else 'no'}")
+            lines.append(f"- **Last run:** " + (f"{lr['status']} at {lr['started']}" + (f" - error: {str(lr['error'])[:120]}" if lr.get('error') else "") if lr else "never ran"))
+            addrs = [x["address"] for x in t["agent_wallets"]]
+            lines.append(f"- **Agent wallet:** {', '.join(addrs) if addrs else 'NONE assigned'}")
+            return "\n".join(lines)
+
+        if agent_key == "trader":
             open_trades = get_open_trades(user_wallet)
             pending_trades = get_pending_trades(user_wallet)
-            active_str = "🟢 ACTIVE" if user.get("trader_active") else "⚪ INACTIVE"
+            from database import get_user_reasoning_traces
+            traces = get_user_reasoning_traces(user_wallet, limit=3)
+            last_dec = "; ".join(f"{t.get('symbol')} {t.get('verdict')} ({t.get('confidence_score')}%, {str(t.get('created_at'))[:16]})" for t in traces) or "no decisions yet"
             return (
-                f"📈 **Trader Agent MCP Status ({user_wallet}):**\n"
-                f"- **State:** {active_str}\n"
-                f"- **Timeframe:** {user.get('trader_timeframe', '1h')}\n"
-                f"- **Min Confidence:** {user.get('trader_min_confidence', 75)}%\n"
-                f"- **Risk Profile:** {user.get('trader_risk_profile', 'moderate')}\n"
-                f"- **Coin Mode:** {user.get('trader_coin_mode', 'auto')}\n"
-                f"- **Active Positions:** {len(open_trades)}\n"
-                f"- **Pending Limit Orders:** {len(pending_trades)}"
+                f"📈 **Trader Agent ({user_wallet}):**\n{_truth_block('trader')}\n"
+                f"- **Settings:** timeframe {user.get('trader_timeframe', '1h')}, min confidence {user.get('trader_min_confidence', 75)}%, "
+                f"coin mode {user.get('trader_coin_mode', 'auto')}, max {user.get('trader_max_trades_per_day', 3)} trades/day\n"
+                f"- **Open positions:** {len(open_trades)} | **Pending limit orders:** {len(pending_trades)}\n"
+                f"- **Last decisions:** {last_dec}"
             )
 
-        elif clean_agent == "rebalancer":
-            active_str = "🟢 ACTIVE" if user.get("rebalancer_active") else "⚪ INACTIVE"
+        if agent_key == "rebalancer":
+            from database import get_active_rebalancer_strategy
+            strat = get_active_rebalancer_strategy(user_wallet)
+            try:
+                drift = await asyncio.wait_for(_rebalancer.get_portfolio_drift_status(user_wallet), timeout=20)
+            except Exception as e:
+                drift = {"status": "UNAVAILABLE", "action_taken": str(e)[:100]}
+            alloc = ", ".join(f"{k} {v}%" for k, v in (strat or {}).get("allocations", {}).items()) or "no active strategy"
             return (
-                f"⚖️ **Rebalancer Agent MCP Status ({user_wallet}):**\n"
-                f"- **State:** {active_str}\n"
-                f"- **Target Stables:** {user.get('rebalancer_target_stables', 70.0)}%\n"
-                f"- **Target NEAR:** {user.get('rebalancer_target_near', 30.0)}%\n"
-                f"- **Drift Threshold:** {user.get('rebalancer_drift_threshold', 5.0)}%\n"
-                f"- **Min Stable Floor:** {user.get('min_stable_pct', 20.0)}%"
+                f"⚖️ **Rebalancer Agent ({user_wallet}):**\n{_truth_block('rebalancer')}\n"
+                f"- **Active strategy:** {alloc} (regime {(strat or {}).get('market_regime', 'n/a')})\n"
+                f"- **Drift:** {drift.get('max_drift_pct', 'n/a')}% vs limit {drift.get('drift_threshold_pct', user.get('rebalancer_drift_threshold', 5.0))}% - {drift.get('status')}\n"
+                f"- **Portfolio value (agent wallet):** ${drift.get('total_portfolio_usd', 0)}\n"
+                f"- **Telemetry note:** {drift.get('action_taken', '')}"
             )
 
-        elif clean_agent == "researcher":
+        if agent_key == "research":
+            from database import get_user_research_reports
+            reps = get_user_research_reports(user_wallet, limit=3)
+            last_reps = "; ".join(f"'{r.get('title')}' ({str(r.get('created_at'))[:16]})" for r in reps) or "no reports yet"
             return (
-                f"🔬 **Research Agent MCP Status ({user_wallet}):**\n"
-                f"- **Capability:** Institutional Multi-Node Research & Citation Grounding\n"
-                f"- **Decentralized Storage:** IPFS Pinning Active\n"
-                f"- **Inter-Agent Collaboration:** Second Opinion Active (Free - 0 NEAR)"
+                f"🔬 **Research Agent ({user_wallet}):**\n{_truth_block('research')}\n"
+                f"- **Recent reports:** {last_reps}\n"
+                f"- **Sources:** your own links are crawled to depth 4; the system agent sources (Fear & Greed index, coin pages) to depth 2, "
+                f"the same ones it uses when the Trader or Rebalancer consult it."
             )
 
-        elif clean_agent in ("moderator", "watchdog"):
+        if agent_key == "moderator":
             data = await _moderator.get_watchdog_status(user_wallet)
             return (
-                f"🛡️ **Watchdog MCP Status ({user_wallet}):**\n"
-                f"- **Health Score:** {data.get('health_score', 100)}/100\n"
-                f"- **Status:** {data.get('status', 'NOMINAL')}\n"
-                f"- **Kill Switch:** {'🚨 ACTIVE' if data.get('kill_switch_active') else '🟢 Off'}\n"
-                f"- **Open Positions:** {data.get('open_trades_count', 0)}\n"
-                f"- **Open Exposure:** ${data.get('total_open_exposure_usd', 0.0)} / ${data.get('daily_limit_usd', 2000)} Cap"
+                f"🛡️ **Watchdog ({user_wallet}):**\n{_truth_block('moderator')}\n"
+                f"- **Fleet health:** {data.get('health_score') if data.get('has_evaluation') else 'not audited yet'}"
+                f"{'/100' if data.get('has_evaluation') else ''} | verdict {data.get('verdict')}\n"
+                f"- **Kill switch:** {'🚨 ACTIVE' if data.get('kill_switch_active') else 'off'}\n"
+                f"- **Open exposure:** ${data.get('total_open_exposure_usd', 0.0)} of ${data.get('daily_limit_usd', 0)} daily cap"
             )
 
-        else: # Fleet overview
-            t_act = "🟢" if user.get("trader_active") else "⚪"
-            r_act = "🟢" if user.get("rebalancer_active") else "⚪"
-            kill = "🚨 ACTIVE" if user.get("kill_switch") else "🟢 Normal"
-            return (
-                f"🌐 **Neptune Agent Suite Fleet Telemetry ({user_wallet}):**\n"
-                f"- {t_act} **Trader Agent:** {'Active' if user.get('trader_active') else 'Inactive'}\n"
-                f"- {r_act} **Rebalancer Agent:** {'Active' if user.get('rebalancer_active') else 'Inactive'}\n"
-                f"- 🔬 **Research Agent:** Ready\n"
-                f"- 🛡️ **Watchdog Surveillance:** Active (Kill Switch: {kill})\n"
-                f"- **Daily Spend Limit:** ${user.get('daily_limit', 2000.0)} | Max Per Trade: ${user.get('max_tx_amount', 500.0)}"
-            )
+        # fleet overview: every agent's truthful verdict
+        rows = []
+        for ag, icon in (("trader", "📈"), ("rebalancer", "⚖️"), ("research", "🔬"), ("moderator", "🛡️")):
+            t = get_agent_truth(user_wallet, ag)
+            rows.append(f"- {icon} **{ag.title()}:** {t['verdict']}")
+        return (
+            f"🌐 **Neptune Agent Suite ({user_wallet}):**\n" + "\n".join(rows) + "\n"
+            f"- **Kill switch:** {'🚨 ACTIVE' if user.get('kill_switch') else 'off'} | **Daily limit:** ${user.get('daily_limit', 'n/a')} | **Max per trade:** ${user.get('max_tx_amount', 'n/a')}"
+        )
 
-    # 2. HISTORY
-    elif clean_action == "get_history":
+    # ---------------------------------------------------------------- 2. HISTORY
+    if clean_action == "get_history":
         limit = int(params.get("limit", 5))
-        if clean_agent == "trader":
+        if agent_key == "trader":
             trades = get_user_trade_history(user_wallet, limit=limit)
             pending = get_pending_trades(user_wallet)
-            msg = f"📜 **Trader Agent History ({user_wallet}):**\n"
+            from database import get_user_reasoning_traces
+            traces = get_user_reasoning_traces(user_wallet, limit=limit)
+            msg = f"📜 **Trader History ({user_wallet}):**\n"
             if pending:
-                msg += f"⏳ **Pending Limit Orders ({len(pending)}):**\n"
-                for p in pending[:3]:
-                    msg += f"- {p['action']} {p['symbol']} @ target ${p['entry_price']} [TP: ${p['tp_price']} | SL: ${p['sl_price']}]\n"
+                msg += f"⏳ **Pending limit orders ({len(pending)}):**\n"
+                for p_ in pending[:3]:
+                    msg += f"- {p_.get('action')} {p_.get('symbol')} @ ${p_.get('entry_price')} [TP ${p_.get('tp_price')} | SL ${p_.get('sl_price')}]\n"
+            msg += f"🧠 **Last decisions ({len(traces)}):**\n" + ("".join(f"- {str(t.get('created_at'))[:16]} {t.get('symbol')} {t.get('verdict')} ({t.get('confidence_score')}%)\n" for t in traces) or "none yet\n")
             if trades:
-                msg += f"✅ **Recent Trades ({len(trades)}):**\n"
+                msg += f"✅ **Recent trades ({len(trades)}):**\n"
                 for t in trades[:limit]:
-                    msg += f"- {t.get('action')} {t.get('symbol')} ({t.get('status')}) @ ${t.get('entry_price_usd', t.get('entry_price', 0))} | ROI: +{t.get('expected_roi_pct', 0)}%\n"
+                    msg += f"- {t.get('action')} {t.get('symbol')} ({t.get('status')}) @ ${t.get('entry_price_usd', t.get('entry_price', 0))}\n"
             else:
-                msg += "No trade history recorded yet."
+                msg += "No trades recorded yet."
             return msg
 
-        elif clean_agent == "rebalancer":
+        if agent_key == "rebalancer":
+            from database import get_rebalancer_strategy_history
             execs = get_rebalancer_executions_for_user(user_wallet, limit=limit)
-            msg = f"📜 **Rebalancer History ({user_wallet}):**\n"
-            if execs:
-                for e in execs[:limit]:
-                    msg += f"- [{e.get('created_at', '')[:16]}] {e.get('token_in', '')} -> {e.get('token_out', '')} | Amount: ${e.get('amount_in_usd', 0)} | Status: {e.get('terminal_status', e.get('state'))}\n"
-            else:
-                msg += "No rebalance executions recorded yet."
+            strategies = get_rebalancer_strategy_history(user_wallet, limit=limit)
+            msg = f"📜 **Rebalancer History ({user_wallet}):**\n🗂️ **Strategies ({len(strategies)}):**\n"
+            msg += "".join(f"- #{x.get('id')} {x.get('status')} {x.get('market_regime')} {x.get('allocations')} ({str(x.get('created_at'))[:16]})\n" for x in strategies) or "none yet\n"
+            msg += "🔁 **Swaps:**\n" + ("".join(f"- [{str(e.get('created_at', ''))[:16]}] {e.get('token_in')} -> {e.get('token_out')} ${e.get('amount_in_usd')} {e.get('terminal_status') or e.get('state')}\n" for e in execs) or "none yet")
             return msg
 
-        elif clean_agent == "researcher":
-            from database import get_user_hires
-            logs = get_agent_logs(user_wallet, limit=limit, agent_name="research")
-            msg = f"📜 **Research Reports History ({user_wallet}):**\n"
-            if logs:
-                for l in logs:
-                    msg += f"- [{l.get('created_at', '')[:16]}] {l.get('action_taken')} (CID: {l.get('cid_reference', 'N/A')})\n"
-            else:
-                msg += "No research reports published yet."
+        if agent_key == "research":
+            from database import get_user_research_reports
+            reps = get_user_research_reports(user_wallet, limit=limit)
+            msg = f"📜 **Research Reports ({user_wallet}):**\n"
+            msg += "".join(f"- {str(r.get('created_at'))[:16]} '{r.get('title')}' (ID {r.get('cid')}): {str(r.get('executive_summary') or '')[:160]}\n" for r in reps) or "No reports yet."
             return msg
 
-        else: # Watchdog & audit logs
-            logs = get_agent_logs(user_wallet, limit=limit, agent_name=clean_agent if clean_agent != "fleet" else None)
-            msg = f"📜 **Agent Suite Audit Trail ({user_wallet}):**\n"
-            if logs:
-                for l in logs[:limit]:
-                    msg += f"- [{l.get('agent_name').upper()}] {l.get('action_taken')} ({l.get('created_at', '')[:16]})\n"
-            else:
-                msg += "No audit events recorded yet."
-            return msg
+        logs = get_agent_logs(user_wallet, limit=limit, agent_name=agent_key if agent_key not in ("fleet", "all") else None)
+        msg = f"📜 **Agent Suite Audit Trail ({user_wallet}):**\n"
+        msg += "".join(f"- [{str(l.get('agent_name')).upper()}] {l.get('action_taken')} ({str(l.get('created_at', ''))[:16]})\n" for l in logs[:limit]) or "No audit events recorded yet."
+        return msg
 
-    # 3. SET ACTIVE / INACTIVE
-    elif clean_action == "set_active":
+    # ---------------------------------------------------------------- 3. SET ACTIVE (switch AND schedule, so "on" really runs)
+    if clean_action == "set_active":
+        from database import upsert_scheduled_job, disable_job
         is_active = params.get("is_active", True)
         if isinstance(is_active, str):
             is_active = is_active.lower() in ("true", "1", "yes", "on")
-
-        settings = {}
-        if clean_agent in ("trader", "all", "fleet"):
-            settings["trader_active"] = 1 if is_active else 0
-        if clean_agent in ("rebalancer", "all", "fleet"):
-            settings["rebalancer_active"] = 1 if is_active else 0
-        if clean_agent in ("moderator", "watchdog", "all", "fleet"):
-            settings["moderator_active"] = 1 if is_active else 0
-
+        targets = ["trader", "rebalancer", "research", "moderator"] if agent_key in ("all", "fleet") else [agent_key]
+        flag = {"trader": "trader_active", "rebalancer": "rebalancer_active", "research": "research_active", "moderator": "moderator_active"}
+        schedule = {"trader": ("trade_poll", 3600), "rebalancer": ("rebalance_cadence", 7 * 86400), "moderator": ("fleet_deliberation", 300)}
+        settings = {flag[t]: 1 if is_active else 0 for t in targets if t in flag}
+        if is_active and "kill_switch" in user and user.get("kill_switch"):
+            settings["kill_switch"] = 0
         upsert_user(user_wallet, settings)
-        status_word = "ACTIVATED 🟢" if is_active else "DEACTIVATED ⚪"
-        return f"✅ **MCP Update:** {clean_agent.upper()} agent has been {status_word} for wallet `{user_wallet}`."
+        notes = []
+        for t in targets:
+            if t not in schedule:
+                continue
+            purpose, interval = schedule[t]
+            job_id = f"{user_wallet.strip().lower()}:{t}:{purpose}"
+            if is_active:
+                upsert_scheduled_job(wallet=user_wallet, agent_type=t, purpose=purpose, interval_seconds=interval, config={}, enabled=1, job_id=job_id)
+                notes.append(f"{t} scheduled every {interval // 3600 if interval >= 3600 else interval // 60}{'h' if interval >= 3600 else 'min'}")
+            else:
+                disable_job(job_id)
+        word = "ACTIVATED 🟢" if is_active else "DEACTIVATED ⚪"
+        extra = f" ({'; '.join(notes)})" if notes else ""
+        return (f"✅ {agent_key.upper()} {word} for `{user_wallet}`{extra}. "
+                "Call get_status to confirm what it will really do (a wallet must also be assigned for Trader/Rebalancer to trade).")
 
-    # 4. CONFIGURE
-    elif clean_action == "configure":
+    # ---------------------------------------------------------------- 4. CONFIGURE
+    if clean_action == "configure":
         settings = {}
-        if "timeframe" in params:
-            settings["trader_timeframe"] = params["timeframe"]
-        if "min_confidence" in params:
-            settings["trader_min_confidence"] = int(params["min_confidence"])
-        if "risk_profile" in params:
-            settings["trader_risk_profile"] = params["risk_profile"]
-        if "coin_mode" in params:
-            settings["trader_coin_mode"] = params["coin_mode"]
-        if "custom_coins" in params:
-            settings["trader_custom_coins"] = params["custom_coins"]
-        if "target_stables" in params:
-            settings["rebalancer_target_stables"] = float(params["target_stables"])
-        if "target_near" in params:
-            settings["rebalancer_target_near"] = float(params["target_near"])
-        if "drift_threshold" in params:
-            settings["rebalancer_drift_threshold"] = float(params["drift_threshold"])
-        if "notification_email" in params:
-            settings["notification_email"] = params["notification_email"]
-        if "max_tx_amount" in params:
-            settings["max_tx_amount"] = float(params["max_tx_amount"])
-        if "daily_limit" in params:
-            settings["daily_limit"] = float(params["daily_limit"])
+        mapping = {
+            "timeframe": ("trader_timeframe", str), "min_confidence": ("trader_min_confidence", int),
+            "risk_profile": ("trader_risk_profile", str), "coin_mode": ("trader_coin_mode", str),
+            "custom_coins": ("trader_custom_coins", str), "max_trades_per_day": ("trader_max_trades_per_day", int),
+            "enable_researcher": ("trader_enable_researcher", lambda v: 1 if str(v).lower() in ("1", "true", "yes", "on") else 0),
+            "target_stables": ("rebalancer_target_stables", float), "target_near": ("rebalancer_target_near", float),
+            "drift_threshold": ("rebalancer_drift_threshold", float), "notification_email": ("notification_email", str),
+            "max_tx_amount": ("max_tx_amount", float), "daily_limit": ("daily_limit", float),
+        }
+        for key, (col, cast) in mapping.items():
+            if key in params:
+                try:
+                    settings[col] = cast(params[key])
+                except Exception:
+                    return f"⚠️ Invalid value for `{key}`: {params[key]!r}"
+        applied = list(settings.keys())
+        if settings:
+            upsert_user(user_wallet, settings)
+        if "moderator_frequency" in params:
+            from database import update_moderator_frequency
+            update_moderator_frequency(user_wallet, str(params["moderator_frequency"]))
+            applied.append("moderator_frequency")
+        if "kill_threshold" in params:
+            from database import update_moderator_kill_threshold
+            update_moderator_kill_threshold(user_wallet, float(params["kill_threshold"]))
+            applied.append("kill_threshold")
+        if not applied:
+            return ("⚠️ No valid settings found. Valid keys: " + ", ".join(list(mapping.keys()) + ["moderator_frequency", "kill_threshold"]))
+        return f"✅ Configuration applied for {agent_key.upper()} ({user_wallet}): `{', '.join(applied)}`. Call get_status to verify."
 
-        if not settings:
-            return f"⚠️ **MCP Notice:** No valid configuration settings found in parameters."
-
-        upsert_user(user_wallet, settings)
-        applied_keys = ", ".join(settings.keys())
-        return f"✅ **MCP Configuration Applied for {clean_agent.upper()} ({user_wallet}):**\nUpdated: `{applied_keys}`."
-
-    # 5. TRIGGER RUN
-    elif clean_action == "trigger_run":
-        if clean_agent == "trader":
-            symbol = params.get("symbol", "NEAR")
-            tf = params.get("timeframe", "1h")
-            conf = int(params.get("min_confidence", 75))
-            res = await _trader.run_pipeline(user_wallet=user_wallet, symbol=symbol, force_timeframe=tf, force_min_confidence=conf)
-            return f"⚡ **Trader Run Output ({symbol}):** Verdict `{res.get('verdict')}` | Status `{res.get('status')}` | ROI: +{res.get('expected_roi_pct')}%"
-
-        elif clean_agent == "rebalancer":
-            res = await _rebalancer.evaluate_and_rebalance(user_wallet=user_wallet)
-            return f"⚖️ **Rebalancer Run Output:** Status `{res.get('status')}` | Max Drift: {res.get('max_drift_pct')}% | Action: {res.get('action_taken')}"
-
-        elif clean_agent == "researcher":
-            topic = params.get("topic", "NEAR DeFi Infrastructure")
-            rep = await _researcher.generate_research_report(topic=topic, requester=user_wallet)
-            return f"🔬 **Research Run Output:** '{rep.get('title')}' | Regime: `{rep.get('regime')}` | CID: `{rep.get('cid')}`"
-
-        elif clean_agent in ("moderator", "watchdog"):
-            data = await _moderator.get_watchdog_status(user_wallet)
-            return f"🛡️ **Watchdog Run Output:** Health Score: `{data.get('health_score')}/100` | Open Exposure: `${data.get('total_open_exposure_usd')}`"
-
-        else:
+    # ---------------------------------------------------------------- 5. TRIGGER RUN (a tracked background run, same as the app's Run button)
+    if clean_action == "trigger_run":
+        import os
+        import httpx
+        route = {"trader": "trader", "rebalancer": "rebalancer", "research": "research", "moderator": "moderator"}.get(agent_key)
+        if not route:
             return f"Unknown agent name '{agent_name}' for trigger_run."
+        base = f"http://127.0.0.1:{os.getenv('PORT', '8000')}/api/{route}/start"
+        if route == "trader":
+            payload = {"user_wallet": user_wallet, "symbol": params.get("symbol"), "coin_mode": params.get("coin_mode") or user.get("trader_coin_mode") or "auto",
+                       "timeframe": params.get("timeframe") or user.get("trader_timeframe") or "1h",
+                       "min_confidence": int(params.get("min_confidence") or user.get("trader_min_confidence") or 75),
+                       "custom_coins": params.get("custom_coins") or user.get("trader_custom_coins") or "",
+                       "enable_researcher_plugin": bool(user.get("trader_enable_researcher", 0))}
+        elif route == "rebalancer":
+            from database import get_active_rebalancer_strategy
+            strat = get_active_rebalancer_strategy(user_wallet) or {}
+            payload = {"user_wallet": user_wallet, "selected_coins": params.get("selected_coins") or strat.get("selected_coins") or ["USDT", "NEAR"],
+                       "user_expectation": params.get("user_expectation") or strat.get("user_expectation_text") or "Keep my allocation healthy",
+                       "cadence_days": int(params.get("cadence_days") or strat.get("cadence_days") or 7),
+                       "min_stable_pct": float(params.get("min_stable_pct") or strat.get("min_stable_pct") or 10.0),
+                       "drift_threshold_pct": float(user.get("rebalancer_drift_threshold") or 5.0)}
+        elif route == "research":
+            from database import get_agent_ui_config
+            cfg = get_agent_ui_config(user_wallet, "research")
+            links = [l.strip() for l in str(params.get("links") or cfg.get("linksInput") or "").splitlines() if l.strip().startswith("http")]
+            payload = {"user_wallet": user_wallet, "topic": params.get("topic") or cfg.get("topic") or "NEAR DeFi opportunities",
+                       "user_expectations": params.get("user_expectations") or cfg.get("userExpectations") or "", "links": links,
+                       "date_range": params.get("date_range") or cfg.get("dateRange") or "1_month"}
+        else:
+            payload = {"user_wallet": user_wallet}
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(base, json=payload)
+            data = resp.json()
+            if resp.status_code != 200:
+                return f"⚠️ Could not start the {agent_key} run: {data.get('detail') or data}"
+            reused = " (it was already running, so I reused that run)" if data.get("reused") else ""
+            return (f"⚡ **{agent_key.title()} run started**{reused} - run id `{data.get('run_id')}`. It runs in the background; "
+                    f"open the {agent_key.title()} tab to watch the steps, or ask me for its status/history in a minute.")
+        except Exception as e:
+            return f"⚠️ Could not start the {agent_key} run right now: {str(e)[:160]}"
 
-    # 6. KILL SWITCH
-    elif clean_action == "kill_switch":
+    # ---------------------------------------------------------------- 6. KILL SWITCH
+    if clean_action == "kill_switch":
         activate = params.get("activate", True)
+        if isinstance(activate, str):
+            activate = activate.lower() in ("true", "1", "yes", "on")
         if activate:
             res = await _moderator.trigger_emergency_kill_switch(user_wallet)
-            return f"🚨 **MCP KILL SWITCH ACTIVATED:** {res['message']}"
-        else:
-            res = await _moderator.reset_kill_switch(user_wallet)
-            return f"🟢 **MCP KILL SWITCH RESET:** {res['message']}"
+            return f"🚨 **KILL SWITCH ACTIVATED:** {res['message']}"
+        res = await _moderator.reset_kill_switch(user_wallet)
+        return f"🟢 **KILL SWITCH RESET:** {res['message']}"
 
-    return f"⚠️ **MCP Error:** Unknown action '{action}' for agent '{agent_name}'."
+    return f"⚠️ Unknown action '{action}' for agent '{agent_name}'. Valid actions: get_status, get_history, set_active, configure, trigger_run, kill_switch."
 
 
 @tool

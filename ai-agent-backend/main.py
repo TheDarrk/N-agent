@@ -398,9 +398,27 @@ def get_chat_history_endpoint(wallet_address: str):
         for m in raw_msgs
     ]
     
+    # Group the single saved stream into conversations: a gap of 30+ minutes starts a new one, so the sidebar can
+    # re-open a whole conversation (all its turns) instead of one question/answer pair.
+    def _ts(m):
+        try:
+            return datetime.fromisoformat(str(m["created_at"]).replace("Z", "+00:00").replace(" ", "T"))
+        except Exception:
+            return None
+
+    conv_ids = []
+    conv_n, prev_dt = 0, None
+    for m in raw_msgs:
+        dt = _ts(m)
+        if prev_dt is not None and dt is not None and (dt - prev_dt).total_seconds() > 1800:
+            conv_n += 1
+        conv_ids.append(f"conv-{conv_n}")
+        prev_dt = dt or prev_dt
+
     turns = []
     i = 0
     while i < len(raw_msgs):
+        conv_id = conv_ids[i]
         if raw_msgs[i]["role"] == "user":
             h_msg = raw_msgs[i]["content"]
             ai_msg = ""
@@ -413,6 +431,7 @@ def get_chat_history_endpoint(wallet_address: str):
                 "wallet_address": norm_wallet,
                 "human_message": h_msg,
                 "ai_message": ai_msg,
+                "session_id": conv_id,
                 "created_at": created_at
             })
         elif raw_msgs[i]["role"] == "assistant":
@@ -421,6 +440,7 @@ def get_chat_history_endpoint(wallet_address: str):
                 "wallet_address": norm_wallet,
                 "human_message": "(Prompt)",
                 "ai_message": raw_msgs[i]["content"],
+                "session_id": conv_id,
                 "created_at": raw_msgs[i]["created_at"]
             })
         i += 1
@@ -429,7 +449,7 @@ def get_chat_history_endpoint(wallet_address: str):
         "status": "success",
         "wallet": norm_wallet,
         "messages": messages,
-        "history": turns[-10:]
+        "history": turns[-60:]
     }
 
 @app.delete("/api/chat/history/{wallet_address}")
@@ -2081,6 +2101,25 @@ async def moderator_status(wallet_address: str):
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()
     return await moderator.get_watchdog_status(wallet_address)
+
+class AskModeratorRequest(BaseModel):
+    user_wallet: str
+    section: str = "overview"
+    question: Optional[str] = None
+    client: Optional[Dict[str, Any]] = None  # what the dashboard is showing (selected symbol, interval, ...)
+
+
+@app.post("/api/moderator/ask")
+async def moderator_ask_endpoint(body: AskModeratorRequest):
+    """
+    Ask the Moderator about one dashboard section. A dedicated context node per section feeds the Moderator the
+    section's real data (agents, trades, drift, reports, wallets, live market ...); it answers only from that.
+    """
+    if not normalize_wallet(body.user_wallet):
+        raise HTTPException(status_code=400, detail="A valid wallet address is required")
+    from moderator_ask import ask_moderator
+    return await ask_moderator(body.user_wallet, body.section, body.question or "", body.client)
+
 
 @app.get("/api/moderator/judge/{wallet_address}")
 async def moderator_judge(wallet_address: str):

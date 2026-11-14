@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import FullScreenHistoryModal from "./fullscreen-history-modal";
 import AgentWalletManagerModal from "./agent-wallet-manager-modal";
-import SidebarChatHistory from "./sidebar-chat-history";
+import SidebarChatHistory, { type ChatSelection } from "./sidebar-chat-history";
 import SidebarFleetBar from "./sidebar-fleet-bar";
 import SidebarEmailSettings from "./sidebar-email-settings";
 import { getTokenLogoUrl, TOKEN_LOGOS } from "@/lib/near/token-logos";
@@ -33,6 +33,7 @@ type Props = {
   onOpenFleetModal?: () => void;
   onOpenAgentSuite?: () => void;
   onSelectAgent?: (agentId: string) => void;
+  onSelectChat?: (chat: ChatSelection) => void;
 };
 
 type TabId = "chat" | "wallet" | "fleet";
@@ -299,6 +300,7 @@ export default function ChatSidebar({
   onOpenFleetModal = () => {},
   onOpenAgentSuite = () => {},
   onSelectAgent,
+  onSelectChat,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("chat");
   const [isAgentWalletModalOpen, setIsAgentWalletModalOpen] = useState(false);
@@ -402,6 +404,10 @@ export default function ChatSidebar({
             <SidebarChatHistory
               accountId={accountId}
               onConnectWallet={onConnectWallet}
+              onSelectChat={(chat) => {
+                onSelectChat?.(chat);
+                onClose();
+              }}
             />
           )}
 
