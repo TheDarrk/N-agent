@@ -8,10 +8,6 @@ import {
   Clock,
   Copy,
   ExternalLink,
-  Layers,
-  ShieldAlert,
-  Sparkles,
-  TrendingUp,
 } from "lucide-react";
 import type { EcosystemOpportunityItem, Report, SignalItem, SourceCitation } from "../research-panel";
 import { FormattedMarkdown, renderInline } from "./report-markdown";
@@ -39,10 +35,6 @@ const toneStyles: Record<Tone, { badge: string; bar: string }> = {
 
 const GOOD_DIRECTIONS = ["BUY", "STAKE", "ACCUMULATE", "PARTICIPATE", "LONG"];
 const BAD_DIRECTIONS = ["AVOID", "SELL", "REDUCE", "SHORT"];
-
-const PREVIEW_SIGNALS = 3;
-const PREVIEW_OPPORTUNITIES = 2;
-const PREVIEW_RISKS = 2;
 
 function directionTone(direction?: string): Tone {
   const value = (direction || "").toUpperCase();
@@ -93,48 +85,6 @@ function Badge({ tone, children }: { tone: Tone; children: React.ReactNode }) {
     >
       {children}
     </span>
-  );
-}
-
-const sectionAccent = {
-  purple: { icon: "bg-purple-500/15 text-purple-600 dark:text-purple-300", hover: "hover:border-purple-500/40" },
-  emerald: { icon: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300", hover: "hover:border-emerald-500/40" },
-  rose: { icon: "bg-rose-500/15 text-rose-600 dark:text-rose-300", hover: "hover:border-rose-500/40" },
-} as const;
-
-function SectionCard({
-  title,
-  count,
-  icon: Icon,
-  accent = "purple",
-  index = 0,
-  children,
-}: {
-  title: string;
-  count?: number;
-  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-  accent?: keyof typeof sectionAccent;
-  index?: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <section
-      style={stagger(index)}
-      className={`pop-in space-y-3 rounded-2xl border border-border bg-secondary/20 p-4 transition-all duration-200 hover:shadow-lg hover:shadow-purple-500/5 ${sectionAccent[accent].hover}`}
-    >
-      <div className="flex items-center gap-3">
-        <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${sectionAccent[accent].icon}`}>
-          <Icon aria-hidden className="size-[18px]" />
-        </span>
-        <h3 className="text-lg font-bold leading-tight text-foreground text-balance">{title}</h3>
-        {count ? (
-          <span className="ml-auto rounded-full border border-border bg-card px-2.5 py-0.5 font-mono text-sm font-semibold text-muted-foreground">
-            {count}
-          </span>
-        ) : null}
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -386,36 +336,29 @@ function RiskPanel({ risks, gaps }: { risks: string[]; gaps: string[] }) {
 
 function SourceList({ sources }: { sources: SourceCitation[] }) {
   return (
-    <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
       {sources.map((source, index) => (
         <li key={index} style={stagger(index)} className="pop-in">
           <a
             href={source.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex flex-col justify-between rounded-xl border border-border bg-card p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-purple-500/40 hover:shadow-md hover:shadow-purple-500/10"
+            className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-purple-500/40 hover:shadow-md hover:shadow-purple-500/10"
           >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-purple-500/15 font-mono text-sm font-bold text-purple-700 dark:text-purple-300">
-                {source.index || index + 1}
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-purple-500/15 font-mono text-sm font-bold text-purple-700 dark:text-purple-300">
+              {source.index || index + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[15px] font-semibold text-foreground group-hover:text-purple-700 dark:group-hover:text-purple-300">
+                {source.title}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] font-semibold text-foreground group-hover:text-purple-700 dark:group-hover:text-purple-300">
-                  {source.title || source.url}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {hostnameOf(source.url)}
-                  {source.date && source.date !== "N/A" ? ` · ${source.date}` : ""}
-                  {source.source_type === "on_chain" ? " · live on-chain" : ""}
-                </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {hostnameOf(source.url)}
+                {source.date && source.date !== "N/A" ? ` · ${source.date}` : ""}
+                {source.source_type === "on_chain" ? " · live on-chain" : ""}
               </span>
-              <ExternalLink aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-            </div>
-            {Boolean((source as any).snippet || (source as any).description) && (
-              <p className="mt-2 text-xs text-muted-foreground line-clamp-2">
-                {(source as any).snippet || (source as any).description}
-              </p>
-            )}
+            </span>
+            <ExternalLink aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
           </a>
         </li>
       ))}
@@ -423,51 +366,10 @@ function SourceList({ sources }: { sources: SourceCitation[] }) {
   );
 }
 
-function Highlights({
-  signals,
-  opportunities,
-  risks,
-  gaps,
-  sources,
-}: {
-  signals: SignalItem[];
-  opportunities: EcosystemOpportunityItem[];
-  risks: string[];
-  gaps: string[];
-  sources: SourceCitation[];
-}) {
-  const keyRisks = (risks.length > 0 ? risks : gaps).slice(0, PREVIEW_RISKS);
-  const riskTone = risks.length > 0 ? "risk" : "gap";
-  return (
-    <div className="space-y-4">
-      {signals.length > 0 && (
-        <SectionCard title="Key signals" count={signals.length} icon={TrendingUp} accent="emerald" index={0}>
-          <SignalList signals={signals.slice(0, PREVIEW_SIGNALS)} sources={sources} />
-        </SectionCard>
-      )}
-      {opportunities.length > 0 && (
-        <SectionCard title="Opportunities" count={opportunities.length} icon={Sparkles} accent="purple" index={1}>
-          <OpportunityGrid opportunities={opportunities.slice(0, PREVIEW_OPPORTUNITIES)} sources={sources} />
-        </SectionCard>
-      )}
-      {keyRisks.length > 0 && (
-        <SectionCard title="Watch out" icon={ShieldAlert} accent="rose" index={2}>
-          <ul className="space-y-2">
-            {keyRisks.map((risk, index) => (
-              <RiskChip key={index} index={index} text={risk} tone={riskTone} />
-            ))}
-          </ul>
-        </SectionCard>
-      )}
-    </div>
-  );
-}
-
 export default function ReportView({ report }: { report: Report }) {
   const [copied, setCopied] = useState(false);
-  const [showMore, setShowMore] = useState(false);
 
-  const sources = (report.sources_cited && report.sources_cited.length > 0) ? report.sources_cited : ((report as any).sources || []);
+  const sources = report.sources_cited || [];
   const signals = report.signals || [];
   const opportunities = report.ecosystem_opportunities || [];
   const risks = report.risk_factors || [];
@@ -494,16 +396,6 @@ export default function ReportView({ report }: { report: Report }) {
 
   const [activeTab, setActiveTab] = useState(tabs[0]?.id ?? "analysis");
 
-  const hasPreview = signals.length > 0 || opportunities.length > 0 || risks.length + gaps.length > 0;
-  const extraSignals = Math.max(0, signals.length - PREVIEW_SIGNALS);
-  const extraOpportunities = Math.max(0, opportunities.length - PREVIEW_OPPORTUNITIES);
-  const moreParts = [
-    extraSignals > 0 ? `${extraSignals} more signal${extraSignals > 1 ? "s" : ""}` : "",
-    extraOpportunities > 0 ? `${extraOpportunities} more opportunit${extraOpportunities > 1 ? "ies" : "y"}` : "",
-    hasAnalysis ? "full analysis" : "",
-    sources.length > 0 ? `${sources.length} sources` : "",
-  ].filter(Boolean);
-
   const copyCid = async () => {
     try {
       await navigator.clipboard.writeText(report.cid);
@@ -526,7 +418,7 @@ export default function ReportView({ report }: { report: Report }) {
           <button
             type="button"
             onClick={copyCid}
-            title="Copy the report ID"
+            title="Copy the full report ID (IPFS CID)"
             className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-purple-500/40 hover:text-foreground"
           >
             {copied ? <Check aria-hidden="true" className="size-3 text-emerald-500" /> : <Copy aria-hidden="true" className="size-3" />}
@@ -553,17 +445,7 @@ export default function ReportView({ report }: { report: Report }) {
       </header>
 
       <div className="space-y-4 border-t border-border/60 bg-secondary/10 p-4 md:p-5">
-        {!showMore && (
-          <div key="preview" className="pop-in">
-            {hasPreview ? (
-              <Highlights signals={signals} opportunities={opportunities} risks={risks} gaps={gaps} sources={sources} />
-            ) : hasAnalysis ? (
-              <Analysis report={report} />
-            ) : null}
-          </div>
-        )}
-
-        {showMore && tabs.length > 0 && (
+        {tabs.length > 0 && (
           <div key="full" className="pop-in space-y-3">
             <div role="tablist" aria-label="Report sections" className="flex gap-1 overflow-x-auto rounded-2xl border border-border bg-card p-1.5">
               {tabs.map((tab) => {
@@ -608,25 +490,6 @@ export default function ReportView({ report }: { report: Report }) {
               {activeTab === "sources" && <SourceList sources={sources} />}
             </div>
           </div>
-        )}
-
-        {hasPreview && tabs.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowMore((value) => !value)}
-            aria-expanded={showMore}
-            className="group flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-secondary/20 px-3 py-2 text-sm font-medium text-foreground transition-all hover:border-purple-500/50 hover:bg-purple-500/5"
-          >
-            <Layers aria-hidden="true" className="size-4 text-purple-500" />
-            {showMore ? "Show less" : "More analysis"}
-            {!showMore && moreParts.length > 0 && (
-              <span className="hidden text-xs font-normal text-muted-foreground sm:inline">· {moreParts.join(" · ")}</span>
-            )}
-            <ChevronDown
-              aria-hidden="true"
-              className={`size-4 text-muted-foreground transition-transform duration-200 ${showMore ? "rotate-180" : ""}`}
-            />
-          </button>
         )}
       </div>
     </section>

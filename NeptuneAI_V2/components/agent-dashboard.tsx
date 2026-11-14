@@ -10,6 +10,7 @@ import CommandCenter from "@/components/dashboard/command-center";
 import ActivityFeed from "@/components/dashboard/activity-feed";
 import RiskControls from "@/components/dashboard/risk-controls";
 import MarketTerminal from "@/components/market/market-terminal";
+import FullScreenHistoryModal from "@/components/fullscreen-history-modal";
 import { SafetyBlocks, TraderBrain, TraderSetup } from "@/components/dashboard/intelligence-panels";
 import { useDashboardData } from "@/components/dashboard/use-dashboard-data";
 import { computeStats, fmtUsd, type AgentKey, type HelpTopic } from "@/components/dashboard/dashboard-types";
@@ -60,7 +61,7 @@ export default function AgentDashboard({ accountId, onSelectAgentTab }: Props) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className={`mx-auto space-y-5 px-4 py-6 md:px-8 ${isTrader ? "max-w-[1500px]" : "max-w-6xl"}`}>
+      <div className={`mx-auto space-y-5 px-4 py-6 md:px-8 ${isTrader ? "max-w-[1800px]" : "max-w-[1500px]"}`}>
         <header className="rise-in relative overflow-hidden rounded-3xl border border-border bg-card p-5 shadow-xl md:p-7">
           <div className="dash-grid pointer-events-none absolute inset-0 opacity-60" aria-hidden="true" />
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -185,6 +186,10 @@ export default function AgentDashboard({ accountId, onSelectAgentTab }: Props) {
             </button>
           </div>
         )}
+
+        <div className="rise-in" style={{ animationDelay: "40ms" }}>
+          <FullScreenHistoryModal embedded isOpen onClose={() => {}} accountId={accountId} onSelectAgent={onSelectAgentTab} />
+        </div>
 
         <div className="rise-in" style={{ animationDelay: "60ms" }}>
           <CommandCenter data={data} actions={actions} deliberating={deliberating} onReview={runDeliberation} onOpenAgent={openAgent} />

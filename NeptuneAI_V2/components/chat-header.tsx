@@ -4,21 +4,18 @@ import React, { useState } from "react";
 import {
   Menu,
   X,
-  Wallet,
+  Flame,
   Loader2,
   MessageSquare,
   Store,
   LayoutDashboard,
   Sparkles,
   Plus,
-  History,
   LogOut,
   PanelLeftClose,
-  PanelLeftOpen,
-  Flame
+  PanelLeftOpen
 } from "lucide-react";
 import AgentFleetModal from "./agent-fleet-modal";
-import FullScreenHistoryModal from "./fullscreen-history-modal";
 import { ThemeToggle } from "./theme-toggle";
 import { useWallet } from "@/providers/wallet-provider";
 import { isMainnetAllowed } from "@/lib/near/network";
@@ -60,7 +57,6 @@ const ROOMY = {
   tabShort: "@[1300px]:hidden",
   subtitle: "hidden @6xl:block",
   network: "hidden @5xl:flex",
-  historyLabel: "hidden @6xl:inline",
   chains: "hidden @[1300px]:flex",
   chainLabel: "hidden @[1300px]:inline",
   connectLong: "hidden @4xl:inline",
@@ -72,7 +68,6 @@ const TIGHT = {
   tabShort: "@[1400px]:hidden",
   subtitle: "hidden @[1400px]:block",
   network: "hidden @[1300px]:flex",
-  historyLabel: "hidden @[1400px]:inline",
   chains: "hidden @[1300px]:flex",
   chainLabel: "hidden @[1400px]:inline",
   connectLong: "hidden @4xl:inline",
@@ -95,7 +90,6 @@ export default function ChatHeader({
 }: Props) {
   const { network, setNetwork } = useWallet();
   const [isFleetModalOpen, setIsFleetModalOpen] = useState(false);
-  const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
 
   const c = accountId ? TIGHT : ROOMY;
 
@@ -234,16 +228,6 @@ export default function ChatHeader({
               <Sparkles size={16} />
             </button>
 
-            <button
-              onClick={() => setIsFullScreenHistoryOpen(true)}
-              title="Open Full Screen Fleet History & Traces"
-              aria-label="Open fleet history"
-              className="flex items-center gap-1.5 p-2 @6xl:px-2.5 @6xl:py-1.5 rounded-lg border border-border bg-secondary/60 hover:bg-secondary text-xs font-semibold text-foreground transition-colors active:scale-95"
-            >
-              <History size={14} className="text-primary" />
-              <span className={c.historyLabel}>History</span>
-            </button>
-
             {accountId ? (
               <>
                 <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-secondary/80 border border-border min-w-0">
@@ -296,10 +280,10 @@ export default function ChatHeader({
                 {isConnecting ? (
                   <Loader2 size={13} className="animate-spin" />
                 ) : (
-                  <Wallet size={13} className="hidden @4xl:block text-primary" />
+                  <Flame size={13} className="hidden @4xl:block text-orange-400 fill-orange-400" />
                 )}
                 <span className={c.connectShort}>Connect</span>
-                <span className={c.connectLong}>Connect Wallet</span>
+                <span className={c.connectLong}>Connect HOT Wallet</span>
               </button>
             )}
           </div>
@@ -314,12 +298,6 @@ export default function ChatHeader({
         onConnect={onConnect}
         network={network}
         onToggleNetwork={handleToggleNetwork}
-      />
-      <FullScreenHistoryModal
-        isOpen={isFullScreenHistoryOpen}
-        onClose={() => setIsFullScreenHistoryOpen(false)}
-        accountId={accountId}
-        onSelectAgent={onSelectAgent}
       />
     </>
   );

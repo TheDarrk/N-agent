@@ -1,6 +1,5 @@
 "use client";
 
-import { POLL_HISTORY_MS, POLL_LIVE_MS } from "@/lib/poll-config";
 import { setVisibleInterval } from "@/lib/visible-interval"
 import React, { useState, useEffect } from "react";
 import {
@@ -38,7 +37,6 @@ import { AgentAvatar } from "@/components/agent-avatars";
 import { AgentCardScene } from "@/components/agent-card-scene";
 import { tilt3d } from "@/components/agent-sections/trader/tilt-3d";
 import ShareAgentModal from "@/components/share-agent-modal";
-import { dedupedGetJson, peekCachedJson } from "@/lib/dedupe-fetch";
 
 type Props = {
   accountId: string | null;
@@ -74,35 +72,20 @@ export default function NeptuneAgentSuite({
   onSelectAgentSubView,
   onConnectWallet
 }: Props) {
-  const [fleetData, setFleetData] = useState<FleetData | null>(() =>
-    peekCachedJson<FleetData>(`/api/fleet/${accountId || "guest.near"}`)
-  );
-  const [myHires, setMyHires] = useState<any[]>([]);
+  const [fleetData, setFleetData] = useState<FleetData | null>(null);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [shareModalAgent, setShareModalAgent] = useState<"trader" | "rebalancer" | "research" | null>(null);
   const [isAgentWalletModalOpen, setIsAgentWalletModalOpen] = useState(false);
-  useEffect(() => {
-    const open = () => setIsAgentWalletModalOpen(true);
-    window.addEventListener("neptune-open-agent-wallets", open);
-    return () => window.removeEventListener("neptune-open-agent-wallets", open);
-  }, []);
   const [isFullScreenHistoryOpen, setIsFullScreenHistoryOpen] = useState(false);
 
   const fetchFleet = async () => {
     const wallet = accountId || "guest.near";
     try {
-      const [data, hiresData] = await Promise.all([
-        dedupedGetJson<FleetData>(`/api/fleet/${wallet}`, 2000, true),
-        accountId
-          ? dedupedGetJson<any>(`/api/marketplace/hires/${encodeURIComponent(accountId)}`, 2000, true)
-          : Promise.resolve(null),
-      ]);
-      if (data) setFleetData(data);
-      if (accountId) {
-        if (hiresData) setMyHires(hiresData.my_hires || []);
-      } else {
-        setMyHires([]);
+      const res = await fetch(`/api/fleet/${wallet}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFleetData(data);
       }
     } catch (e) {
       console.error("Failed to fetch fleet:", e);
@@ -111,30 +94,8 @@ export default function NeptuneAgentSuite({
 
   useEffect(() => {
     fetchFleet();
-    return setVisibleInterval(fetchFleet, POLL_LIVE_MS);
+    return setVisibleInterval(fetchFleet, 15000);
   }, [accountId]);
-
-  const handleCancelHire = async (hireId: string) => {
-    if (!accountId) return;
-    if (!confirm("Are you sure you want to stop renting this agent and unhire it?")) return;
-    try {
-      const res = await fetch("/api/marketplace/hire/cancel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subscriber_wallet: accountId,
-          hire_id: hireId
-        })
-      });
-      if (res.ok) {
-        await fetchFleet();
-        setSaveSuccessMsg("Rental cancelled! Local autonomous agent restored.");
-        setTimeout(() => setSaveSuccessMsg(null), 3500);
-      }
-    } catch (err) {
-      console.error("Cancel hire error:", err);
-    }
-  };
 
   const handleToggleAgentActive = async (agentId: string, currentActive: boolean) => {
     const targetWallet = accountId || "guest.near";
@@ -175,15 +136,9 @@ export default function NeptuneAgentSuite({
       description:
         "Scans cryptocurrency markets and user watchlists using an integrated trading knowledge base of chart patterns, technical indicators, and live social sentiment analysis to automatically identify setups and execute trades within your pre-set limits.",
       tags: ["Chart Pattern Recognition", "Trading Knowledge Base", "Social Sentiment Analysis", "Automated Execution", "Custom Risk Limits"],
-      stats: (() => {
-        const t: any = fleetData?.agents?.trader;
-        const parts: string[] = [];
-        if (t?.total_trades) parts.push(`${t.total_trades} trades (${t.take_profit_hits || 0} at TP)`);
-        if (t?.decisions_count) parts.push(`${t.decisions_count} decisions`);
-        if (t?.last_decision) parts.push(`last: ${t.last_decision.verdict} ${t.last_decision.symbol}`);
-        if (parts.length) return parts.join(" · ");
-        return t?.is_active ? "Active - no decisions yet" : "Standby — Configure and activate to deploy";
-      })()
+      stats: fleetData?.agents?.trader?.is_active
+        ? `${fleetData.agents.trader.total_trades || 0} Trades Executed (${fleetData.agents.trader.take_profit_hits || 0} at TP)`
+        : "Standby — Configure and activate to deploy"
     },
     {
       id: "moderator",
@@ -196,13 +151,9 @@ export default function NeptuneAgentSuite({
       description:
         "Provides real-time safety surveillance across all active agents, evaluating trade validity, risk exposure, and overall portfolio health. Equipped with an emergency circuit breaker to pause execution and safeguard capital during market volatility.",
       tags: ["Fleet Risk Surveillance", "Portfolio Health Scoring", "Emergency Circuit Breaker", "Continuous Safety Monitoring"],
-      stats: (() => {
-        const m: any = fleetData?.agents?.moderator;
-        if (m?.health_score != null) {
-          return `Fleet health ${m.health_score}/100${m.last_verdict ? ` · ${String(m.last_verdict).replace(/_/g, " ")}` : ""} · ${m.audits_count || 1} audit${(m.audits_count || 1) > 1 ? "s" : ""}`;
-        }
-        return m?.is_active ? "Active - no audit yet, run one" : "Standby — Configure and activate for risk protection";
-      })()
+      stats: fleetData?.agents?.moderator?.is_active
+        ? `Health Score: ${fleetData.agents.moderator.health_score || 94}/100 (Optimal)`
+        : "Standby — Configure and activate for risk protection"
     },
     {
       id: "research",
@@ -215,14 +166,9 @@ export default function NeptuneAgentSuite({
       description:
         "Conducts deep market and fundamental analysis across tokens, synthesizing volume trends, on-chain metrics, and social signals into comprehensive intelligence reports on demand.",
       tags: ["Fundamental Analysis", "On-Chain Market Intelligence", "Token Trend Reports", "Automated Due Diligence"],
-      stats: (() => {
-        const r: any = fleetData?.agents?.research;
-        if (r?.reports_generated) {
-          const when = r.latest_report?.created_at ? ` · latest ${new Date(String(r.latest_report.created_at).replace(" ", "T") + (String(r.latest_report.created_at).includes("Z") ? "" : "Z")).toLocaleDateString()}` : "";
-          return `${r.reports_generated} report${r.reports_generated > 1 ? "s" : ""} generated${when}`;
-        }
-        return r?.is_active ? "Active - no report yet" : "Standby — Configure and activate to generate reports";
-      })()
+      stats: fleetData?.agents?.research?.is_active
+        ? `${fleetData.agents.research.reports_generated || 0} Research Reports Generated`
+        : "Standby — Configure and activate to generate reports"
     },
     {
       id: "rebalancer",
@@ -235,15 +181,9 @@ export default function NeptuneAgentSuite({
       description:
         "Maintains your target balance between stablecoins and cryptocurrencies, continuously monitoring portfolio drift and automatically executing low-slippage rebalancing swaps when thresholds are reached.",
       tags: ["Target Asset Allocation", "Portfolio Drift Monitoring", "Automated Rebalancing", "Low-Slippage Swaps"],
-      stats: (() => {
-        const r: any = fleetData?.agents?.rebalancer;
-        const parts: string[] = [];
-        if (r?.strategies_count) parts.push(`${r.strategies_count} strateg${r.strategies_count > 1 ? "ies" : "y"}`);
-        if (r?.executions_count) parts.push(`${r.executions_success || 0}/${r.executions_count} swaps ok`);
-        if (r?.last_strategy?.regime) parts.push(`regime ${String(r.last_strategy.regime).replace(/_/g, " ")}`);
-        if (parts.length) return parts.join(" · ");
-        return r?.is_active ? "Active - no strategy yet" : "Standby — Configure targets and activate to start";
-      })()
+      stats: fleetData?.agents?.rebalancer?.is_active
+        ? `Target: 70% Stables / 30% NEAR (${fleetData.agents.rebalancer.drift_threshold || 5}% drift)`
+        : "Standby — Configure targets and activate to start"
     }
   ];
 
@@ -251,9 +191,6 @@ export default function NeptuneAgentSuite({
   if (activeAgentSubView) {
     const currentAgent = agentCards.find((a) => a.id === activeAgentSubView);
     const agentActive = (fleetData?.agents as any)?.[activeAgentSubView]?.is_active ?? false;
-    const activeHired = myHires.find(
-      (h) => h.agent_type === activeAgentSubView && h.status === "active"
-    );
 
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-background">
@@ -318,78 +255,22 @@ export default function NeptuneAgentSuite({
                 <span className="hidden md:inline">Share to Marketplace</span>
               </button>
             )}
-            {/* Active Toggle, Rented Badge (Trader), or Setup Purchased Badge (Rebalancer/Research) */}
-            {activeHired && activeHired.agent_type === "trader" ? (
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-                  RENTED
-                </span>
-                <button
-                  onClick={() => handleCancelHire(activeHired.id)}
-                  className="suite-press px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors"
-                >
-                  Stop Renting
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                {activeHired && (
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                    <CheckCircle2 size={13} className="text-emerald-400" />
-                    SETUP IMPORTED
-                  </span>
-                )}
-                <button
-                  onClick={() => handleToggleAgentActive(activeAgentSubView, agentActive)}
-                  disabled={isUpdating === activeAgentSubView}
-                  aria-pressed={agentActive}
-                  className={`suite-press flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
-                    agentActive
-                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
-                      : "bg-secondary border-border text-muted-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/60"}`} />
-                  <span>{agentActive ? "AGENT ACTIVE" : "AGENT INACTIVE"}</span>
-                </button>
-              </div>
-            )}
+            {/* Active Toggle */}
+            <button
+              onClick={() => handleToggleAgentActive(activeAgentSubView, agentActive)}
+              disabled={isUpdating === activeAgentSubView}
+              aria-pressed={agentActive}
+              className={`suite-press flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                agentActive
+                  ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
+                  : "bg-secondary border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${agentActive ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/60"}`} />
+              <span>{agentActive ? "AGENT ACTIVE" : "AGENT INACTIVE"}</span>
+            </button>
           </div>
         </div>
-
-        {/* Marketplace Notice Banner if Rented (Trader) or Setup Purchased (Rebalancer/Research) */}
-        {activeHired && (
-          <div className="suite-rise mx-3 sm:mx-5 mt-3 px-3 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
-                <Store size={16} />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-foreground">
-                  {activeHired.agent_type === "trader" ? (
-                    <>Renting from Creator: <span className="font-mono text-purple-300">{activeHired.creator_wallet}</span></>
-                  ) : (
-                    <>Imported Strategy Setup: <span className="font-mono text-purple-300">{activeHired.agent_name || activeHired.creator_wallet}</span></>
-                  )}
-                </p>
-                <p className="text-[11px] text-muted-foreground leading-snug">
-                  {activeHired.agent_type === "trader"
-                    ? `Trades will be mirrored directly into your wallet. Creator receives ${activeHired.profit_share_percent || 10}% profit share on winning trades.`
-                    : `Verified creator setup has been imported into your agent settings. Your agent is running with these parameters.`}
-                </p>
-              </div>
-            </div>
-            {activeHired.agent_type === "trader" && (
-              <button
-                onClick={() => handleCancelHire(activeHired.id)}
-                className="suite-press px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-bold text-xs shrink-0 transition-colors"
-              >
-                Stop Renting
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Sandbox Notice if No Wallet Connected */}
         {!accountId && (
@@ -447,7 +328,7 @@ export default function NeptuneAgentSuite({
     );
   }
 
-  // ── Render Neptune Agent Suite Overview (4 Cards) ──
+  // ���─ Render Neptune Agent Suite Overview (4 Cards) ──
   const activeCount = Object.values(fleetData?.agents || {}).filter((a: any) => a?.is_active).length;
 
   return (
@@ -515,22 +396,17 @@ export default function NeptuneAgentSuite({
       )}
 
       {/* 4 Agent Cards Grid */}
-      <div className="grid grid-cols-1 gap-x-6 gap-y-14 pb-6 pt-12 md:grid-cols-2">
-        {agentCards.map((agent, index) => {
-          const hired = myHires.find((h) => h.agent_type === agent.id && h.status === "active");
-          return (
-            <AgentOverviewCard
-              key={agent.id}
-              agent={agent}
-              index={index + 1}
-              isActive={(fleetData?.agents as any)?.[agent.id]?.is_active ?? false}
-              hired={hired}
-              onCancelHire={handleCancelHire}
-              onShare={() => setShareModalAgent(agent.id as any)}
-              onConfigure={() => onSelectAgentSubView(agent.id)}
-            />
-          );
-        })}
+      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-14 pb-6 pt-12 md:grid-cols-2">
+        {agentCards.map((agent, index) => (
+          <AgentOverviewCard
+            key={agent.id}
+            agent={agent}
+            index={index + 1}
+            isActive={(fleetData?.agents as any)?.[agent.id]?.is_active ?? false}
+            onShare={() => setShareModalAgent(agent.id as any)}
+            onConfigure={() => onSelectAgentSubView(agent.id)}
+          />
+        ))}
       </div>
       <ShareAgentModal
         isOpen={!!shareModalAgent}
@@ -586,17 +462,13 @@ function AgentOverviewCard({
   index,
   isActive,
   onShare,
-  onConfigure,
-  hired,
-  onCancelHire
+  onConfigure
 }: {
   agent: OverviewAgent;
   index: number;
   isActive: boolean;
   onShare: () => void;
   onConfigure: () => void;
-  hired?: any;
-  onCancelHire?: (hireId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const cardRef = React.useRef<HTMLElement>(null);
@@ -629,7 +501,7 @@ function AgentOverviewCard({
         ref={cardRef}
         onPointerMove={handlePointerMove}
         onPointerLeave={handlePointerLeave}
-        data-active={isActive || !!hired}
+        data-active={isActive}
         className="agent3d-card group flex flex-col gap-4 px-5 pb-5 sm:px-6 sm:pb-6"
       >
         <div className="agent3d-bg" aria-hidden="true">
@@ -642,27 +514,20 @@ function AgentOverviewCard({
             <span className="agent3d-orbit" aria-hidden="true" />
             <AgentAvatar agentId={agent.id} size={52} />
           </div>
-          {hired ? (
-            <div className="agent3d-pop mt-4 inline-flex items-center gap-1.5 rounded-full border border-purple-500/50 bg-purple-500/15 text-purple-300 px-3 py-1.5 text-xs font-bold shadow-[0_0_15px_rgba(168,85,247,0.25)]">
-              <span className="h-2 w-2 rounded-full animate-pulse bg-purple-400" />
-              <span>RENTED</span>
-            </div>
-          ) : (
+          <span
+            className={`agent3d-pop mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold ${
+              isActive
+                ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
+                : "border-border bg-secondary text-secondary-foreground"
+            }`}
+          >
             <span
-              className={`agent3d-pop mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold ${
-                isActive
-                  ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300"
-                  : "border-border bg-secondary text-secondary-foreground"
+              className={`h-2 w-2 rounded-full ${
+                isActive ? "animate-glow bg-emerald-400" : "bg-muted-foreground"
               }`}
-            >
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  isActive ? "animate-glow bg-emerald-400" : "bg-muted-foreground"
-                }`}
-              />
-              {isActive ? "Running" : "Standby"}
-            </span>
-          )}
+            />
+            {isActive ? "Running" : "Standby"}
+          </span>
         </div>
 
         {/* Name + plain-language summary */}
@@ -678,17 +543,7 @@ function AgentOverviewCard({
           </p>
         </div>
 
-        {/* Rented Metadata Banner if Hired */}
-        {hired && (
-          <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3 text-xs space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-purple-300">Purchased From:</span>
-              <span className="font-mono text-foreground font-bold truncate max-w-[160px]">{hired.creator_wallet}</span>
-            </div>
-          </div>
-        )}
-
-        <AgentCardScene agentId={agent.id} isActive={isActive || !!hired} />
+        <AgentCardScene agentId={agent.id} isActive={isActive} />
 
         {/* Details */}
         <div className="relative">
@@ -745,25 +600,15 @@ function AgentOverviewCard({
               <span>Set it up</span>
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
             </button>
-            {hired ? (
+            {agent.id !== "moderator" && (
               <button
-                onClick={() => onCancelHire && onCancelHire(hired.id)}
-                className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-red-500/40 bg-red-500/15 hover:bg-red-500/25 px-4 text-sm font-semibold text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60 transition-colors"
-                title="Stop renting this agent and restore your own configuration"
+                onClick={onShare}
+                className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-border bg-secondary px-4 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                title="Share this agent to the decentralized marketplace"
               >
-                <span>Stop Renting</span>
+                <Store size={16} className="text-primary" />
+                <span>Share</span>
               </button>
-            ) : (
-              agent.id !== "moderator" && (
-                <button
-                  onClick={onShare}
-                  className="agent3d-btn inline-flex h-11 items-center gap-2 rounded-full border border-border bg-secondary px-4 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                  title="Sell this agent on the marketplace"
-                >
-                  <Store size={16} className="text-primary" />
-                  <span>Share</span>
-                </button>
-              )
             )}
           </div>
         </div>

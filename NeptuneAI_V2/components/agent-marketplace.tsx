@@ -21,7 +21,9 @@ import {
   Tag,
   ShoppingBag,
   Sliders,
-  Zap
+  Zap,
+  BarChart3,
+  ArrowUpRight
 } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-avatars";
 import { useWallet } from "@/providers/wallet-provider";
@@ -460,33 +462,14 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
               <span className="px-2.5 py-0.5 rounded-full bg-primary/15 text-primary text-[11px] font-bold tracking-wider uppercase border border-primary/25">
                 Global Strategy Marketplace
               </span>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[11px] font-mono border border-emerald-500/30">
-                USDT (6 Decimals)
-              </span>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
               Neptune Agent Marketplace
             </h1>
             <p className="text-xs md:text-sm text-muted-foreground max-w-2xl mt-1 leading-relaxed">
-              Buy verified quantitative trading and portfolio rebalancing configurations in USDT, verified on-chain via NEAR JSON-RPC with automated mirror synchronization.
+              Browse ready-made trading agents built by other users. Pick one, pay with USDT, and start using it right away. Every purchase is checked on the blockchain.
             </p>
           </div>
-
-          <button
-            onClick={() => {
-              if (!accountId) {
-                if (onConnectWallet) onConnectWallet();
-                else alert("Connect your wallet first to publish an agent.");
-                return;
-              }
-              setPublishPayoutWallet(accountId);
-              setIsPublishModalOpen(true);
-            }}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs hover:bg-primary/90 transition-all shadow-md shadow-primary/20 shrink-0 self-start md:self-auto active:scale-95"
-          >
-            <PlusCircle size={15} />
-            <span>Publish My Agent</span>
-          </button>
         </div>
       </div>
 
@@ -585,7 +568,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-foreground">No Strategies Listed Yet</h3>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-                  Be the first creator to share your agent! Click <strong>Publish My Agent</strong> to monetize your strategy and earn USDT with every purchase.
+                  No agents have been shared yet. Check back soon.
                 </p>
               </div>
             </div>
@@ -655,9 +638,19 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                     <button
                       type="button"
                       onClick={() => setAnalyticsFor(item)}
-                      className="w-full text-xs font-semibold px-3 py-2 rounded-xl bg-secondary/60 hover:bg-secondary border border-border text-foreground transition-all"
+                      className="group relative w-full flex items-center gap-3 overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/15 via-primary/5 to-transparent px-3 py-2.5 text-left shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/60 hover:from-primary/25 hover:shadow-lg hover:shadow-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                     >
-                      View real analytics, agent wallet and recent history
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/30 transition-transform duration-300 group-hover:scale-110">
+                        <BarChart3 size={17} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-bold text-foreground">View live analytics</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">Agent wallet, stats and recent history</span>
+                      </span>
+                      <ArrowUpRight
+                        size={16}
+                        className="shrink-0 text-primary transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+                      />
                     </button>
 
                     {/* Price & Action */}
