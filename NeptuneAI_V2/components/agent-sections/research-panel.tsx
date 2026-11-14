@@ -8,7 +8,7 @@ import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { dedupedGetJson } from "@/lib/dedupe-fetch";
-import { loadAgentConfig, peekAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
+import { loadAgentConfig, peekAgentConfig, saveAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
 import { setVisibleInterval } from "@/lib/visible-interval";
 import {
   startRun,
@@ -407,6 +407,10 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
         }),
       }).catch(() => {});
     } catch {}
+
+    // Persist the config the run uses (auto-save skips untouched defaults, which left the DB empty
+    // and made "list on marketplace" say the agent was not configured).
+    saveAgentConfig(accountId, "research", { topic, userExpectations, linksInput, dateRange });
 
     let startedRunId: string | null = null;
     let keepActiveRun = false;

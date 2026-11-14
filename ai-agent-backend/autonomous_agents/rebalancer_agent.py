@@ -687,6 +687,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 depth=1,
                 date_range_days=30
             )
+            if research_intel and not research_intel.get("ok", True):
+                research_intel = None
         except Exception as e:
             print(f"[REBALANCER] Subagent research notice: {e}")
 
@@ -1257,6 +1259,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                     if research_task in done_set:
                         try:
                             research_intel = research_task.result()
+                            if research_intel and not research_intel.get("ok", True):
+                                research_intel = None
                         except Exception as e:
                             print(f"[REBALANCER STREAM] Subagent research notice: {e}")
                         break

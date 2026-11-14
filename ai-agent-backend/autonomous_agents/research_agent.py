@@ -2067,14 +2067,17 @@ class ResearchAgent:
             calling_agent=clean_caller
         )
 
+        if not sub_res.get("ok", True):
+            raise RuntimeError(f"Research second opinion unavailable: {sub_res.get('error') or 'report generation failed'}")
+
         return {
             "hire_type": "INTER_AGENT_SECOND_OPINION",
             "from_agent": f"{caller_agent}Agent",
             "to_agent": "ResearchAgent",
             "fee_transferred": "0 NEAR (Free Inter-Agent Collaboration)",
             "recipient": self.creator_account,
-            "report_cid": "bafkreisecondopinioncid",
-            "signal": sub_res.get("signal", "ACCUMULATE"),
+            "report_cid": sub_res.get("report_cid"),
+            "signal": sub_res.get("signal", "WATCH"),
             "research_topic": topic,
             "focus_area": expectations,
             "source_links_used": [s["url"] for s in sub_res.get("sources", []) if "url" in s],
@@ -2234,22 +2237,34 @@ async def run_research_subagent(
             is_agent_requester=True
         )
     except Exception as exc:
-        report = {
-            "title": final_topic,
-            "executive_summary": f"Autonomous {clean_calling.capitalize()} second opinion for {', '.join(target_coins)}. Market structure and liquidity profiles verified across {len(resolved_sources)} sources.",
-            "findings": f"Institutional analysis confirms stable volatility profiles and standard order book depth for {', '.join(target_coins)}.",
-            "risk_factors": "Macro liquidity variations and broader crypto beta fluctuations.",
-            "signals": [{"direction": "ACCUMULATE" if clean_calling == "trader" else "BALANCED", "confidence": 80, "reasoning": "Data source convergence"}]
+        # Never fabricate research: report the failure so callers decide without a second opinion.
+        print(f"[RESEARCH-SUBAGENT] report generation failed: {exc}")
+        return {
+            "ok": False,
+            "error": str(exc)[:300],
+            "calling_agent": clean_calling,
+            "coins": target_coins,
+            "topic": final_topic,
+            "focus": final_focus,
+            "sources": crawl_info.get("sources") or [],
+            "cached": False,
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         }
 
-    exec_summary = report.get("executive_summary", "")
+    # ResearchReport has `summary` (no `executive_summary`) and a real DB-saved `cid`.
+    exec_summary = report.get("executive_summary") or report.get("summary") or ""
     findings = report.get("findings", "")
-    risk_factors = report.get("risk_factors", "")
+    rf = report.get("risk_factors", "")
+    risk_factors = "; ".join(str(x) for x in rf) if isinstance(rf, list) else str(rf or "")
     signals = report.get("signals", [])
-    primary_signal = signals[0].get("direction", "ACCUMULATE") if signals else "ACCUMULATE"
-    primary_confidence = signals[0].get("confidence", 75) if signals else 75
+    primary = report.get("primary_signal") or (signals[0] if signals else None)
+    primary_signal = (primary or {}).get("direction") or "WATCH"
+    primary_confidence = (primary or {}).get("confidence")
+    report_cid = report.get("cid") or None
 
     result = {
+        "ok": True,
+        "report_cid": report_cid,
         "calling_agent": clean_calling,
         "coins": target_coins,
         "depth": actual_depth,

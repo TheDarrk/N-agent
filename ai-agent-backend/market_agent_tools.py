@@ -106,7 +106,8 @@ async def trader_hire_research_tool(user_wallet: str, symbol: str = "NEAR") -> s
             f"- **Consulted Agent:** {res['to_agent']} ({res['recipient']})\n"
             f"- **Fee:** {res['fee_transferred']}\n"
             f"- **Alpha Signal Returned:** {signal.get('action') if isinstance(signal, dict) else signal}\n"
-            f"- **Report CID:** `{res['report_cid']}`"
+            f"- **Report CID:** `{res.get('report_cid') or 'n/a'}`\n"
+            f"- **Summary:** {str(res.get('executive_summary') or '')[:300]}"
         )
     except Exception as e:
         return f"Error executing agent-to-agent hire: {str(e)}"

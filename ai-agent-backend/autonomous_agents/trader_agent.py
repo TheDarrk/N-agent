@@ -1488,18 +1488,17 @@ class TraderAgent:
                 except asyncio.TimeoutError:
                     print(f"[TRADER-PLUGIN] Researcher exceeded {research_budget:.0f}s; deciding without its second opinion.")
                     return None
-                full_rep = hire_result.get("full_report", {})
                 return {
                     "hired": True,
                     "fee_paid": hire_result.get("fee_transferred", "0 NEAR"),
                     "recipient": hire_result.get("recipient"),
                     "report_cid": hire_result.get("report_cid"),
-                    "signal": hire_result.get("signal", "ACCUMULATE"),
+                    "signal": hire_result.get("signal", "WATCH"),
                     "research_topic": topic,
                     "focus_area": focus_area,
                     "info_note": hire_result.get("info_note", "Make sure Researcher Agent (or you) have configured the data source in source links accordingly."),
-                    "executive_summary": full_rep.get("executive_summary", ""),
-                    "risk_factors": full_rep.get("risk_factors", ""),
+                    "executive_summary": hire_result.get("executive_summary", ""),
+                    "risk_factors": hire_result.get("risk_factors", ""),
                     "sources": hire_result.get("sources", []),
                     "depth": hire_result.get("depth", 2),
                     "crawl": hire_result.get("crawl"),
