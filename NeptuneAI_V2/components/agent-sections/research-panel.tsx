@@ -266,14 +266,29 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
         setStepCards(data.data.cot_step_cards);
       }
     } else if (data.type === "pre_crawl") {
-      setLiveToolCalls((prev) => [
-        ...prev,
-        {
+      // One live "crawl" row that updates in place (pages visited / sources done) instead of flooding the list.
+      setLiveToolCalls((prev) => {
+        let idx = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].tool === "pre_crawl") { idx = i; break; }
+        }
+        const entry = {
           tool: "pre_crawl",
-          args: { links: data.links },
-          thought: data.message || "Pre-crawling user seed links to depth 4...",
-        },
-      ]);
+          args: {
+            links: data.links ?? prev[idx]?.args?.links,
+            pages: data.pages,
+            indexed: data.indexed,
+            sources: data.seeds_total ? `${data.seeds_done ?? 0}/${data.seeds_total}` : undefined,
+          },
+          thought: data.message || "Crawling sources in parallel...",
+        };
+        if (idx >= 0 && data.status !== "started") {
+          const next = [...prev];
+          next[idx] = entry;
+          return next;
+        }
+        return [...prev, entry];
+      });
     } else if (data.type === "tool_call") {
       setLiveToolCalls((prev) => [...prev, data]);
     } else if (data.type === "run_finished") {
@@ -651,6 +666,27 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
             </div>
           </div>
 
+          {(isLoading || showSteps) && (() => {
+            const crawl = [...liveToolCalls].reverse().find((t) => t.tool === "pre_crawl");
+            if (!crawl) return null;
+            const a: any = crawl.args || {};
+            const done = !isLoading || (a.sources && a.sources.split("/")[0] === a.sources.split("/")[1]);
+            return (
+              <div className="p-3 rounded-xl border border-primary/30 bg-secondary/40 text-xs space-y-1" aria-label="Crawl progress">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-foreground">Step 0 - Crawling sources in parallel</span>
+                  <span className={done ? "text-emerald-400 font-semibold" : "text-primary font-semibold animate-pulse"}>
+                    {done ? "Done" : "Running"}
+                  </span>
+                </div>
+                <p className="text-muted-foreground">{crawl.thought}</p>
+                <p className="font-mono text-[10px] text-muted-foreground">
+                  {a.pages ?? 0} pages visited - {a.indexed ?? 0} new - {a.sources ?? "0/0"} sources finished
+                </p>
+              </div>
+            );
+          })()}
+
           {(isLoading || showSteps) && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
             {[1, 2, 3].map((stepNum, idx) => {
@@ -749,7 +785,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
                                   : tc.tool === "checkpoint"
                                   ? "Evaluating evidence coverage"
                                   : tc.tool === "pre_crawl"
-                                  ? "Pre-crawling seed links (depth 4)"
+                                  ? "Crawling sources in parallel"
                                   : tc.tool === "crawl_url"
                                   ? "Checking supplied link"
                                   : "Checking live network data"}

@@ -2648,60 +2648,89 @@ def save_research_report(wallet_address: str, title: str, query: str, full_repor
 
     return cid
 
+def update_research_report_full(cid: str, full_report: Dict[str, Any]) -> bool:
+    """Replace a saved report's payload by its ID (used to add the final step cards after synthesis)."""
+    if not cid:
+        return False
+    conn = get_connection()
+    try:
+        cur = conn.execute("UPDATE research_reports SET full_report_json = ? WHERE cid = ?",
+                           (json.dumps(full_report, default=str), cid))
+        conn.commit()
+        return (cur.rowcount or 0) > 0
+    finally:
+        conn.close()
+
+
 def get_user_research_reports(wallet_address: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Retrieves research reports strictly isolated to the requesting user from agent_runs (with fallback to legacy research_reports)."""
+    """
+    Research reports for ONE wallet, newest first.
+    Primary source: the research_reports table (written the moment a report is synthesized).
+    Secondary: completed research runs whose report is not in that table (older data).
+    Failed / running / duplicate runs can never crowd real reports out of the list.
+    """
     norm_w = normalize_wallet(wallet_address)
     if not norm_w:
         return []
+    limit = max(1, int(limit))
 
-    # 1. First look up runs in agent_runs
-    runs = list_runs(norm_w, agent_type="research", limit=limit)
-    res = []
-    seen_cids = set()
-    for r in runs:
-        if r.get("status") == "completed":
-            full_run = get_run(r["run_id"], norm_w)
-            if full_run and full_run.get("result"):
-                rep = full_run["result"]
-                cid = full_run.get("cid") or rep.get("cid") or ""
-                seen_cids.add(cid)
-                res.append({
-                    "wallet_address": norm_w,
-                    "user_wallet": norm_w,
-                    "report_uuid": r["run_id"],
-                    "cid": cid,
-                    "title": r.get("title") or rep.get("title") or "Research Report",
-                    "research_query": (r.get("params") or {}).get("topic") or rep.get("topic") or "",
-                    "report_type": rep.get("report_type", "comprehensive"),
-                    "executive_summary": rep.get("executive_summary", ""),
-                    "full_report": rep,
-                    "created_at": r.get("created_at")
-                })
-        if len(res) >= limit:
-            return res
-
-    # 2. Also incorporate any legacy reports in research_reports table not already present
     conn = get_connection()
-    rows = conn.execute("""
-        SELECT * FROM research_reports
-        WHERE wallet_address = ?
-        ORDER BY created_at DESC LIMIT ?
-    """, (norm_w, limit)).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute("""
+            SELECT * FROM research_reports
+            WHERE LOWER(wallet_address) = ?
+            ORDER BY created_at DESC, id DESC LIMIT ?
+        """, (norm_w, limit)).fetchall()
+        run_rows = conn.execute("""
+            SELECT run_id, title, params_json, cid, created_at FROM agent_runs
+            WHERE wallet = ? AND agent_type = 'research' AND status = 'completed'
+            ORDER BY created_at DESC LIMIT ?
+        """, (norm_w, limit)).fetchall()
+    finally:
+        conn.close()
+
+    res: List[Dict[str, Any]] = []
+    seen_cids = set()
     for r in rows:
         d = dict(r)
-        if d.get("cid") and d["cid"] in seen_cids:
-            continue
         d["user_wallet"] = d["wallet_address"]
         try:
             d["full_report"] = json.loads(d["full_report_json"])
         except Exception:
             d["full_report"] = {}
+        if d.get("cid"):
+            seen_cids.add(d["cid"])
         res.append(d)
+
+    # completed runs not already represented (their full result lives in agent_runs.result_json)
+    for r in run_rows:
         if len(res) >= limit:
             break
+        if r["cid"] and r["cid"] in seen_cids:
+            continue
+        full_run = get_run(r["run_id"], norm_w)
+        rep = (full_run or {}).get("result")
+        if not isinstance(rep, dict) or not rep:
+            continue
+        cid = r["cid"] or rep.get("cid") or ""
+        if cid and cid in seen_cids:
+            continue
+        seen_cids.add(cid)
+        res.append({
+            "wallet_address": norm_w,
+            "user_wallet": norm_w,
+            "report_uuid": r["run_id"],
+            "cid": cid,
+            "title": r["title"] or rep.get("title") or "Research Report",
+            "research_query": rep.get("topic") or "",
+            "report_type": rep.get("report_type", "comprehensive"),
+            "executive_summary": rep.get("executive_summary", ""),
+            "full_report": rep,
+            "created_at": r["created_at"],
+        })
 
-    return res
+    res.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+    return res[:limit]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

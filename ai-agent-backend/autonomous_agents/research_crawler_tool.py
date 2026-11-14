@@ -25,6 +25,10 @@ for candidate_dir in [WORKSPACE_ROOT / "scrapper", BACKEND_DIR / "scrapper"]:
 scrapper_import_error = None
 try:
     import scrapper
+    if not hasattr(scrapper, "crawl_urls"):
+        # `scrapper` resolved to the backend/scrapper PACKAGE; use the module inside it
+        from scrapper import scrapper as _scrapper_module
+        scrapper = _scrapper_module
 except Exception as e:
     scrapper = None
     scrapper_import_error = str(e)
@@ -103,7 +107,9 @@ class ResearchCrawlerTool:
         topic: str = "near",
         date_range: str = "all_recent",
         max_pages_per_seed: int = 30,
-        max_depth: int = 4
+        max_depth: int = 4,
+        progress_cb: Any = None,
+        budget_seconds: float = 0.0
     ) -> Dict[str, Any]:
         """
         Crawls user-supplied URLs on demand up to max_depth (default 4), extracting dates and indexing to ChromaDB.
@@ -122,7 +128,9 @@ class ResearchCrawlerTool:
                 topic=topic,
                 min_date_override=min_date,
                 max_pages_per_seed=max_pages_per_seed,
-                max_depth=max_depth
+                max_depth=max_depth,
+                progress_cb=progress_cb,
+                budget_seconds=budget_seconds
             )
         except Exception as e:
             print(f"[RESEARCH TOOL] Error during custom crawl: {e}")

@@ -74,11 +74,14 @@ logging.getLogger("apscheduler").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 
 GLOBAL_SCHEDULER: Optional[Any] = None
+# Background jobs run on Render by default; locally only when RUN_SCHEDULER=1 (local + Render share one Turso DB).
+SCHEDULER_ENABLED = os.getenv("RUN_SCHEDULER", "1" if os.getenv("RENDER") else "0").strip() == "1"
 
 # -- App Lifespan (init DB + autonomy scheduler) ------------------
 @asynccontextmanager
 async def lifespan(app):
     """Startup: init database + start autonomy scheduler."""
+    global GLOBAL_SCHEDULER
     # Check if running on Render without Turso persistence (TASK 1 Step 6)
     is_render = bool(os.getenv("RENDER"))
     from database import DB_PATH, get_connection, is_turso_enabled, mark_stale_runs_failed, init_db, update_run_heartbeat
@@ -132,6 +135,9 @@ async def lifespan(app):
         from autonomy_engine import check_all_strategies
 
         scheduler = AsyncIOScheduler()
+        if not SCHEDULER_ENABLED:
+            logger.warning("[STARTUP] Background scheduler DISABLED on this instance (not on Render and RUN_SCHEDULER!=1). "
+                           "Set RUN_SCHEDULER=1 to enable. This prevents a local server from double-running the shared database's jobs.")
         scheduler.add_job(
             check_all_strategies,
             'interval',
@@ -204,30 +210,31 @@ async def lifespan(app):
         except Exception as exp_err:
             print(f"[STARTUP] Marketplace order expiry registration error: {exp_err}")
 
-        scheduler.start()
-        GLOBAL_SCHEDULER = scheduler
-        active_jobs = [j.id for j in scheduler.get_jobs()]
-        print(f"[STARTUP] Autonomy engine started with active jobs: {active_jobs}")
+        if SCHEDULER_ENABLED:
+            scheduler.start()
+            GLOBAL_SCHEDULER = scheduler
+            active_jobs = [j.id for j in scheduler.get_jobs()]
+            print(f"[STARTUP] Autonomy engine started with active jobs: {active_jobs}")
 
-        # GLOBAL JOB POLLER: every 60s read ALL enabled scheduled_jobs (every user, every agent)
-        # from the database and run whichever are due (next_run_at <= now). State lives in the DB,
-        # not in process memory, so a Render spin-down/wake-up simply catches up overdue jobs.
-        try:
-            scheduler.add_job(
-                run_due_persisted_jobs,
-                'interval',
-                seconds=60,
-                id='global_job_poller',
-                max_instances=1,
-                misfire_grace_time=3600,
-                coalesce=True,
-                replace_existing=True
-            )
-            # Immediate catch-up pass after boot (jobs that came due while the service was asleep)
-            asyncio.create_task(run_due_persisted_jobs())
-            print("[STARTUP: SCHEDULER] Global job poller registered (60s) + catch-up pass queued")
-        except Exception as p_err:
-            print(f"[STARTUP: SCHEDULER] Warning registering global job poller: {p_err}")
+            # GLOBAL JOB POLLER: every 60s read ALL enabled scheduled_jobs (every user, every agent)
+            # from the database and run whichever are due (next_run_at <= now). State lives in the DB,
+            # not in process memory, so a Render spin-down/wake-up simply catches up overdue jobs.
+            try:
+                scheduler.add_job(
+                    run_due_persisted_jobs,
+                    'interval',
+                    seconds=60,
+                    id='global_job_poller',
+                    max_instances=1,
+                    misfire_grace_time=3600,
+                    coalesce=True,
+                    replace_existing=True
+                )
+                # Immediate catch-up pass after boot (jobs that came due while the service was asleep)
+                asyncio.create_task(run_due_persisted_jobs())
+                print("[STARTUP: SCHEDULER] Global job poller registered (60s) + catch-up pass queued")
+            except Exception as p_err:
+                print(f"[STARTUP: SCHEDULER] Warning registering global job poller: {p_err}")
     except ImportError:
         print("[STARTUP] APScheduler not installed   autonomy engine disabled")
     except Exception as e:
@@ -236,7 +243,7 @@ async def lifespan(app):
     yield  # App is running
 
     # Shutdown
-    if scheduler:
+    if scheduler and GLOBAL_SCHEDULER:
         scheduler.shutdown()
         GLOBAL_SCHEDULER = None
         print("[SHUTDOWN] Autonomy engine stopped")
@@ -941,6 +948,49 @@ class ModeratorFrequencyRequest(BaseModel):
 
 RUNNING_TASKS: Dict[str, asyncio.Task] = {}
 
+# One live run per (wallet, agent): a double-click / double POST must reuse the running run,
+# not start a second crawl + LLM pipeline (RAM and cost).
+_LIVE_RUNS: Dict[tuple, str] = {}
+_STARTING_RUNS: set = set()
+
+
+def _live_run_id(wallet: str, agent_type: str) -> Optional[str]:
+    rid = _LIVE_RUNS.get((wallet, agent_type))
+    task = RUNNING_TASKS.get(rid) if rid else None
+    if rid and task is not None and not task.done():
+        return rid
+    _LIVE_RUNS.pop((wallet, agent_type), None)
+    return None
+
+
+async def _reuse_live_run(wallet: str, agent_type: str) -> Optional[str]:
+    """Returns the run_id already running for this wallet+agent (caller returns it), or None after
+    claiming the start slot (caller MUST then start the run and call _register_live_run)."""
+    key = (wallet, agent_type)
+    rid = _live_run_id(wallet, agent_type)
+    if rid:
+        logger.info("[RUNS] %s run already live for %s (%s); reusing instead of starting a duplicate.", agent_type, wallet, rid)
+        return rid
+    if key in _STARTING_RUNS:
+        # another request is creating this run right now: wait briefly for its run_id
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            rid = _live_run_id(wallet, agent_type)
+            if rid:
+                logger.info("[RUNS] concurrent %s start for %s collapsed into run %s.", agent_type, wallet, rid)
+                return rid
+            if key not in _STARTING_RUNS:
+                break
+        _STARTING_RUNS.discard(key)  # starter failed/stalled; fall through and start
+    _STARTING_RUNS.add(key)
+    return None
+
+
+def _register_live_run(wallet: str, agent_type: str, run_id: str) -> None:
+    _LIVE_RUNS[(wallet, agent_type)] = run_id
+    _STARTING_RUNS.discard((wallet, agent_type))
+
+
 
 async def _create_run_fast(norm_w, agent_type, title, params, setup=None):
     """
@@ -1023,6 +1073,8 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
         heartbeat_task.cancel()
         finish_run(run_id, result, cid, error)
         RUNNING_TASKS.pop(run_id, None)
+        if _LIVE_RUNS.get((wallet, agent_type)) == run_id:
+            _LIVE_RUNS.pop((wallet, agent_type), None)
 
 
 # Jobs currently executing (job_id) and the cap on how many may run at once.
@@ -1046,6 +1098,14 @@ async def execute_persisted_job(job: Dict[str, Any]):
         return
 
     from database import is_user_active_recently, mark_job_run
+
+    # Only these agents have a scheduled cadence. Anything else (e.g. old "research:fleet_deliberation" rows)
+    # is switched off once instead of firing and writing to the database every 5 minutes forever.
+    if agent_type not in ("trader", "rebalancer", "moderator"):
+        from database import disable_job
+        await asyncio.to_thread(disable_job, job_id)
+        logger.info(f"[SCHEDULER] Disabled obsolete {agent_type!r} job {job_id} (no scheduled cadence for this agent).")
+        return
 
     # --- Concurrency guards (Render free tier = small RAM, so never stampede) ---
     if job_id in _INFLIGHT_JOBS:
@@ -1087,6 +1147,9 @@ async def execute_persisted_job(job: Dict[str, Any]):
 
     try:
         if agent_type == "trader":
+            if _live_run_id(wallet, "trader"):
+                logger.info(f"[SCHEDULER] trader already running for {wallet}; skipping scheduled run.")
+                return
             from autonomous_agents.trader_agent import TraderAgent
             trader = TraderAgent()
             symbol = config.get("symbol")
@@ -1105,10 +1168,14 @@ async def execute_persisted_job(job: Dict[str, Any]):
             )
             task = asyncio.create_task(_execute_run(run_id, "trader", wallet, gen_factory))
             RUNNING_TASKS[run_id] = task
+            _register_live_run(wallet, "trader", run_id)
             task.add_done_callback(_release)
             handed_off = True
             logger.info(f"[SCHEDULER] Launched scheduled trader run {run_id} for wallet {wallet}")
         elif agent_type == "rebalancer":
+            if _live_run_id(wallet, "rebalancer"):
+                logger.info(f"[SCHEDULER] rebalancer already running for {wallet}; skipping scheduled run.")
+                return
             from autonomous_agents.rebalancer_agent import RebalancerAgent
             rebalancer = RebalancerAgent()
             title = "Autonomous Rebalance Strategy"
@@ -1125,6 +1192,7 @@ async def execute_persisted_job(job: Dict[str, Any]):
             )
             task = asyncio.create_task(_execute_run(run_id, "rebalancer", wallet, gen_factory))
             RUNNING_TASKS[run_id] = task
+            _register_live_run(wallet, "rebalancer", run_id)
             task.add_done_callback(_release)
             handed_off = True
             logger.info(f"[SCHEDULER] Launched scheduled rebalancer run {run_id} for wallet {wallet}")
@@ -1405,6 +1473,9 @@ async def trader_analyze(body: TraderScanRequest):
 @app.post("/api/trader/start")
 async def trader_start_endpoint(body: TraderScanRequest):
     norm_w = normalize_wallet(body.user_wallet)
+    _live = await _reuse_live_run(norm_w, "trader")
+    if _live:
+        return {"run_id": _live, "status": "running", "reused": True}
 
     def _setup():
         upsert_user(norm_w, {
@@ -1453,6 +1524,7 @@ async def trader_start_endpoint(body: TraderScanRequest):
     )
     task = asyncio.create_task(_execute_run(run_id, "trader", norm_w, gen_factory))
     RUNNING_TASKS[run_id] = task
+    _register_live_run(norm_w, "trader", run_id)
     return {"run_id": run_id, "status": "running"}
 
 
@@ -1621,6 +1693,9 @@ async def rebalancer_generate_strategy(body: RebalanceStrategyRequest):
 @app.post("/api/rebalancer/start")
 async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
     norm_w = normalize_wallet(body.user_wallet)
+    _live = await _reuse_live_run(norm_w, "rebalancer")
+    if _live:
+        return {"run_id": _live, "status": "running", "reused": True}
     cad_days = body.cadence_days or 7
 
     def _setup():
@@ -1667,6 +1742,7 @@ async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
     )
     task = asyncio.create_task(_execute_run(run_id, "rebalancer", norm_w, gen_factory))
     RUNNING_TASKS[run_id] = task
+    _register_live_run(norm_w, "rebalancer", run_id)
     return {"run_id": run_id, "status": "running"}
 
 
@@ -1789,6 +1865,9 @@ async def research_generate(body: ResearchRequest):
 @app.post("/api/research/start")
 async def research_start_endpoint(body: ResearchRequest):
     norm_w = normalize_wallet(body.user_wallet)
+    _live = await _reuse_live_run(norm_w, "research")
+    if _live:
+        return {"run_id": _live, "status": "running", "reused": True}
     title = body.topic or "NEAR Research Report"
     params = {
         "topic": body.topic,
@@ -1808,6 +1887,7 @@ async def research_start_endpoint(body: ResearchRequest):
     )
     task = asyncio.create_task(_execute_run(run_id, "research", norm_w, gen_factory))
     RUNNING_TASKS[run_id] = task
+    _register_live_run(norm_w, "research", run_id)
     return {"run_id": run_id, "status": "running"}
 
 
@@ -1905,6 +1985,8 @@ def save_agent_fleet_config(body: AgentFleetConfigRequest):
     clean_w = normalize_wallet(body.user_wallet)
     if clean_w:
         agent_key = body.agent_id.lower()
+        if agent_key not in ("trader", "rebalancer", "moderator"):
+            return res  # research is on-demand: it has no scheduled cadence (previously created a no-op 5-min job)
         purpose = "trade_poll" if agent_key == "trader" else ("rebalance_cadence" if agent_key == "rebalancer" else "fleet_deliberation")
         interval = 3600 if agent_key == "trader" else (604800 if agent_key == "rebalancer" else 300)
         schedule_or_update_persisted_job(
@@ -2048,6 +2130,9 @@ async def moderator_deliberate(body: ModeratorDeliberateRequest):
 async def moderator_start_endpoint(body: ModeratorDeliberateRequest):
     """Start a fleet audit as a background run (survives refresh / navigation, replayable via /api/runs/{id}/stream)."""
     norm_w = normalize_wallet(body.user_wallet)
+    _live = await _reuse_live_run(norm_w, "moderator")
+    if _live:
+        return {"run_id": _live, "status": "running", "reused": True}
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()
     run_id = await _create_run_fast(
@@ -2057,6 +2142,7 @@ async def moderator_start_endpoint(body: ModeratorDeliberateRequest):
     gen_factory = lambda: moderator.evaluate_fleet_stream(norm_w)
     task = asyncio.create_task(_execute_run(run_id, "moderator", norm_w, gen_factory))
     RUNNING_TASKS[run_id] = task
+    _register_live_run(norm_w, "moderator", run_id)
     return {"run_id": run_id, "status": "running"}
 
 @app.post("/api/moderator/stream")
@@ -2749,4 +2835,12 @@ if __name__ == "__main__":
     if not os.getenv("NEAR_AI_API_KEY"):
         print("WARNING: NEAR_AI_API_KEY not found in environment variables. Agent will fail.")
 
+    import socket as _socket
+    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _probe:
+        _probe.settimeout(1.0)
+        if _probe.connect_ex(("127.0.0.1", 8000)) == 0:
+            raise SystemExit(
+                "Port 8000 is already in use by another running backend. Two servers on one port split requests "
+                "between them (one terminal shows no logs). Stop the old one first."
+            )
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

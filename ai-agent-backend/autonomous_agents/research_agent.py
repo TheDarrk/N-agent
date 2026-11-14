@@ -711,6 +711,76 @@ class ResearchAgent:
                 print(f"[RESEARCH LLM CALL] Notice: Transient call error after retry ({e}). Node will use fallback.")
                 return None
 
+    async def _stream_crawl(self, urls: List[str], date_range: str, scope: str = "near"):
+        """
+        Crawl `urls` in parallel (one worker thread per seed, several page fetches in parallel inside each)
+        and yield live `pre_crawl` progress events so the UI shows the crawl as the first step.
+        Bounded by RESEARCH_CRAWL_BUDGET_SECONDS so a slow site can never stall the report.
+        """
+        if not urls:
+            return
+        urls = list(dict.fromkeys(urls))[:10]
+        loop = asyncio.get_running_loop()
+        queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
+        budget = float(os.getenv("RESEARCH_CRAWL_BUDGET_SECONDS", "75") or 75)
+        max_pages = int(os.getenv("RESEARCH_CRAWL_PAGES_PER_SEED", "12") or 12)
+        max_depth = int(os.getenv("RESEARCH_CRAWL_DEPTH", "2") or 2)
+
+        def progress_cb(ev: Dict[str, Any]) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, ev)
+
+        started = time.monotonic()
+        msg = (f"Crawling {len(urls)} source(s) in parallel "
+               f"(up to {max_pages} pages each, depth {max_depth}, {int(budget)}s budget)...")
+        print(f"[CRAWL] {msg}")
+        yield {"type": "pre_crawl", "status": "started", "links": urls, "message": msg,
+               "pages": 0, "indexed": 0, "seeds_done": 0, "seeds_total": len(urls)}
+
+        crawl_future = loop.run_in_executor(
+            None,
+            lambda: self.crawler_tool.crawl_custom_sources(
+                urls=urls, topic=scope, date_range=date_range,
+                max_pages_per_seed=max_pages, max_depth=max_depth,
+                progress_cb=progress_cb, budget_seconds=budget,
+            ),
+        )
+        pages = indexed = seeds_done = 0
+        last_sent = 0.0
+        last_url = ""
+        while True:
+            try:
+                ev = await asyncio.wait_for(queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                if crawl_future.done() and queue.empty():
+                    break
+                continue
+            if ev.get("event") == "page":
+                pages += 1
+                last_url = ev.get("url", "")
+                if ev.get("result") == "indexed":
+                    indexed += 1
+                print(f"[CRAWL] page {pages} ({ev.get('result')}) d{ev.get('depth')} {last_url}")
+            elif ev.get("event") == "seed_done":
+                seeds_done += 1
+                print(f"[CRAWL] source finished: {ev.get('seed')} ({ev.get('indexed')} pages indexed)")
+            now = time.monotonic()
+            if now - last_sent >= 0.4 or ev.get("event") == "seed_done":
+                last_sent = now
+                yield {"type": "pre_crawl", "status": "progress", "pages": pages, "indexed": indexed,
+                       "seeds_done": seeds_done, "seeds_total": len(urls), "current_url": last_url,
+                       "message": f"Crawled {pages} pages ({indexed} new) - {seeds_done}/{len(urls)} sources done"}
+
+        try:
+            summary = await crawl_future
+        except Exception as ce:
+            print(f"[CRAWL] crawl error (continuing with stored knowledge): {ce}")
+            summary = {"indexed": indexed, "skipped": 0}
+        took = time.monotonic() - started
+        print(f"[CRAWL] done in {took:.1f}s: {pages} pages, {summary.get('indexed', indexed)} indexed")
+        yield {"type": "pre_crawl", "status": "done", "pages": pages, "indexed": summary.get("indexed", indexed),
+               "seeds_done": len(urls), "seeds_total": len(urls), "duration_s": round(took, 1),
+               "message": f"Crawl finished in {took:.0f}s: {pages} pages visited, {summary.get('indexed', indexed)} indexed"}
+
     async def _ensure_knowledge_base(self, scope: str, user_links: List[str], date_range: str, force: bool = False) -> None:
         """Crawl default sources (and user links) into Chroma when the store has no chunks for this scope.
         Concurrent callers for the same scope share ONE crawl (no pile-up of duplicate crawls)."""
@@ -1605,31 +1675,14 @@ class ResearchAgent:
         await asyncio.sleep(0.05)
 
         try:
-            # ─── PRE-CRAWL USER SEED LINKS TO DEPTH 4 ─────────────────
+            # ─── STEP 0: PARALLEL CRAWL (streamed live, always first) ─────────────
             clean_seed_links = [l.strip() for l in (links or []) if l.strip().startswith("http")]
-            if clean_seed_links:
-                yield json.dumps({
-                    "type": "pre_crawl",
-                    "status": "crawling_seed_links",
-                    "links": clean_seed_links,
-                    "message": f"Pre-crawling {len(clean_seed_links)} user seed links to depth 4..."
-                }) + "\n"
-                print(f"[PRE-CRAWL] Pre-crawling {len(clean_seed_links)} user seed links to depth 4...")
-                try:
-                    pre_crawl_res = await asyncio.to_thread(
-                        self.crawler_tool.crawl_custom_sources,
-                        urls=clean_seed_links,
-                        topic="near",
-                        date_range=effective_range,
-                        max_depth=4
-                    )
-                    print(f"[PRE-CRAWL] Seed crawl finished: {pre_crawl_res}")
-                except Exception as pe:
-                    print(f"[PRE-CRAWL] Notice: seed crawl encountered: {pe}")
-
-            # Warm the knowledge base in the background while Node 1 (LLM) runs, so crawl time is hidden
-            if not clean_seed_links:
-                asyncio.ensure_future(self._ensure_knowledge_base("near", [], effective_range))
+            crawl_targets = list(clean_seed_links)
+            if not crawl_targets:
+                # no links given: refresh from the built-in default sources
+                crawl_targets = [src["url"] for src in get_default_sources_for_coins(["NEAR"]) if src.get("url")]
+            async for crawl_event in self._stream_crawl(crawl_targets, effective_range):
+                yield json.dumps(crawl_event) + "\n"
 
             # ─── NODE 1: INTENT ANALYSIS ─────────────────────────────
             print(f"\n[NODE 1: INTENT ANALYSIS] Deconstructing user intent & generic mechanisms...")
@@ -1766,8 +1819,15 @@ class ResearchAgent:
             )
             report.cot_step_cards.append(card3)
 
-            print(f"[NODE 3: DELIVERED] Title: {report.title} | Signals: {len(report.signals)} | CID: {report.cid}")
+            print(f"[NODE 3: DELIVERED] Title: {report.title} | Signals: {len(report.signals)} | ID: {report.cid}")
             print(f"{'='*75}\n")
+
+            # Store the FINAL report (with all three step cards) under the same ID so history shows it exactly as delivered
+            try:
+                from database import update_research_report_full
+                await asyncio.to_thread(update_research_report_full, report.cid, report.model_dump())
+            except Exception as ue:
+                print(f"[HISTORY: REPORT UPDATE WARNING] {ue}")
 
             yield json.dumps({
                 "type": "step",

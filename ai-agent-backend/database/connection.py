@@ -35,8 +35,12 @@ try:
 except ImportError:
     libsql = None
 
-# Global synchronization tracking for Turso libSQL
-_sync_lock = threading.Lock()
+# Global synchronization tracking for Turso libSQL.
+# EVERY write, commit and sync against the local replica file goes through this one process-wide lock,
+# so two threads never write/checkpoint the replica WAL at the same moment ("database is locked").
+_sync_lock = threading.RLock()
+_write_lock = _sync_lock
+_LOCK_RETRIES = 6
 _last_sync_time: float = 0.0
 _last_sync_ok: bool = True
 
@@ -89,6 +93,36 @@ def _debounced_sync(conn_raw, force: bool = False, min_interval: float = 1.0):
         except Exception as e:
             _last_sync_ok = False
             logger.warning(f"[Turso sync warning] {e}")
+
+
+def _is_locked_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "locked" in msg or "busy" in msg
+
+
+def _run_with_retry(fn, write: bool = True):
+    """
+    Runs fn(); writes hold the process-wide write lock. If the replica is still momentarily locked
+    (e.g. a reader holds it while the WAL checkpoints), back off OUTSIDE the lock and retry
+    (0.1s, 0.2s, 0.4s ... up to ~3s total) instead of failing the request.
+    """
+    for attempt in range(_LOCK_RETRIES + 1):
+        try:
+            if write:
+                with _write_lock:
+                    return fn()
+            return fn()
+        except Exception as e:
+            if not _is_locked_error(e) or attempt == _LOCK_RETRIES:
+                raise
+            if attempt == 0:
+                logger.warning(f"[Turso] replica busy, retrying write: {e}")
+            time.sleep(min(1.5, 0.1 * (2 ** attempt)))
+
+
+def _is_read_statement(sql: str) -> bool:
+    head = (sql or "").lstrip().split(None, 1)[0].lower() if (sql or "").strip() else ""
+    return head in ("select", "pragma", "explain") or (head == "with" and "insert" not in sql.lower() and "update" not in sql.lower() and "delete" not in sql.lower())
 
 
 def _translate_error(e: Exception):
@@ -175,25 +209,27 @@ class LibsqlCursorWrapper:
         return self._raw.lastrowid
 
     def execute(self, sql: str, params: Optional[Union[tuple, list, dict]] = None):
-        try:
+        def _do():
             if params is not None:
                 self._raw.execute(sql, params)
             else:
                 self._raw.execute(sql)
+        try:
+            _run_with_retry(_do, write=not _is_read_statement(sql))
             return self
         except Exception as e:
             _translate_error(e)
 
     def executemany(self, sql: str, seq_of_parameters):
         try:
-            self._raw.executemany(sql, seq_of_parameters)
+            _run_with_retry(lambda: self._raw.executemany(sql, seq_of_parameters), write=True)
             return self
         except Exception as e:
             _translate_error(e)
 
     def executescript(self, sql_script: str):
         try:
-            self._raw.executescript(sql_script)
+            _run_with_retry(lambda: self._raw.executescript(sql_script), write=True)
             return self
         except Exception as e:
             _translate_error(e)
@@ -281,7 +317,7 @@ class LibsqlConnectionWrapper:
     def commit(self):
         """Commits the transaction and triggers a debounced sync if running as replica."""
         try:
-            self._raw_conn.commit()
+            _run_with_retry(self._raw_conn.commit, write=True)
         except Exception as e:
             _translate_error(e)
 

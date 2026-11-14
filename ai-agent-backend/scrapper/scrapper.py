@@ -696,9 +696,12 @@ def _crawl_single_seed_worker(
     max_depth: int,
     col: Any,
     state: dict,
-    db_lock: threading.Lock
+    db_lock: threading.Lock,
+    progress_cb: Any = None,
+    deadline: Optional[float] = None
 ) -> dict:
-    """Crawl a single seed URL tree concurrently in a dedicated worker thread."""
+    """Crawl a single seed URL tree concurrently in a dedicated worker thread.
+    progress_cb(event_dict) is called per page; deadline (time.monotonic()) bounds the crawl."""
     if not raw_url or not raw_url.strip():
         return {"indexed": 0, "skipped": 0, "urls_processed": []}
 
@@ -731,7 +734,7 @@ def _crawl_single_seed_worker(
     def _batches():
         """BFS frontier fetched CRAWL_WORKERS pages at a time (parallel), yielded in order."""
         with ThreadPoolExecutor(max_workers=CRAWL_WORKERS) as pool:
-            while queue and pages < max_pages_per_seed:
+            while queue and pages < max_pages_per_seed and not (deadline and time.monotonic() > deadline):
                 batch = [queue.popleft() for _ in range(min(CRAWL_WORKERS, len(queue), max_pages_per_seed - pages))]
                 for fetched in pool.map(_fetch, batch):
                     yield fetched
@@ -741,6 +744,7 @@ def _crawl_single_seed_worker(
             if r is None:
                 continue
             pages += 1
+            _idx_before, _skip_before = sub_indexed, sub_skipped
 
             title, text, links, pub_date, year_str, classification = extract(r.text, url)
             is_listing_page = any(seg in url.lower() for seg in ("/category/", "/tag/", "/page/"))
@@ -801,6 +805,16 @@ def _crawl_single_seed_worker(
                     sub_indexed += 1
                     urls_processed.append({"url": url, "title": title, "chunks": len(chunks), "date": pub_date})
 
+            if progress_cb:
+                try:
+                    progress_cb({
+                        "event": "page", "seed": domain, "url": url, "depth": depth, "pages": pages,
+                        "result": "indexed" if sub_indexed > _idx_before else ("skipped_old" if sub_skipped > _skip_before else "seen"),
+                        "indexed_total": sub_indexed,
+                    })
+                except Exception:
+                    pass
+
             if depth < max_depth:
                 for link in links:
                     if link in visited or urlparse(link).netloc != domain:
@@ -818,7 +832,8 @@ def _crawl_single_seed_worker(
     return {"indexed": sub_indexed, "skipped": sub_skipped, "urls_processed": urls_processed}
 
 
-def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, max_pages_per_seed: int = 30, max_depth: int = 4):
+def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, max_pages_per_seed: int = 30, max_depth: int = 4,
+               progress_cb=None, budget_seconds: float = 0.0):
     """
     On-demand multi-threaded parallel crawler for user-provided URLs/links.
     If a user provides up to 10 links, up to 10 threads crawl concurrently in parallel!
@@ -839,6 +854,8 @@ def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, m
         return results_summary
 
     db_lock = threading.Lock()
+    deadline = (time.monotonic() + budget_seconds) if budget_seconds and budget_seconds > 0 else None
+    extra = {"progress_cb": progress_cb, "deadline": deadline} if (progress_cb or deadline) else {}
     num_workers = min(len(valid_urls), 10)
     print(f"\n[PARALLEL CRAWLER] Spawning {num_workers} parallel crawler threads for {len(valid_urls)} seed URLs...")
 
@@ -854,13 +871,20 @@ def crawl_urls(urls: list, topic: str = "near", min_date_override: str = None, m
                 max_depth,
                 col,
                 state,
-                db_lock
+                db_lock,
+                **extra
             ): raw_url for raw_url in valid_urls
         }
         for future in as_completed(futures):
             seed_url = futures[future]
             try:
                 sub_res = future.result()
+                if progress_cb:
+                    try:
+                        progress_cb({"event": "seed_done", "seed": urlparse(seed_url).netloc or seed_url,
+                                     "indexed": sub_res.get("indexed", 0)})
+                    except Exception:
+                        pass
                 indexed += sub_res.get("indexed", 0)
                 skipped += sub_res.get("skipped", 0)
                 results_summary["urls_processed"].extend(sub_res.get("urls_processed", []))

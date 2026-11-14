@@ -36,3 +36,11 @@ chat_history.db
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime data: everything is stored in the database, never on disk (Render disk is ephemeral)
+ai-agent-backend/reasoning_logs/
+ai-agent-backend/research_reports/
+ai-agent-backend/knowledge_base/charts/
+ai-agent-backend/scrapper/research_db/
+ai-agent-backend/scrapper/chroma_db/
+ai-agent-backend/scrapper/crawl_state.json
