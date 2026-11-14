@@ -1,0 +1,54 @@
+{
+  "run_id": "c57a737f76954086b19ee59d72e93419",
+  "agent_type": "trader",
+  "wallet": "flame1.near",
+  "status": "completed",
+  "error": null,
+  "logged_at": "2026-11-13T23:48:58.278232+00:00",
+  "event_count": 4,
+  "events": [
+    {
+      "type": "step",
+      "step_number": 1,
+      "step_name": "Pre-Scanner",
+      "title": "Market Universe & Tradeability Gate",
+      "status": "running",
+      "message": "Scanning 1-Click DEX universe in auto mode (1h timeframe)..."
+    },
+    {
+      "type": "step",
+      "step_number": 1,
+      "step_name": "Pre-Scanner",
+      "title": "Market Universe & Tradeability Gate",
+      "status": "completed",
+      "message": "Pre-scanner passed 36 qualifying tradeable tokens.",
+      "data": {
+        "qualified_count": 36,
+        "sample": [
+          "ZEC",
+          "BTC",
+          "ETH",
+          "SOL",
+          "XRP",
+          "OKB",
+          "LINK",
+          "DASH"
+        ]
+      }
+    },
+    {
+      "type": "step",
+      "step_number": 2,
+      "step_name": "Stage 1 Screener",
+      "title": "Multi-Candidate Rubric Scoring",
+      "status": "running",
+      "message": "Evaluating top candidates on Trend (30), Confluence (20), Momentum (20), Volatility (10)..."
+    },
+    {
+      "type": "error",
+      "error": "name 'nl' is not defined",
+      "message": "Trader pipeline failed: name 'nl' is not defined"
+    }
+  ],
+  "result": null
+}

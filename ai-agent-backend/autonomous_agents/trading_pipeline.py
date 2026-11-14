@@ -306,6 +306,23 @@ def compute_risk_level(
 ) -> str:
     """Deterministically compute Risk Manager risk_level per quantitative rules."""
     atr_val = float(atr) if atr and float(atr) > 0 else (entry * 0.03)
+    # Oversold-reversal exception: a counter-trend LONG is only MODERATE (not auto-HIGH) when it is a real
+    # mean-reversion setup: RSI <= 32 and entry within 1 ATR of recent support (confirmed base to lean on).
+    if (
+        direction == "LONG" and direction_alignment == "counter"
+        and rsi is not None and float(rsi) <= 32
+        and recent_sup is not None and 0 <= (entry - float(recent_sup)) <= atr_val
+        and atr_val / max(1e-6, entry) <= 0.08
+    ):
+        return "MODERATE"
+    # Mirror for overbought distribution: counter-trend SHORT (sell of a held coin) into resistance
+    if (
+        direction == "SHORT" and direction_alignment == "counter"
+        and rsi is not None and float(rsi) >= 68
+        and recent_res is not None and 0 <= (float(recent_res) - entry) <= atr_val
+        and atr_val / max(1e-6, entry) <= 0.08
+    ):
+        return "MODERATE"
     # HIGH risk if ANY of:
     if direction_alignment == "counter":
         return "HIGH"
@@ -402,6 +419,21 @@ Use vol_24h only as a tiebreaker between similar setups.
 - Return up to 3 qualifying coins that score >= {min_confidence}, ranked from highest rubric score to lowest.
 - For each selected coin, provide its direction ("LONG" or "SHORT"), its rubric score (integer 0-100), and a concise edge summary.
 - Neutral Market-Agnostic Selection: Actively evaluate BOTH LONG and SHORT setups regardless of the broad market backdrop. Even in an UP market, individual coins showing breakdown structures, bearish divergences, or overhead supply rejections are prime SHORT candidates.
+
+## Portfolio-Aware Execution (the wallet's real holdings are given at the top of the user message)
+This is SPOT trading on NEAR Intents. Directions mean exactly this:
+- LONG = BUY the coin with the funding token. Do NOT select LONG on a coin the wallet already holds (that is just adding to a position we already own); pick it only if the holding is dust.
+- SHORT = SELL a coin the wallet ALREADY HOLDS into USDT (de-risk / take profit / exit a weakening position). You cannot short a coin that is not held. Never select SHORT on a coin with no holding.
+- A coin the wallet holds that shows distribution, a structural breakdown, a failed breakout or a lost key support is a prime SHORT (sell) candidate. A coin we do not hold that shows a confirmed base is a LONG candidate.
+- Capital preservation counts as an edge: if everything is weak and we hold something fragile, SHORT/sell it.
+
+## Market Regime Playbook (choose the setup that fits the regime; do not force one style)
+- Trend continuation: aligned 12h/4h trend, pullback to rising EMA20/50, confirmed flag/pennant/breakout. Best in clean trends.
+- Oversold reversal (mean reversion): LONG candidates when the market has sold off hard - RSI <= 32 on 4h (and/or 12h turning up), price at or reclaiming a tested support / swing low, bullish RSI or MACD-histogram divergence, capitulation volume followed by a higher low or a strong lower-wick/hammer/engulfing 4h candle, funding negative or flushed, per-coin Fear & Greed in extreme fear. Require CONFIRMATION (a close back above the prior candle high or EMA20 recapture); never buy a falling knife mid-candle. Counter-trend longs are valid here but need a tighter stop and honest score for the extra risk.
+- Overbought distribution: SHORT (sell held coin) when RSI >= 70, bearish divergence, upper-wick rejections at resistance, rising volume with no progress, crowded positive funding.
+- Range: buy near range_pos <= 0.25 with support holding, sell held coins near range_pos >= 0.75 at resistance. Skip the middle of the range.
+- Breakdown: a close below a multi-touch support with volume and falling EMAs -> SELL held coin; do not buy it.
+Score every coin through the regime that actually fits it. A high-quality oversold-reversal or distribution setup can legitimately score above the user threshold even when it is counter-trend; do not penalise it solely for opposing the 12h trend.
 - The downstream Council Specialists (Technical Analyst, Trading Book RAG, Risk Manager) and Chairman Judge will perform complete chart verification and determine execution viability.
 
 ## How to reason
@@ -711,7 +743,7 @@ class ScreenerAgent:
                 rel_vol = float(data.get("rel_vol", data.get("volume_vs_avg", 1.0)) or 1.0)
                 dist_res = float(data.get("dist_to_swing_high_pct", data.get("dist_resistance", 5.0)) or 5.0)
                 dist_sup = float(data.get("dist_to_swing_low_pct", data.get("dist_support", 5.0)) or 5.0)
-                if rel_vol < 1.0:
+                if rel_vol < 0.5:  # only drop truly dead volume (quiet/oversold markets are normal)
                     continue
                 if dist_res < 3.0 and dist_sup < 3.0:
                     continue
@@ -734,6 +766,9 @@ class ScreenerAgent:
 
         sys_prompt = SCREENER_SYSTEM.replace("{min_confidence}", str(min_confidence))
         base_user_prompt = sentiment_banner + SCREENER_USER_TEMPLATE.replace("{min_confidence}", str(min_confidence)).replace("{coin_data}", "\n".join(coin_lines))
+        portfolio_ctx = getattr(self, "portfolio_context", "") or ""
+        if portfolio_ctx:
+            base_user_prompt = portfolio_ctx + "\n\n" + base_user_prompt
         current_user_prompt = base_user_prompt
 
         last_error = None
@@ -753,6 +788,11 @@ class ScreenerAgent:
                 )
 
                 if parse_err is None:
+                    _flt = getattr(self, "selection_filter", None)
+                    if _flt and selections:
+                        selections, _note = _flt(selections)
+                        if _note:
+                            reasoning = ((reasoning or "") + " | Holdings rules: " + _note).strip(" |")
                     output = ScreenerOutput(
                         selections=selections,
                         reasoning_scratchpad=reasoning or raw_output
@@ -891,6 +931,12 @@ direction_alignment = "counter" if ANY of:
 Otherwise "aligned".
 
 CRITICAL: A 12h or 4h chart pattern (such as an Inverse Head and Shoulders or Double Bottom) does NOT override an opposing EMA stack. Pattern = setup; EMA stack = macro trend. Macro trend wins for alignment. If the 12h EMA stack opposes the trade direction, you MUST set direction_alignment: "counter".
+EXCEPTION (reversal setups): "counter" does NOT mean "reject". A LONG that is an oversold reversal (RSI <= 32, entry within 1 ATR of recent_support, a confirming 4h candle or divergence) is evaluated as MODERATE risk with a tight stop beneath support; a SHORT that is a sell of a HELD coin at resistance with RSI >= 68 is MODERATE too. State "counter-trend reversal" in the reasoning and size/score it honestly.
+
+## SPOT EXECUTION SEMANTICS (the wallet holdings are listed at the top of the user message)
+- LONG = buy the coin. Never plan a LONG on a coin the wallet already holds.
+- SHORT = SELL a coin the wallet already holds into USDT. Never plan a SHORT on a coin that is not held. For a SHORT: entry = the price at which to sell (current_price = sell now; above current_price = resting limit sell), tp = a LOWER price where it would be a good re-buy, sl = a HIGHER price that invalidates the sell thesis.
+- Size recommendations must not exceed the holdings value (for SHORT) or the funding balance (for LONG).
 
 ## Internal Consistency Protocol (STRICTLY ENFORCED)
 In grounding, structure_analysis, and reasoning text, you MUST use the exact values from the structured fields.
@@ -1465,6 +1511,9 @@ class CouncilAgent:
             market_sentiment=market_sentiment_str,
             rag_knowledge=rag_knowledge_str
         )
+        _pf = getattr(self, "portfolio_context", "") or ""
+        if _pf:
+            base_user_prompt = _pf + "\n\n" + base_user_prompt
         current_user_prompt = base_user_prompt
 
         last_error = None

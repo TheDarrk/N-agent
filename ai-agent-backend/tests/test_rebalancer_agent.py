@@ -42,9 +42,19 @@ def test_pydantic_token_strategy_item():
     )
     assert item.token_index == 1
     assert item.target_percentage == 25.0
-    assert item.tp_price_usd == 5.50
-    assert item.sl_price_usd == 3.20
+    # The rebalancer is allocation-only: legacy TP/SL keys are ignored, not stored.
+    assert not hasattr(item, "tp_price_usd")
+    assert not hasattr(item, "sl_price_usd")
     assert "EMA20" in item.action_reasoning
+
+
+def test_strategy_schema_decision_default_and_values():
+    """decision defaults to NEW and accepts PERSIST / REVISE."""
+    from autonomous_agents.rebalancer_agent import RebalancerStrategySchema
+    base = {"target_allocations": [{"token_index": 0, "target_percentage": 100.0}]}
+    assert RebalancerStrategySchema.model_validate(base).decision == "NEW"
+    assert RebalancerStrategySchema.model_validate({**base, "decision": "PERSIST"}).decision == "PERSIST"
+    assert RebalancerStrategySchema.model_validate({**base, "decision": "REVISE"}).decision == "REVISE"
 
 
 def test_pydantic_rebalancer_strategy_schema():

@@ -1,0 +1,29 @@
+{
+  "agent": "trader",
+  "user_wallet": "flame1.near",
+  "symbol": "NO_TRADE",
+  "timeframe": "4h",
+  "verdict": "STAND_ASIDE",
+  "stage": "STAGE_1_SCREENER_NO_CANDIDATES",
+  "halt_step": "STAGE_1_SCREENER",
+  "halt_cause": "No candidate reached the 75 threshold. BCH (~48): despite a confirmed inverse head-and-shoulders and 4.0x relative volume suggesting a possible capitulation bottom, price sits below all EMAs on both timeframes with deeply negative 12h MACD (-9.9) and RSI 21, only 4.9% above swing-low support, and the last candle shows a 61% upper wick rejecting the 4h EMA20 \u2014 a conflicted, poorly-located long with subpar R:R to the nearest overhead supply (~8% to the 244 EMA cluster vs 4.9% risk). GNO (~34): disqualifying on multiple fronts \u2014 rel_vol 0.0 means zero participation, the 'confirmed bear flag' sits at range_pos 0.03 with only 0.5% to support (shorting directly into a floor), RSI 32/33 is already oversold, and the 63% upper-wick doji hints at exhaustion of the downmove rather than continuation. Both blocked.",
+  "confidence_score": 0,
+  "min_required": 75,
+  "expected_roi_pct": 0.0,
+  "reasoning": "No candidate reached the 75 threshold. BCH (~48): despite a confirmed inverse head-and-shoulders and 4.0x relative volume suggesting a possible capitulation bottom, price sits below all EMAs on both timeframes with deeply negative 12h MACD (-9.9) and RSI 21, only 4.9% above swing-low support, and the last candle shows a 61% upper wick rejecting the 4h EMA20 \u2014 a conflicted, poorly-located long with subpar R:R to the nearest overhead supply (~8% to the 244 EMA cluster vs 4.9% risk). GNO (~34): disqualifying on multiple fronts \u2014 rel_vol 0.0 means zero participation, the 'confirmed bear flag' sits at range_pos 0.03 with only 0.5% to support (shorting directly into a floor), RSI 32/33 is already oversold, and the 63% upper-wick doji hints at exhaustion of the downmove rather than continuation. Both blocked.",
+  "chart_image": null,
+  "pipeline": {
+    "screener": {
+      "selection_reasoning": "No candidate reached the 75 threshold. BCH (~48): despite a confirmed inverse head-and-shoulders and 4.0x relative volume suggesting a possible capitulation bottom, price sits below all EMAs on both timeframes with deeply negative 12h MACD (-9.9) and RSI 21, only 4.9% above swing-low support, and the last candle shows a 61% upper wick rejecting the 4h EMA20 \u2014 a conflicted, poorly-located long with subpar R:R to the nearest overhead supply (~8% to the 244 EMA cluster vs 4.9% risk). GNO (~34): disqualifying on multiple fronts \u2014 rel_vol 0.0 means zero participation, the 'confirmed bear flag' sits at range_pos 0.03 with only 0.5% to support (shorting directly into a floor), RSI 32/33 is already oversold, and the 63% upper-wick doji hints at exhaustion of the downmove rather than continuation. Both blocked.",
+      "selections": []
+    },
+    "status": "no_candidates"
+  },
+  "cid": "bafyba7e319d207ed679dee98564b02dc7a6c9a429e447e5",
+  "stored_at": "2026-11-13 21:09:08 UTC",
+  "stored_at_iso": "2026-11-13T21:09:08.577995+00:00",
+  "date_utc": "2026-11-13",
+  "time_utc": "21:09:08 UTC",
+  "timestamp_utc": "2026-11-13 21:09:08 UTC",
+  "created_at_utc": "2026-11-13T21:09:08.577995+00:00"
+}

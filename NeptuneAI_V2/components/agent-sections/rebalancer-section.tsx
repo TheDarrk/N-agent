@@ -12,7 +12,10 @@ import {
   listRuns,
   getActiveRun,
   setActiveRun,
+  waitForRun,
+  findRunningRun,
 } from "@/lib/agent-runs";
+import { loadAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
 import {
   Scale,
   RotateCw,
@@ -66,11 +69,9 @@ interface StrategyRule {
   token_index: number;
   symbol: string;
   target_allocation_pct: number;
-  action: "BUY" | "HOLD" | "REDUCE" | "SELL_TO_USDT";
+  action: "BUY" | "HOLD" | "REDUCE" | "SELL_TO_USDT" | "TARGET";
   current_price: number;
   entry_price: number;
-  take_profit_usdt: number;
-  stop_loss_usdt: number;
   rationale: string;
 }
 
@@ -88,6 +89,8 @@ interface ActiveStrategy {
   created_at?: string;
   sources?: any[];
   research?: any;
+  decision?: "NEW" | "PERSIST" | "REVISE";
+  raw_pydantic_output?: any;
 }
 
 const PRESET_STRATEGIES = [
@@ -163,6 +166,38 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   const [driftThreshold, setDriftThreshold] = useState<number>(5.0);
   const [minStablePct, setMinStablePct] = useState<number>(15.0);
   const [allowCrossChain, setAllowCrossChain] = useState<boolean>(false);
+
+  // ─── DB-PERSISTED CONFIG (loaded once per wallet; skeleton until ready) ───
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [fleetActive, setFleetActive] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!accountId) {
+      setConfigLoaded(true);
+      return;
+    }
+    setConfigLoaded(false);
+    const ctrl = new AbortController();
+    loadAgentConfig(accountId, "rebalancer", ctrl.signal).then((cfg) => {
+      if (ctrl.signal.aborted) return;
+      if (cfg) {
+        if (Array.isArray(cfg.selectedCoins) && cfg.selectedCoins.length) setSelectedCoins(cfg.selectedCoins);
+        if (typeof cfg.userExpectation === "string" && cfg.userExpectation) setUserExpectation(cfg.userExpectation);
+        if (typeof cfg.cadenceDays === "number") setCadenceDays(cfg.cadenceDays);
+        if (typeof cfg.driftThreshold === "number") setDriftThreshold(cfg.driftThreshold);
+        if (typeof cfg.minStablePct === "number") setMinStablePct(cfg.minStablePct);
+      }
+      setConfigLoaded(true);
+    });
+    return () => ctrl.abort();
+  }, [accountId]);
+
+  useAutoSaveAgentConfig(
+    accountId,
+    "rebalancer",
+    { selectedCoins, userExpectation, cadenceDays, driftThreshold, minStablePct },
+    configLoaded
+  );
 
   // ─── REAL WALLET HOLDINGS (ZERO DUMMY DATA) ───
   const [currentHoldings, setCurrentHoldings] = useState<Record<string, number>>({});
@@ -270,16 +305,8 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
       if (stratRes.ok) {
         const stratData = await stratRes.json();
         if (stratData.active_strategy) {
+          // NOTE: never overwrite the user's saved form config here (it polls every 20s).
           setActiveStrategy(stratData.active_strategy);
-          if (stratData.active_strategy.selected_coins?.length) {
-            setSelectedCoins(stratData.active_strategy.selected_coins);
-          }
-          if (stratData.active_strategy.user_expectation) {
-            setUserExpectation(stratData.active_strategy.user_expectation);
-          }
-          if (stratData.active_strategy.cadence_days) {
-            setCadenceDays(stratData.active_strategy.cadence_days);
-          }
         } else {
           setActiveStrategy(null);
         }
@@ -294,6 +321,15 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         const data = await driftRes.json();
         setDriftStatus(data);
       }
+
+      // 3b. Fleet activation flag (same source as the suite cards / sidebar)
+      try {
+        const fleetRes = await fetch(`/api/fleet/${encodeURIComponent(accountId)}`);
+        if (fleetRes.ok) {
+          const fleet = await fleetRes.json();
+          setFleetActive(Boolean(fleet?.agents?.rebalancer?.is_active));
+        }
+      } catch {}
 
       // 4. User wallet config
       const cfgRes = await fetch(`/api/agent-wallet/config/${accountId}`);
@@ -338,41 +374,36 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
     const abortCtrl = new AbortController();
     async function checkActiveRebalanceRun() {
       if (!accountId) return;
-      const activeRunId = getActiveRun("rebalancer", accountId);
-      if (activeRunId) {
-        try {
-          const run = await getRun(activeRunId, accountId);
-          if (run) {
-            if (run.status === "completed" && run.result) {
-              setActiveStrategy(run.result as any);
+      try {
+        const runningId = await findRunningRun("rebalancer", accountId);
+        if (abortCtrl.signal.aborted) return;
+        if (runningId) {
+          setActiveRun("rebalancer", accountId, runningId);
+          setIsGenerating(true);
+          setGenerationStep("Resuming strategy generation in background...");
+          streamRun(runningId, handleStreamEvent, 0, abortCtrl.signal)
+            .then(() => {
+              // Aborted = user just navigated away; the run is still going, keep the key.
+              if (abortCtrl.signal.aborted) return;
               setActiveRun("rebalancer", accountId, null);
               setIsGenerating(false);
-              return;
-            } else if (run.status === "failed") {
-              setActiveRun("rebalancer", accountId, null);
-              setIsGenerating(false);
-              return;
-            } else if (run.status === "running") {
-              setIsGenerating(true);
-              setGenerationStep("Resuming strategy generation in background...");
-              streamRun(
-                activeRunId,
-                handleStreamEvent,
-                0,
-                abortCtrl.signal
-              )
-                .then(() => {
-                  setActiveRun("rebalancer", accountId, null);
-                  setIsGenerating(false);
-                  fetchStrategyAndStatus();
-                })
-                .catch(() => {});
-              return;
-            }
-          }
-        } catch (e) {
-          console.warn("[REBALANCER] Error reconnecting active run:", e);
+              setGenerationStep("");
+              fetchStrategyAndStatus();
+            })
+            .catch(() => {});
+          return;
         }
+        const lastId = getActiveRun("rebalancer", accountId);
+        if (lastId) {
+          const run = await getRun(lastId, accountId);
+          if (run?.status === "completed" && run.result) setActiveStrategy(run.result as any);
+          setActiveRun("rebalancer", accountId, null);
+        }
+        setIsGenerating(false);
+        setGenerationStep("");
+      } catch (e) {
+        console.warn("[REBALANCER] Error reconnecting active run:", e);
+        setIsGenerating(false);
       }
     }
     checkActiveRebalanceRun();
@@ -443,6 +474,7 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
     setGenerationStep("Ingesting 1h, 1d, 1w closed candles (zero lookahead)...");
 
     // Auto-mark agent active in fleet configuration
+    setFleetActive(true);
     try {
       fetch("/api/fleet/config", {
         method: "POST",
@@ -455,6 +487,8 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
       }).catch(() => {});
     } catch {}
 
+    let startedRunId: string | null = null;
+    let keepActiveRun = false;
     try {
       const { run_id } = await startRun("rebalancer", {
         user_wallet: accountId,
@@ -462,9 +496,11 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         user_expectation: userExpectation,
         current_holdings: currentHoldings,
         cadence_days: cadenceDays,
-        min_stable_pct: minStablePct
+        min_stable_pct: minStablePct,
+        drift_threshold_pct: driftThreshold
       });
 
+      startedRunId = run_id;
       setActiveRun("rebalancer", accountId, run_id);
 
       await streamRun(run_id, handleStreamEvent, 0);
@@ -472,7 +508,15 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
       setActiveRun("rebalancer", accountId, null);
       await fetchStrategyAndStatus();
     } catch (e: any) {
-      console.warn("Direct stream encounter, falling back to synchronous generation:", e);
+      if (startedRunId) {
+        // Already running on the backend: wait for it, never start a duplicate.
+        console.warn("[REBALANCER] Live stream dropped; waiting for background run:", e);
+        const finished = await waitForRun(startedRunId, accountId);
+        if (finished?.status === "completed" && finished.result) setActiveStrategy(finished.result as any);
+        keepActiveRun = !finished;
+        await fetchStrategyAndStatus();
+      } else {
+      console.warn("Could not start background run, falling back to synchronous generation:", e);
       try {
         const res = await fetch("/api/rebalancer/generate-strategy", {
           method: "POST",
@@ -483,7 +527,8 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
             user_expectation: userExpectation,
             current_holdings: currentHoldings,
             cadence_days: cadenceDays,
-            min_stable_pct: minStablePct
+            min_stable_pct: minStablePct,
+        drift_threshold_pct: driftThreshold
           })
         });
 
@@ -500,10 +545,11 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
         console.error("Strategy generation error:", err);
         alert(`Error generating strategy: ${err.message || String(err)}`);
       }
+      }
     } finally {
       setIsGenerating(false);
       setGenerationStep("");
-      setActiveRun("rebalancer", accountId, null);
+      if (!keepActiveRun) setActiveRun("rebalancer", accountId, null);
     }
   };
 
@@ -600,7 +646,25 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
   }, [availableTokens, tokenSearch]);
 
   // Determine if agent status is ACTIVE
-  const isAgentActive = Boolean(activeStrategy && activeStrategy.status === "ACTIVE");
+  const isAgentActive = fleetActive ?? Boolean(activeStrategy && activeStrategy.status === "ACTIVE");
+
+  if (!configLoaded) {
+    return (
+      <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-5xl mx-auto space-y-5 animate-pulse" aria-busy="true" aria-label="Loading rebalancer configuration">
+        <div className="h-24 rounded-2xl bg-secondary/60 border border-border" />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="lg:col-span-7 space-y-5">
+            <div className="h-48 rounded-2xl bg-secondary/60 border border-border" />
+            <div className="h-72 rounded-2xl bg-secondary/60 border border-border" />
+          </div>
+          <div className="lg:col-span-5 space-y-5">
+            <div className="h-56 rounded-2xl bg-secondary/60 border border-border" />
+            <div className="h-48 rounded-2xl bg-secondary/60 border border-border" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-5xl mx-auto space-y-5 suite-stagger">
@@ -1175,6 +1239,18 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   ACTIVE
                 </span>
+                {(() => {
+                  const d = activeStrategy.decision || activeStrategy.raw_pydantic_output?.decision;
+                  if (!d) return null;
+                  const label = d === "PERSIST" ? "KEPT · NO SWAPS" : d === "REVISE" ? "REVISED · SWAPPED AT MARKET" : "NEW STRATEGY";
+                  const cls =
+                    d === "PERSIST"
+                      ? "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                      : d === "REVISE"
+                      ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                      : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+                  return <span className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${cls}`}>{label}</span>;
+                })()}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Market Regime: <span className="font-semibold text-foreground">{activeStrategy.market_regime || "Balanced Consolidation"}</span>
@@ -1261,12 +1337,42 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
             </div>
           )}
 
-          {/* Staged Conversion to USDT (TP & SL) Table with Token Icons */}
+          {/* Performance since the previous strategy + target portfolio (spot, market-price swaps) */}
+          {(() => {
+            const perf = activeStrategy.raw_pydantic_output?.performance_since_previous;
+            if (!perf) return null;
+            const fmt = (v: any) => (typeof v === "number" ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` : "n/a");
+            const tone = (v: any) => (typeof v === "number" ? (v >= 0 ? "text-emerald-400" : "text-rose-400") : "text-muted-foreground");
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                  <span className="text-[11px] text-muted-foreground block">Previous strategy return</span>
+                  <span className={`text-base font-bold font-mono ${tone(perf.previous_target_mix_return_pct)}`}>
+                    {fmt(perf.previous_target_mix_return_pct)}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                  <span className="text-[11px] text-muted-foreground block">Portfolio value change</span>
+                  <span className={`text-base font-bold font-mono ${tone(perf.portfolio_value_change_pct)}`}>
+                    {fmt(perf.portfolio_value_change_pct)}
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                  <span className="text-[11px] text-muted-foreground block">Value then → now</span>
+                  <span className="text-base font-bold font-mono text-foreground">
+                    {perf.portfolio_value_then_usd != null ? `$${Number(perf.portfolio_value_then_usd).toFixed(2)}` : "—"} →{" "}
+                    {perf.portfolio_value_now_usd != null ? `$${Number(perf.portfolio_value_now_usd).toFixed(2)}` : "—"}
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+
           {activeStrategy.tp_sl_rules && activeStrategy.tp_sl_rules.length > 0 && (
             <div className="space-y-3 pt-2">
               <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <Sliders size={14} className="text-primary" />
-                Asset Trade Plan &amp; USDT Conversion Levels (TP / SL)
+                Target Portfolio (spot, swapped at market price)
               </h3>
 
               <div className="overflow-x-auto rounded-xl border border-border">
@@ -1275,68 +1381,56 @@ export default function RebalancerSection({ accountId, onConnectWallet }: Props)
                     <tr>
                       <th className="py-2.5 px-3">Asset</th>
                       <th className="py-2.5 px-3">Target %</th>
-                      <th className="py-2.5 px-3">Action</th>
-                      <th className="py-2.5 px-3">Current / Entry</th>
-                      <th className="py-2.5 px-3 text-emerald-400">TP (Convert to USDT)</th>
-                      <th className="py-2.5 px-3 text-rose-400">SL (Convert to USDT)</th>
-                      <th className="py-2.5 px-3 min-w-[200px]">Technical Rationale</th>
+                      <th className="py-2.5 px-3">Now %</th>
+                      <th className="py-2.5 px-3">Gap</th>
+                      <th className="py-2.5 px-3">Value at target</th>
+                      <th className="py-2.5 px-3">Price then</th>
+                      <th className="py-2.5 px-3">Price now</th>
+                      <th className="py-2.5 px-3">Change</th>
+                      <th className="py-2.5 px-3 min-w-[220px]">Rationale</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {activeStrategy.tp_sl_rules.map((rule, idx) => (
-                      <tr key={idx} className="hover:bg-secondary/30 transition-colors">
-                        <td className="py-2.5 px-3 font-bold text-foreground">
-                          <div className="flex items-center gap-2">
-                            <TokenIcon symbol={rule.symbol} size={20} />
-                            <span>{rule.symbol}</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-primary">
-                          {rule.target_allocation_pct}%
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                              rule.action === "BUY"
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : rule.action === "SELL_TO_USDT"
-                                ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-                                : rule.action === "REDUCE"
-                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                                : "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                            }`}
-                          >
-                            {rule.action}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-muted-foreground">
-                          ${rule.entry_price < 1 ? rule.entry_price.toFixed(4) : rule.entry_price.toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-semibold text-emerald-400">
-                          {rule.symbol === "USDT" ? (
-                            "—"
-                          ) : (
-                            <span className="flex items-center gap-1">
-                              <ArrowUpRight size={13} />
-                              ${rule.take_profit_usdt < 1 ? rule.take_profit_usdt.toFixed(4) : rule.take_profit_usdt.toFixed(2)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-semibold text-rose-400">
-                          {rule.symbol === "USDT" ? (
-                            "—"
-                          ) : (
-                            <span className="flex items-center gap-1">
-                              <ArrowDownRight size={13} />
-                              ${rule.stop_loss_usdt < 1 ? rule.stop_loss_usdt.toFixed(4) : rule.stop_loss_usdt.toFixed(2)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-[11px] text-muted-foreground leading-relaxed">
-                          {rule.rationale}
-                        </td>
-                      </tr>
-                    ))}
+                    {activeStrategy.tp_sl_rules.map((rule, idx) => {
+                      const sym = String(rule.symbol).toUpperCase();
+                      const isStable = ["USDT", "USDC", "DAI"].includes(sym);
+                      const target = Number(rule.target_allocation_pct ?? (rule as any).target_pct ?? 0);
+                      const nowPct = driftStatus?.current_allocation?.[sym];
+                      const gap = typeof nowPct === "number" ? nowPct - target : null;
+                      const total = Number(driftStatus?.total_portfolio_usd ?? 0);
+                      const pxThen = Number(rule.entry_price ?? rule.current_price ?? 0);
+                      const live = availableTokens.find((t) => t.symbol.toUpperCase() === sym)?.price;
+                      const pxNow = isStable ? 1 : Number(live ?? 0);
+                      const chg = pxThen > 0 && pxNow > 0 ? (pxNow / pxThen - 1) * 100 : null;
+                      const money = (v: number) => `$${v < 1 ? v.toFixed(4) : v.toFixed(2)}`;
+                      return (
+                        <tr key={idx} className="hover:bg-secondary/30 transition-colors">
+                          <td className="py-2.5 px-3 font-bold text-foreground">
+                            <div className="flex items-center gap-2">
+                              <TokenIcon symbol={rule.symbol} size={20} />
+                              <span>{rule.symbol}</span>
+                              {isStable && <span className="text-[9px] text-teal-400 font-semibold">RESERVE</span>}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-primary">{target}%</td>
+                          <td className="py-2.5 px-3 font-mono text-foreground">
+                            {typeof nowPct === "number" ? `${nowPct.toFixed(1)}%` : "—"}
+                          </td>
+                          <td className={`py-2.5 px-3 font-mono font-semibold ${gap == null ? "text-muted-foreground" : gap >= 0 ? "text-amber-400" : "text-blue-400"}`}>
+                            {gap == null ? "—" : `${gap >= 0 ? "+" : ""}${gap.toFixed(1)} pp`}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-muted-foreground">
+                            {total > 0 ? money((target / 100) * total) : "—"}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-muted-foreground">{pxThen > 0 ? money(pxThen) : "—"}</td>
+                          <td className="py-2.5 px-3 font-mono text-foreground">{pxNow > 0 ? money(pxNow) : "—"}</td>
+                          <td className={`py-2.5 px-3 font-mono font-semibold ${chg == null ? "text-muted-foreground" : chg >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {chg == null ? "—" : `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`}
+                          </td>
+                          <td className="py-2.5 px-3 text-[11px] text-muted-foreground leading-relaxed">{rule.rationale}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

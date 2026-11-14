@@ -21,7 +21,7 @@ import math
 import asyncio
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
 import httpx
 from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
 from dotenv import load_dotenv
@@ -66,6 +66,18 @@ from tools import get_swap_quote, poll_1click_status, create_near_intent_transac
 from market_intelligence import analyze_token_indicators, compute_btc_beta_and_correlations
 
 STABLECOIN_SYMBOLS = {"USDT", "USDC", "DAI", "USN", "USDT.E", "USDC.E"}
+
+def _resolve_price(symbol_lower: str, prices: Dict[str, Any]) -> Optional[float]:
+    """Live USD price for a token, or None if unknown. Stablecoins are pegged at 1.0."""
+    if symbol_lower.upper() in STABLECOIN_SYMBOLS:
+        return 1.0
+    try:
+        px = float(prices.get(symbol_lower) or prices.get(symbol_lower.upper()) or 0.0)
+    except (TypeError, ValueError):
+        return None
+    return px if px > 0 else None
+
+
 
 # =====================================================================
 # 1. EMBEDDED INSTITUTIONAL TRADING BOOK SYSTEM PROMPT (20 HEURISTICS)
@@ -116,7 +128,7 @@ multi-timeframes, volume absorption, relative strength against Bitcoin, and cros
 
 8. VOLUME SPREAD ANALYSIS (EFFORT VS RESULT):
    - High volume with minimal price progress represents institutional absorption (churn).
-   - Declining volume during an advance indicates buyer exhaustion, warranting tighter TP targets.
+   - Declining volume during an advance indicates buyer exhaustion, warranting a smaller target allocation.
 
 9. VOLATILITY COMPRESSION PRECEDES EXPANSION:
    - Narrowing candlestick ranges and ATR compression precede violent breakout expansions. Prepare allocations prior to expansion.
@@ -143,8 +155,8 @@ multi-timeframes, volume absorption, relative strength against Bitcoin, and cros
     - Extreme deviations from Daily EMA 20/50 create high-probability mean-reversion pullbacks. Do not chase extended rallies.
 
 16. STRUCTURAL INVALIDATION & TRAILING STOPS:
-    - Stop Loss (SL) must anchor below key structural swing lows with an Average True Range (ATR) volatility buffer 
-      (typically 1.5x - 2.0x ATR below support), never arbitrary round percentage numbers.
+    - A broken key structural swing low (with an ATR volatility buffer) is the signal to REDUCE that asset's target
+      allocation and rotate into stablecoins at the next review. There are no stop orders of any kind.
 
 17. FALSE BREAKOUT HEURISTICS:
     - Low-volume pushes beyond range boundaries without follow-through are traps. Treat them as liquidity harvest events.
@@ -173,10 +185,28 @@ multi-timeframes, volume absorption, relative strength against Bitcoin, and cros
     * These provide an objective structural baseline (e.g. FULL_BULLISH_EXPANSION, BULLISH_TREND, BEARISH_TREND, BULLISH_PULLBACK_SUPPORT, SIDEWAYS_CONSOLIDATION).
     * You are free and expected to evaluate all raw price levels, candle ranges, swing highs/lows, and multi-timeframe confluence independently to formulate your final allocation thesis.
 
-- ORDER EXECUTION & LIMIT REBALANCING:
-    * The Rebalancer executes spot portfolio adjustments.
-    * Immediate Market Rebalancing: Swaps trigger automatically when portfolio drift exceeds the user's drift_threshold_pct (e.g. 5%).
-    * Conditional TP/SL Orders: Set realistic `tp_price_usd` and `sl_price_usd`. If prices touch TP, the agent trims excess gains into stablecoins. If prices breach SL, capital is immediately protected into stablecoins with zero liquidation risk.
+- EXECUTION MODEL (SPOT, LONG-ONLY, MARKET-PRICE SWAPS ONLY):
+    * You output ONE thing: the TARGET PORTFOLIO - what percentage of the portfolio value each selected token (and USDT)
+      should hold. You do NOT output any price levels, and the agent places no conditional or limit orders of any kind.
+    * Every swap is executed immediately at the live MARKET price, only when you change the targets. If you decide the
+      previous targets still stand, nothing is swapped.
+    * You review the portfolio on the user's cadence (e.g. every 3 days). Each review you decide PERSIST, REVISE or NEW
+      (see DECISION PROTOCOL).
+
+- DECISION PROTOCOL (set `decision` in the output):
+    * NEW      - there is no usable previous strategy (first run, or the user changed the coin selection). Build the target
+                 portfolio from scratch using the full analysis.
+    * PERSIST  - a `previous_strategy` is provided, the coin set is unchanged, and after your FULL normal analysis of every
+                 factor (multi-timeframe trend, regime, BTC beta/correlation, volatility, the user mandate AND the profit/loss
+                 shown in `performance_since_previous_strategy`) the previous targets are still the right portfolio. Return
+                 the SAME target percentages. The agent will then swap nothing.
+    * REVISE   - conditions changed enough that the targets must move (regime shift, a token broke structure, a token ran so far
+                 it is now over-extended, the mandate changed, a stablecoin buffer is needed). Return the new targets; the agent
+                 will swap at market to reach them.
+    * Use `performance_since_previous_strategy` to judge honestly: tokens that gained and still have trend/room can be held or
+      increased; tokens that lost and broke structure should be reduced into USDT; do not churn the portfolio when the thesis
+      is intact (every swap costs fees and slippage), and do not cling to a thesis that the profit/loss and chart say is broken.
+    * Never keep a strategy just because it exists, and never change it just to look active.
 
 - You MUST strictly prioritize and adhere to the user's strategic expectations prompt (e.g. "aggressive growth", "accumulate ETH", "protect capital with 40% USDT", "trim memecoins").
 - DYNAMIC STABLECOIN THRESHOLD EXPANSION:
@@ -191,7 +221,7 @@ multi-timeframes, volume absorption, relative strength against Bitcoin, and cros
 --- OUTPUT FORMAT REQUIREMENTS ---
 - You MUST respond with ONLY a valid JSON object matching the requested schema.
 - You do NOT output token ticker strings directly. You MUST reference candidate tokens by their 0-BASED INTEGER INDEX (`token_index`) provided in the candidate list.
-- For stablecoins (USDT, USDC), set `tp_price_usd` and `sl_price_usd` to 1.0.
+- Do NOT include any price levels in the output; only target percentages, the decision and reasoning.
 """
 
 # =====================================================================
@@ -199,7 +229,7 @@ multi-timeframes, volume absorption, relative strength against Bitcoin, and cros
 # =====================================================================
 
 class TokenStrategyItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  # stray legacy keys (tp/sl) are ignored
     token_index: int = Field(
         ...,
         ge=0,
@@ -211,23 +241,17 @@ class TokenStrategyItem(BaseModel):
         le=100.0,
         description="Target percentage allocation in portfolio (0.0 to 100.0)"
     )
-    tp_price_usd: float = Field(
-        default=0.0,
-        ge=0.0,
-        description="Take-profit price in USD to convert asset to USDT (1.0 for stablecoins)"
-    )
-    sl_price_usd: float = Field(
-        default=0.0,
-        ge=0.0,
-        description="Stop-loss price in USD to convert asset to USDT (1.0 or 0.0 for stablecoins)"
-    )
     action_reasoning: str = Field(
         default="Tactical allocation",
         description="Short chart rationale (max 40 words)"
     )
 
 class RebalancerStrategySchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
+    decision: Literal["NEW", "PERSIST", "REVISE"] = Field(
+        default="NEW",
+        description="NEW = no usable previous strategy; PERSIST = keep previous targets (no swaps); REVISE = change targets (swap at market)"
+    )
     strategy_name: str = Field(
         default="Quantitative Portfolio Rebalance",
         description="Descriptive title of the strategy"
@@ -420,7 +444,7 @@ class AutonomousRebalancerAgent:
         macro_correlations = await compute_btc_beta_and_correlations(norm_selected)
 
         # 3. Query real on-chain portfolio balances (zero dummy data)
-        real_portfolio = await get_wallet_portfolio(user_wallet) if user_wallet else {}
+        real_portfolio = await get_wallet_portfolio(self._portfolio_wallet(user_wallet)) if user_wallet else {}
         if current_holdings:
             real_portfolio.update({k.lower(): float(v) for k, v in current_holdings.items()})
 
@@ -480,14 +504,14 @@ CRITICAL INSTRUCTIONS:
 1. Adhere strictly to the user mandate while balancing risk parity.
 2. DYNAMIC STABLECOIN EXPANSION: The user's min_stablecoin_floor_pct is {min_stable_pct}%. This is strictly a MINIMUM LOWER BOUND. If you find the market unsafe, high-risk, volatile, or in a bearish regime, you should actively INCREASE the USDT allocation above {min_stable_pct}% (e.g., to 30%, 50%, 70% or more) to protect user capital. Stablecoins must receive AT LEAST {min_stable_pct}%, but can be as high as needed based on risk.
 3. Use ONLY the 0-based `token_index` to reference tokens in `target_allocations`.
-4. Calculate explicit `tp_price_usd` anchored to technical resistance and `sl_price_usd` anchored below support with an ATR buffer.
-5. Set `tp_price_usd` and `sl_price_usd` to 1.0 for stablecoins.
+4. Spot, long-only. Do NOT output any price levels. Swaps happen at the live MARKET price only when you change the targets; output target percentages, `decision` and concise reasoning.
 6. The sum of all `target_percentage` entries MUST equal exactly 100.0%.
 
 YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (DO NOT WRAP IN 'analysis'):
 {{
   "strategy_name": "7-Day High-Beta Momentum Rebalance",
   "executive_summary": "Macro 1W regime confirms bullish expansion. Maintaining USDT reserve while overweighting leaders.",
+  "decision": "NEW",
   "market_regime": "BULLISH_EXPANSION",
   "risk_level": "MODERATE",
   "rebalance_cadence_days": {cadence_days},
@@ -495,8 +519,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
     {{
       "token_index": 0,
       "target_percentage": {min_stable_pct},
-      "tp_price_usd": 1.0,
-      "sl_price_usd": 1.0,
       "action_reasoning": "USDT liquidity shock absorber"
     }}
   ]
@@ -557,8 +579,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                     TokenStrategyItem(
                         token_index=item["token_index"],
                         target_percentage=item["target_percentage"],
-                        tp_price_usd=item["tp_price_usd"],
-                        sl_price_usd=item["sl_price_usd"],
                         action_reasoning=item["action_reasoning"]
                     )
                     for item in fallback["tp_sl_rules"]
@@ -605,18 +625,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
 
             spot_px = float(market_data.get(sym, {}).get("current_price", 1.0))
             is_st = sym in STABLECOIN_SYMBOLS
-            tp_px = 1.0 if is_st else round(float(item.tp_price_usd or 0.0), 4)
-            sl_px = 1.0 if is_st else round(float(item.sl_price_usd or 0.0), 4)
-
-            # Ensure valid finite TP > spot and SL < spot for non-stables
-            if not is_st and spot_px > 0:
-                if tp_px <= spot_px or not math.isfinite(tp_px):
-                    tp_px = round(spot_px * 1.15, 4)
-                if sl_px >= spot_px or sl_px <= 0 or not math.isfinite(sl_px):
-                    sl_px = round(spot_px * 0.90, 4)
-
             reason = item.action_reasoning or f"Tactical allocation for {sym}"
-            action_type = "HOLD" if is_st else "BUY"
+            action_type = "HOLD" if is_st else "TARGET"
 
             tp_sl_rules.append({
                 "symbol": sym,
@@ -626,10 +636,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "entry_price": round(spot_px, 4),
                 "current_price": round(spot_px, 4),
                 "current_price_usd": round(spot_px, 4),
-                "take_profit_usdt": tp_px,
-                "tp_price_usd": tp_px,
-                "stop_loss_usdt": sl_px,
-                "sl_price_usd": sl_px,
                 "rationale": reason,
                 "action_reasoning": reason
             })
@@ -717,7 +723,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         user_expectation: str = "",
         current_holdings: Optional[Dict[str, float]] = None,
         cadence_days: int = 7,
-        min_stable_pct: float = 10.0
+        min_stable_pct: float = 10.0,
+        drift_threshold_pct: float = 5.0
     ):
         """
         Streams 4-Node Rebalancer Strategy Generation as real-time NDJSON events:
@@ -756,7 +763,7 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 if isinstance(res, dict):
                     market_data[sym] = res
                 else:
-                    market_data[sym] = {"symbol": sym, "error": str(res), "current_price": 1.0}
+                    market_data[sym] = {"symbol": sym, "error": str(res), "current_price": 1.0 if sym in STABLECOIN_SYMBOLS else 0.0}
 
             yield json.dumps({
                 "type": "step",
@@ -802,7 +809,7 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "message": "Measuring live on-chain balances and building candidate index table..."
             }) + "\n"
 
-            real_portfolio = await get_wallet_portfolio(user_wallet) if user_wallet else {}
+            real_portfolio = await get_wallet_portfolio(self._portfolio_wallet(user_wallet)) if user_wallet else {}
             if current_holdings:
                 real_portfolio.update({k.lower(): float(v) for k, v in current_holdings.items()})
 
@@ -810,9 +817,9 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             total_portfolio_usd = 0.0
             for token_sym, bal in real_portfolio.items():
                 sym_upper = token_sym.upper()
-                spot_px = float(market_data.get(sym_upper, {}).get("current_price", 1.0))
+                spot_px = float(market_data.get(sym_upper, {}).get("current_price") or 0.0)
                 if spot_px <= 0.0:
-                    spot_px = 1.0
+                    spot_px = 1.0 if sym_upper in STABLECOIN_SYMBOLS else 0.0  # unpriced: no fabricated $1
                 val_usd = float(bal) * spot_px
                 total_portfolio_usd += val_usd
                 portfolio_summary.append({
@@ -858,6 +865,69 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "message": f"Calling LLM for weight optimization, enforcing {min_stable_pct}% stablecoin floor..."
             }) + "\n"
 
+            # ── Continuity: reuse the previous strategy as context ONLY if the coin set is unchanged ──
+            continuity_mode = "fresh"
+            previous_context = None
+            previous_strategy_id = None
+            try:
+                prev = get_active_rebalancer_strategy(user_wallet)
+                if prev and prev.get("allocations"):
+                    prev_coins = prev.get("selected_coins") or []
+                    if isinstance(prev_coins, str):
+                        try:
+                            prev_coins = json.loads(prev_coins)
+                        except Exception:
+                            prev_coins = [c.strip() for c in prev_coins.split(",")]
+                    prev_set = {str(c).upper().strip() for c in prev_coins if str(c).strip()} | {"USDT"}
+                    if prev_set == set(norm_selected):
+                        continuity_mode = "persist_context"
+                        previous_strategy_id = prev.get("id") or prev.get("strategy_id")
+                        previous_context = {
+                            "strategy_id": previous_strategy_id,
+                            "created_at": str(prev.get("created_at") or ""),
+                            "market_regime": prev.get("market_regime"),
+                            "executive_summary": prev.get("overall_strategy"),
+                            "allocations": prev.get("allocations"),
+                        }
+                        # -- Profit / loss since the previous strategy (mark-to-market, from its stored snapshot) --
+                        try:
+                            snap = ((prev.get("raw_pydantic_output") or {}).get("snapshot")) or {}
+                            then_prices = {str(k).upper(): float(v) for k, v in (snap.get("prices") or {}).items() if v}
+                            if not then_prices:  # older strategies: use the analysis price saved with each rule
+                                then_prices = {
+                                    str(r.get("symbol")).upper(): float(r.get("entry_price") or 0.0)
+                                    for r in (prev.get("tp_sl_rules") or []) if r.get("entry_price")
+                                }
+                            per_token, weighted = {}, 0.0
+                            for sym_p, w_p in (prev.get("allocations") or {}).items():
+                                sym_u = str(sym_p).upper()
+                                p0 = float(then_prices.get(sym_u) or 0.0)
+                                p1 = float(market_data.get(sym_u, {}).get("current_price") or 0.0)
+                                if sym_u in STABLECOIN_SYMBOLS:
+                                    p0, p1 = 1.0, 1.0
+                                chg = ((p1 / p0) - 1.0) * 100.0 if p0 > 0 and p1 > 0 else None
+                                if chg is not None:
+                                    weighted += float(w_p) / 100.0 * chg
+                                per_token[sym_u] = {
+                                    "target_pct_then": w_p,
+                                    "price_then": round(p0, 6) if p0 else None,
+                                    "price_now": round(p1, 6) if p1 else None,
+                                    "price_change_pct": round(chg, 2) if chg is not None else None,
+                                }
+                            then_total = float(snap.get("total_portfolio_usd") or 0.0)
+                            previous_context["performance_since_previous_strategy"] = {
+                                "per_token": per_token,
+                                "previous_target_mix_return_pct": round(weighted, 2),
+                                "portfolio_value_then_usd": round(then_total, 2) if then_total else None,
+                                "portfolio_value_now_usd": round(total_portfolio_usd, 2),
+                                "portfolio_value_change_pct": round((total_portfolio_usd / then_total - 1.0) * 100.0, 2) if then_total > 0 else None,
+                                "note": "Mark-to-market. Deposits/withdrawals blur portfolio_value_change; previous_target_mix_return_pct is the clean strategy return.",
+                            }
+                        except Exception as perf_err:
+                            print(f"[REBALANCER STREAM] Performance mapping skipped: {perf_err}")
+            except Exception as cont_err:
+                print(f"[REBALANCER STREAM] Continuity lookup skipped: {cont_err}")
+
             context_payload = {
                 "user_mandate": user_expectation.strip() if user_expectation else "Balanced quantitative portfolio optimization with strict downside risk protection.",
                 "min_stablecoin_floor_pct": float(min_stable_pct),
@@ -868,24 +938,34 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "macro_correlations": macro_correlations,
                 "multi_timeframe_market_data": market_data
             }
+            continuity_instructions = ""
+            if previous_context:
+                context_payload["previous_strategy"] = previous_context
+                continuity_instructions = """
+    7. STRATEGY CONTINUITY: The user's coin selection is UNCHANGED since the previous strategy (see `previous_strategy`
+       and `performance_since_previous_strategy`, the profit/loss of each token and of the previous target mix). Do your
+       FULL normal analysis first, then set `decision`: PERSIST (return the same targets; nothing will be swapped) if the
+       previous targets are still the right portfolio, or REVISE (return new targets; the agent swaps at market to reach
+       them) if conditions or the profit/loss say they are not. Justify the decision in `executive_summary`."""
+            context_payload_json = json.dumps(context_payload, indent=2)
 
             user_prompt = f"""
     CONSTRUCT AN AUTONOMOUS REBALANCER STRATEGY ACCORDING TO THIS LIVE CONTEXT:
 
-    {json.dumps(context_payload, indent=2)}
+    {context_payload_json}
 
     CRITICAL INSTRUCTIONS:
     1. Adhere strictly to the user mandate while balancing risk parity.
     2. DYNAMIC STABLECOIN EXPANSION: The user's min_stablecoin_floor_pct is {min_stable_pct}%. This is strictly a MINIMUM LOWER BOUND. If you find the market unsafe, high-risk, volatile, or in a bearish regime, you should actively INCREASE the USDT allocation above {min_stable_pct}% (e.g., to 30%, 50%, 70% or more) to protect user capital. Stablecoins must receive AT LEAST {min_stable_pct}%, but can be as high as needed based on risk.
     3. Use ONLY the 0-based `token_index` to reference tokens in `target_allocations`.
-    4. Calculate explicit `tp_price_usd` anchored to technical resistance and `sl_price_usd` anchored below support with an ATR buffer.
-    5. Set `tp_price_usd` and `sl_price_usd` to 1.0 for stablecoins.
-    6. The sum of all `target_percentage` entries MUST equal exactly 100.0%.
+    4. Spot, long-only. Do NOT output any price levels. Swaps happen at the live MARKET price only when you change the targets; output target percentages, `decision` and concise reasoning.
+    6. The sum of all `target_percentage` entries MUST equal exactly 100.0%.{continuity_instructions}
 
     YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (DO NOT WRAP IN 'analysis'):
     {{
       "strategy_name": "7-Day High-Beta Momentum Rebalance",
       "executive_summary": "Macro 1W regime confirms bullish expansion. Maintaining USDT reserve while overweighting leaders.",
+      "decision": "NEW",
       "market_regime": "BULLISH_EXPANSION",
       "risk_level": "MODERATE",
       "rebalance_cadence_days": {cadence_days},
@@ -893,8 +973,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         {{
           "token_index": 0,
           "target_percentage": {min_stable_pct},
-          "tp_price_usd": 1.0,
-          "sl_price_usd": 1.0,
           "action_reasoning": "USDT liquidity shock absorber"
         }}
       ]
@@ -954,8 +1032,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                         TokenStrategyItem(
                             token_index=item["token_index"],
                             target_percentage=item["target_percentage"],
-                            tp_price_usd=item["tp_price_usd"],
-                            sl_price_usd=item["sl_price_usd"],
                             action_reasoning=item["action_reasoning"]
                         )
                         for item in fallback["tp_sl_rules"]
@@ -1001,18 +1077,8 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
 
                 spot_px = float(market_data.get(sym, {}).get("current_price", 1.0))
                 is_st = sym in STABLECOIN_SYMBOLS
-                tp_px = 1.0 if is_st else round(float(item.tp_price_usd or 0.0), 4)
-                sl_px = 1.0 if is_st else round(float(item.sl_price_usd or 0.0), 4)
-
-                # Ensure valid finite TP > spot and SL < spot for non-stables
-                if not is_st and spot_px > 0:
-                    if tp_px <= spot_px or not math.isfinite(tp_px):
-                        tp_px = round(spot_px * 1.15, 4)
-                    if sl_px >= spot_px or sl_px <= 0 or not math.isfinite(sl_px):
-                        sl_px = round(spot_px * 0.90, 4)
-
                 reason = item.action_reasoning or f"Tactical allocation for {sym}"
-                action_type = "HOLD" if is_st else "BUY"
+                action_type = "HOLD" if is_st else "TARGET"
 
                 tp_sl_rules.append({
                     "symbol": sym,
@@ -1022,10 +1088,6 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                     "entry_price": round(spot_px, 4),
                     "current_price": round(spot_px, 4),
                     "current_price_usd": round(spot_px, 4),
-                    "take_profit_usdt": tp_px,
-                    "tp_price_usd": tp_px,
-                    "stop_loss_usdt": sl_px,
-                    "sl_price_usd": sl_px,
                     "rationale": reason,
                     "action_reasoning": reason
                 })
@@ -1050,6 +1112,34 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 if rule["symbol"] in allocations_dict:
                     rule["target_pct"] = allocations_dict[rule["symbol"]]
 
+            # -- Decision: PERSIST keeps the previous targets exactly (no swaps); REVISE/NEW swap at market --
+            decision = str(getattr(pydantic_strat, "decision", "NEW") or "NEW").upper()
+            if continuity_mode != "persist_context":
+                decision = "NEW"
+            elif decision not in ("PERSIST", "REVISE"):
+                decision = "REVISE"
+            if decision == "PERSIST" and previous_context:
+                kept = {str(k).upper(): float(v) for k, v in (previous_context.get("allocations") or {}).items()}
+                if kept and abs(sum(kept.values()) - 100.0) < 0.5:
+                    allocations_dict = kept
+                    for rule in tp_sl_rules:
+                        if rule["symbol"] in allocations_dict:
+                            rule["target_pct"] = allocations_dict[rule["symbol"]]
+                            rule["target_allocation_pct"] = allocations_dict[rule["symbol"]]
+                else:
+                    decision = "REVISE"
+
+            snapshot = {
+                "taken_at": datetime.now(timezone.utc).isoformat(),
+                "total_portfolio_usd": round(total_portfolio_usd, 2),
+                "prices": {s_: float(market_data.get(s_, {}).get("current_price") or 0.0) for s_ in norm_selected},
+                "holdings": {p_["token"]: {"amount": p_["balance"], "usd": p_["value_usd"]} for p_ in portfolio_summary},
+            }
+            raw_out = pydantic_strat.model_dump()
+            raw_out["decision"] = decision
+            raw_out["snapshot"] = snapshot
+            raw_out["performance_since_previous"] = (previous_context or {}).get("performance_since_previous_strategy")
+
             saved_record = save_rebalancer_strategy(
                 user_wallet=user_wallet,
                 selected_coins=norm_selected,
@@ -1059,7 +1149,7 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 tp_sl_rules=tp_sl_rules,
                 market_regime=pydantic_strat.market_regime,
                 overall_strategy=pydantic_strat.executive_summary,
-                raw_pydantic_output=pydantic_strat.model_dump(),
+                raw_pydantic_output=raw_out,
                 min_stable_pct=min_stable_pct
             )
 
@@ -1077,6 +1167,49 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                     "market_regime": pydantic_strat.market_regime,
                     "risk_level": pydantic_strat.risk_level
                 }
+            }) + "\n"
+
+            # -- Step 5: after the run, bring the wallet to the agent's ratio with MARKET swaps (1-Click only) --
+            # NEW/REVISE: reach the new targets (small 1pp tolerance).  PERSIST: keep the portfolio as is unless it has
+            # drifted past the user's threshold (e.g. a previous swap failed or prices moved a lot).
+            swap_log: List[Dict[str, Any]] = []
+            exec_threshold = float(drift_threshold_pct or 5.0) if decision == "PERSIST" else 1.0
+            step5_msg = (
+                f"Previous targets kept; checking the wallet is within {exec_threshold:g}pp of them..."
+                if decision == "PERSIST" else "Swapping at market price toward the new target allocation..."
+            )
+            yield json.dumps({
+                "type": "step", "step_number": 5, "step_name": "Market Swaps",
+                "title": "Execute at market price", "status": "running", "message": step5_msg
+            }) + "\n"
+            for _i in range(6):
+                try:
+                    sw = await self.evaluate_and_rebalance(
+                        user_wallet=user_wallet,
+                        target_allocation=allocations_dict,
+                        drift_threshold_pct=exec_threshold,
+                    )
+                except Exception as sw_err:
+                    sw = {"success": False, "status": "EXECUTION_ERROR", "reason": str(sw_err)[:200]}
+                swap_log.append({k: sw.get(k) for k in ("status", "terminal_status", "action_taken", "reason")})
+                yield json.dumps({
+                    "type": "step", "step_number": 5, "step_name": "Market Swaps",
+                    "title": "Execute at market price", "status": "running",
+                    "message": sw.get("action_taken") or sw.get("reason") or str(sw.get("status"))
+                }) + "\n"
+                if sw.get("status") != "REBALANCED" or str(sw.get("terminal_status", "")).upper() != "SUCCESS":
+                    break
+            done = [x for x in swap_log if x.get("status") == "REBALANCED"]
+            if done:
+                swap_summary_text = f"{len(done)} market swap(s) executed to match the target ratio."
+            elif decision == "PERSIST":
+                swap_summary_text = "Strategy persisted: holdings are within the drift threshold, no swaps needed."
+            else:
+                last = swap_log[-1] if swap_log else {}
+                swap_summary_text = f"No swap executed: {last.get('action_taken') or last.get('reason') or last.get('status') or 'already at targets'}"
+            yield json.dumps({
+                "type": "step", "step_number": 5, "step_name": "Market Swaps",
+                "title": "Execute at market price", "status": "completed", "message": swap_summary_text
             }) + "\n"
 
             research_intel = None
@@ -1109,6 +1242,39 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
                 "active_strategy": saved_record
             }
 
+            result["decision"] = decision
+            result["swaps"] = swap_log
+            result["continuity"] = {
+                "mode": continuity_mode,
+                "previous_strategy_id": previous_strategy_id,
+                "decision": {"PERSIST": "PERSISTED", "REVISE": "REVISED", "NEW": "NEW"}.get(decision, "NEW"),
+            }
+
+            # Email the user the new/persisted strategy (non-blocking; skipped if no email/SMTP)
+            try:
+                from notification_agent import send_agent_action_email
+                decision_label = result["continuity"]["decision"].title()
+                alloc_lines = " | ".join(f"{k} {v}%" for k, v in allocations_dict.items())
+                asyncio.create_task(send_agent_action_email(
+                    user_wallet=user_wallet,
+                    agent_name="rebalancer",
+                    action_type="REBALANCE_STRATEGY",
+                    title=f"Rebalancer: Strategy {decision_label} - {pydantic_strat.strategy_name}",
+                    summary=(pydantic_strat.executive_summary or "")[:240],
+                    metrics={
+                        "Decision": decision_label,
+                        "Market Regime": str(pydantic_strat.market_regime).replace("_", " ").title(),
+                        "Risk Level": str(pydantic_strat.risk_level).title(),
+                        "Target Allocation": alloc_lines,
+                        "Execution": swap_summary_text,
+                        "Portfolio Value": f"${round(total_portfolio_usd, 2)} USD",
+                        "Check Cadence": f"Every {cadence_days} days",
+                    },
+                    reasoning=pydantic_strat.executive_summary or "",
+                ))
+            except Exception as notify_err:
+                print(f"[REBALANCER STREAM: NOTIFY ERROR] {notify_err}")
+
             yield json.dumps({"type": "final", "result": result}) + "\n"
         except Exception as e:
             reason_code = getattr(e, "reason_code", "PROVIDER_ERROR")
@@ -1126,6 +1292,15 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
     # =================================================================
     # 5. GOVERNED EXECUTION STATE MACHINE (PROPOSAL -> VALIDATION -> APPROVAL -> EXECUTION -> RECONCILIATION)
     # =================================================================
+
+    @staticmethod
+    def _portfolio_wallet(user_wallet: str) -> str:
+        """The wallet whose balances matter is the agent execution wallet (it signs the swaps)."""
+        try:
+            v = validate_agent_execution_wallet(user_wallet=user_wallet, agent_id="rebalancer", target_chain="near", is_cross_chain=False)
+            return v.get("agent_wallet") or user_wallet
+        except Exception:
+            return user_wallet
 
     async def get_portfolio_drift_status(
         self,
@@ -1152,13 +1327,18 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         targets = target_allocation
         tokens = list(targets.keys())
         prices = await get_token_prices(tokens)
-        real_portfolio = await get_wallet_portfolio(user_wallet)
+        real_portfolio = await get_wallet_portfolio(self._portfolio_wallet(user_wallet))
 
         current_holdings: Dict[str, Dict[str, float]] = {}
+        unpriced_tokens: List[str] = []
         for t in targets.keys():
             t_lower = t.lower()
             amt = float(real_portfolio.get(t_lower, 0.0))
-            p = float(prices.get(t_lower, 1.0))
+            p = _resolve_price(t_lower, prices)
+            if p is None:
+                # Never invent a $1 price for an unpriced token: exclude it from valuation and flag it.
+                unpriced_tokens.append(t_lower.upper())
+                p = 0.0
             current_holdings[t_lower] = {"amount": amt, "usd_value": amt * p}
 
         total_usd = sum(h["usd_value"] for h in current_holdings.values())
@@ -1189,7 +1369,9 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             "current_allocation": {k.upper(): round(v, 1) for k, v in current_pcts.items()},
             "target_allocation": {k.upper(): round(v, 1) for k, v in targets.items()},
             "total_portfolio_usd": round(total_usd, 2),
-            "action_taken": f"Monitored drift: {round(max_drift, 1)}%",
+            "action_taken": f"Monitored drift: {round(max_drift, 1)}%"
+            + (f" (unpriced, excluded: {', '.join(unpriced_tokens)})" if unpriced_tokens else ""),
+            "unpriced_tokens": unpriced_tokens,
             "is_active": is_active,
             "active_strategy": active_strategy
         }
@@ -1241,16 +1423,21 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         targets = target_allocation
         tokens = list(targets.keys())
         prices = await get_token_prices(tokens)
-        real_portfolio = await get_wallet_portfolio(user_wallet)
+        real_portfolio = await get_wallet_portfolio(self._portfolio_wallet(user_wallet))
 
         # -------------------------------------------------------------
         # STATE 1: PROPOSAL
         # -------------------------------------------------------------
         current_holdings: Dict[str, Dict[str, float]] = {}
+        unpriced_tokens: List[str] = []
         for t in targets.keys():
             t_lower = t.lower()
             amt = float(real_portfolio.get(t_lower, 0.0))
-            p = float(prices.get(t_lower, 1.0))
+            p = _resolve_price(t_lower, prices)
+            if p is None:
+                # Never invent a $1 price for an unpriced token: exclude it from valuation and flag it.
+                unpriced_tokens.append(t_lower.upper())
+                p = 0.0
             current_holdings[t_lower] = {"amount": amt, "usd_value": amt * p}
 
         total_usd = sum(h["usd_value"] for h in current_holdings.values())
@@ -1277,10 +1464,13 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
 
         overweight = max(drifts, key=drifts.get)
         underweight = min(drifts, key=drifts.get)
-        rebalance_amount_usd = max(0.0, (drifts[overweight] / 100.0) * total_usd)
+        rebalance_amount_usd = max(0.0, (min(drifts[overweight], -drifts[underweight]) / 100.0) * total_usd)
+        _max_tx = float(user.get("max_tx_amount") or 0.0)
+        if _max_tx > 0:
+            rebalance_amount_usd = min(rebalance_amount_usd, _max_tx)
 
         # If difference is negligible (< $0.05 dust), portfolio is already at configured target
-        if rebalance_amount_usd < 0.05 or max_drift < 0.1:
+        if rebalance_amount_usd < 0.05 or max_drift <= max(0.1, float(drift_threshold_pct or 0.0)):
             try:
                 from notification_agent import send_agent_action_email
                 alloc_str = ", ".join([f"{k.upper()}: {round(v, 1)}%" for k, v in current_pcts.items()])
@@ -1315,10 +1505,28 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
             }
         
         # Cross-chain check
-        is_cross_chain = any(
-            t.upper() in ["ETH", "WBTC", "BTC", "SOL", "ARB", "OP", "AVAX", "DOGE"]
-            for t in [overweight, underweight]
-        )
+        # Every asset is a NEAR-chain (bridged) token held in the agent wallet, so swaps never leave NEAR.
+        is_cross_chain = False
+
+        # The swap quote takes TOKEN units of the token being sold, not USD.
+        price_in = _resolve_price(overweight.lower(), prices)
+        if not price_in:
+            return {
+                "success": False, "state": "REJECTED", "status": "UNPRICED_TOKEN",
+                "reason": f"No live price for {overweight.upper()}; refusing to guess a value.",
+                "active_strategy": active_strategy
+            }
+        held_in = float(real_portfolio.get(overweight.lower(), 0.0) or 0.0)
+        if overweight.lower() == "near":
+            held_in = max(0.0, held_in - 0.05)  # keep a gas reserve
+        amount_in_tokens = round(min(rebalance_amount_usd / price_in, held_in * 0.999), 6)
+        if amount_in_tokens * price_in < 0.05:
+            return {
+                "success": True, "state": "COMPLETED", "status": "IN_BALANCE",
+                "max_drift_pct": round(max_drift, 2),
+                "action_taken": "Swap size is below the $0.05 minimum (or the token is not held); nothing to do.",
+                "active_strategy": active_strategy
+            }
 
         # -------------------------------------------------------------
         # STATE 2: VALIDATION
@@ -1370,7 +1578,7 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         dry_quote = get_swap_quote(
             token_in=overweight.upper(),
             token_out=underweight.upper(),
-            amount=float(round(rebalance_amount_usd, 2)),
+            amount=float(amount_in_tokens),
             chain_id="near",
             recipient_id=agent_execution_wallet,
             is_cross_chain=is_cross_chain,
@@ -1444,118 +1652,13 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         update_rebalancer_execution_state(execution_id=execution_id, state="APPROVAL")
 
         # -------------------------------------------------------------
-        # STATE 4: EXECUTION (LIMIT ORDER VS MARKET SWAP)
+        # STATE 4: EXECUTION (MARKET-PRICE SWAP ONLY)
         # -------------------------------------------------------------
-        # Check if the active strategy specifies a conditional limit target price away from market
-        is_limit_order = False
-        target_limit_price = 0.0
-        if active_strategy and active_strategy.get("tp_sl_rules"):
-            for rule in active_strategy.get("tp_sl_rules", []):
-                sym = (rule.get("symbol") or "").lower()
-                if sym == overweight.lower():
-                    rule_tp = float(rule.get("tp_price_usd") or 0.0)
-                    curr_px = float(prices.get(sym, 1.0))
-                    if rule_tp > curr_px * 1.005:  # Target price >0.5% away
-                        is_limit_order = True
-                        target_limit_price = rule_tp
-                        break
-
-        if is_limit_order and target_limit_price > 0:
-            from tools import create_1click_limit_order
-            overweight_px = float(prices.get(overweight, 1.0))
-            quantity_tokens = round(rebalance_amount_usd / max(0.0001, overweight_px), 4)
-            limit_res = await create_1click_limit_order(
-                account_id=agent_execution_wallet,
-                base_symbol=overweight.upper(),
-                quote_symbol=underweight.upper(),
-                quantity=quantity_tokens,
-                price=target_limit_price,
-                side="SELL"
-            )
-            if limit_res.get("success"):
-                deposit_address = limit_res.get("deposit_address", "")
-                quote_tx_hash = limit_res.get("order_id", f"limit_{execution_id}")
-                if deposit_address:
-                    try:
-                        create_near_intent_transaction(
-                            token_in=overweight.upper(),
-                            token_out=underweight.upper(),
-                            amount=float(quantity_tokens),
-                            min_amount_out=0.0,
-                            deposit_address=deposit_address,
-                            account_id=agent_execution_wallet
-                        )
-                    except Exception as tx_e:
-                        print(f"[REBALANCER LIMIT] Transaction broadcast notice: {tx_e}")
-
-                create_active_trade(
-                    user_wallet=user_wallet,
-                    symbol=f"{overweight.upper()}->{underweight.upper()}",
-                    action="SELL",
-                    entry_price=target_limit_price,
-                    current_price=overweight_px,
-                    confidence_score=90,
-                    expected_roi_pct=round(((target_limit_price - overweight_px) / max(0.001, overweight_px)) * 100, 1),
-                    amount_usd=rebalance_amount_usd,
-                    tx_hash=quote_tx_hash,
-                    agent_id="rebalancer",
-                    execution_wallet=agent_execution_wallet,
-                    is_cross_chain=1 if is_cross_chain else 0,
-                    status="PENDING_ENTRY"
-                )
-
-                log_agent_action(
-                    user_wallet=user_wallet,
-                    agent_name="rebalancer",
-                    trigger_type="portfolio_rebalance_limit",
-                    reasoning_text=f"Placed native limit rebalance order {overweight.upper()} -> {underweight.upper()} at ${target_limit_price:.4f}.",
-                    action_taken=f"LIMIT SELL {overweight.upper()} @ ${target_limit_price:.4f} (${round(rebalance_amount_usd, 2)}) via 1-Click",
-                    tx_hash=quote_tx_hash,
-                    status="pending"
-                )
-
-                try:
-                    from notification_agent import send_agent_action_email
-                    asyncio.create_task(send_agent_action_email(
-                        user_wallet=user_wallet,
-                        agent_name="rebalancer",
-                        action_type="LIMIT_REGISTERED",
-                        title=f"Rebalancer: Limit Order Placed {overweight.upper()} -> {underweight.upper()}",
-                        summary=f"Placed native limit rebalance order to sell {overweight.upper()} at target ${target_limit_price:.4f} into {underweight.upper()}.",
-                        metrics={
-                            "Order Type": "LIMIT ORDER (Confidential)",
-                            "Sold Asset": overweight.upper(),
-                            "Target Limit Price": f"${target_limit_price:.4f}",
-                            "Acquired Asset": underweight.upper(),
-                            "Rebalance Amount": f"${round(rebalance_amount_usd, 2)} USD",
-                            "Current Market Price": f"${overweight_px:.4f}"
-                        },
-                        reasoning=f"Placed resting limit order on Defuse Solver Network. Solvers will fill when target ${target_limit_price:.4f} is reached without server polling.",
-                        tx_hash=quote_tx_hash
-                    ))
-                except Exception as notify_err:
-                    print(f"[REBALANCER: NOTIFY ERROR] {notify_err}")
-
-                return {
-                    "success": True,
-                    "state": "COMPLETED",
-                    "execution_id": execution_id,
-                    "status": "LIMIT_ORDER_PLACED",
-                    "terminal_status": "AWAITING_FILL",
-                    "order_id": quote_tx_hash,
-                    "deposit_address": deposit_address,
-                    "current_allocation": {k.upper(): round(v, 1) for k, v in current_pcts.items()},
-                    "target_allocation": {k.upper(): round(v, 1) for k, v in targets.items()},
-                    "total_portfolio_usd": round(total_usd, 2),
-                    "action_taken": f"Placed Limit Order {overweight.upper()} -> {underweight.upper()} @ ${target_limit_price:.4f} (${round(rebalance_amount_usd, 2)})",
-                    "active_strategy": active_strategy
-                }
-
         # Market Order Execution
         live_quote = get_swap_quote(
             token_in=overweight.upper(),
             token_out=underweight.upper(),
-            amount=float(round(rebalance_amount_usd, 2)),
+            amount=float(amount_in_tokens),
             chain_id="near",
             recipient_id=agent_execution_wallet,
             is_cross_chain=is_cross_chain,
@@ -1584,20 +1687,50 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         quote_id = live_quote.get("quote_id", "")
         quote_tx_hash = quote_id or f"tx_{execution_id}"
 
-        # Submit on-chain intent deposit transaction
+        # Sign and broadcast the on-chain intent deposit with the user's delegated agent key.
+        broadcast_error = ""
         if deposit_address:
             try:
                 min_out = float(live_quote.get("min_amount_out", 0.0))
-                create_near_intent_transaction(
+                tx_payload = create_near_intent_transaction(
                     token_in=overweight.upper(),
                     token_out=underweight.upper(),
-                    amount=float(round(rebalance_amount_usd, 2)),
+                    amount=float(amount_in_tokens),
                     min_amount_out=min_out,
                     deposit_address=deposit_address,
                     account_id=agent_execution_wallet
                 )
+                from database import get_agent_key
+                from key_manager import decrypt_private_key
+                from autonomous_agents.near_submitter import submit_near_transaction
+                agent_key = get_agent_key(user_wallet, "near")
+                if not (agent_key and agent_key.get("encrypted_private_key")):
+                    broadcast_error = "No agent key stored for this wallet; cannot sign the swap."
+                else:
+                    pk = decrypt_private_key(agent_key["encrypted_private_key"], wallet_address=user_wallet)
+                    onchain_hash = await submit_near_transaction(
+                        tx_payload=tx_payload,
+                        agent_address=agent_execution_wallet,
+                        private_key=pk
+                    )
+                    if onchain_hash:
+                        quote_tx_hash = onchain_hash
+                    else:
+                        broadcast_error = "Broadcast returned no transaction hash."
             except Exception as tx_e:
-                print(f"[REBALANCER] Transaction broadcast notice: {tx_e}")
+                broadcast_error = f"{type(tx_e).__name__}: {str(tx_e)[:160]}"
+                print(f"[REBALANCER] Transaction broadcast error: {tx_e}")
+
+        if broadcast_error:
+            update_rebalancer_execution_state(
+                execution_id=execution_id, state="FAILED",
+                terminal_status="BROADCAST_FAILED", error_message=broadcast_error
+            )
+            return {
+                "success": False, "state": "FAILED", "status": "BROADCAST_FAILED",
+                "reason": broadcast_error, "execution_id": execution_id,
+                "active_strategy": active_strategy
+            }
 
         update_rebalancer_execution_state(
             execution_id=execution_id,
@@ -1612,6 +1745,11 @@ YOU MUST RESPOND WITH ONLY A SINGLE RAW JSON OBJECT MATCHING THIS EXACT SCHEMA (
         # STATE 5: RECONCILIATION (POLL STATUS FOR TERMINAL OUTCOMES)
         # -------------------------------------------------------------
         status_poll = await poll_1click_status(deposit_address=deposit_address)
+        for _ in range(11):
+            if status_poll.get("is_success") or status_poll.get("is_failed") or status_poll.get("is_refunded"):
+                break
+            await asyncio.sleep(5)
+            status_poll = await poll_1click_status(deposit_address=deposit_address)
         terminal_status = status_poll.get("status", "PROCESSING")
         
         if status_poll.get("is_refunded"):

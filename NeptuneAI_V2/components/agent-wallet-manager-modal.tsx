@@ -1,5 +1,6 @@
 "use client";
 
+import HyperliquidSettings from "@/components/hyperliquid-settings";
 import React, { useState, useEffect, useCallback } from "react";
 import {
   X,
@@ -416,7 +417,8 @@ export default function AgentWalletManagerModal({
 
       setSuccessToast("Agent wallet assignments saved successfully!");
       setTimeout(() => setSuccessToast(null), 3000);
-      await fetchConfig();
+      setIsSaving(false); // stop the spinner as soon as the save is confirmed
+      void fetchConfig(); // refresh in the background (balance lookups can be slow)
     } catch (e: any) {
       setErrorToast(e?.message || "Assignment error");
       setTimeout(() => setErrorToast(null), 3500);
@@ -1088,8 +1090,8 @@ export default function AgentWalletManagerModal({
                 <div className="w-24">
                   <input
                     type="number"
-                    step="0.1"
-                    min="0.1"
+                    step="0.05"
+                    min="0.05"
                     value={topupAmount}
                     onChange={(e) => setTopupAmount(e.target.value)}
                     placeholder="Custom"
@@ -1278,6 +1280,11 @@ export default function AgentWalletManagerModal({
                 );
               })}
             </div>
+          </div>
+
+          {/* Hyperliquid perps (optional, per-user credentials) */}
+          <div className="px-6 pb-6">
+            <HyperliquidSettings accountId={accountId} />
           </div>
         </div>
 

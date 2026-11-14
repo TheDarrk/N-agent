@@ -1,0 +1,32 @@
+{
+  "agent": "trader",
+  "user_wallet": "flame1.near",
+  "symbol": "MARKET",
+  "timeframe": "4h",
+  "verdict": "STAND_ASIDE",
+  "stage": "REFACTORED_PIPELINE_STAND_ASIDE",
+  "confidence_score": 0,
+  "min_required": 75,
+  "expected_roi_pct": 0.0,
+  "reasoning": "No candidate reached the 75 threshold. LINK (~48): confirmed inverse H&S is bullish in name, but price sits below all EMAs on both timeframes, 12h RSI 28 with negative MACD, and the last 4h candle printed a 66% upper-wick rejection \u2014 trend (12/30) and momentum (~10/20) fail badly, and it is only 3.5% above swing support. BCH (~47): deep oversold (12h RSI 21) with capitulation-grade rel_vol 4.0 and a confirmed inverse H&S hints at a possible bottom, but price is ~8% below the flat 12h EMA cluster and below all 4h EMAs with negative MACD on both TFs \u2014 no trend turn is in place yet, so confluence and trend scores stay far below qualification. GNO (~42): bear flag 'confirmed' but located at range_pos 0.03 with only 0.5% to support (no room to run short), rel_vol 0.0 shows zero participation, and 12h is sideways so the pattern lacks a prior downtrend to continue. All three are either early bottoming attempts without EMA/momentum confirmation or continuation setups with no room; none clears 75.",
+  "chart_image": null,
+  "pipeline": {
+    "screener": {
+      "selection_reasoning": "No candidate reached the 75 threshold. LINK (~48): confirmed inverse H&S is bullish in name, but price sits below all EMAs on both timeframes, 12h RSI 28 with negative MACD, and the last 4h candle printed a 66% upper-wick rejection \u2014 trend (12/30) and momentum (~10/20) fail badly, and it is only 3.5% above swing support. BCH (~47): deep oversold (12h RSI 21) with capitulation-grade rel_vol 4.0 and a confirmed inverse H&S hints at a possible bottom, but price is ~8% below the flat 12h EMA cluster and below all 4h EMAs with negative MACD on both TFs \u2014 no trend turn is in place yet, so confluence and trend scores stay far below qualification. GNO (~42): bear flag 'confirmed' but located at range_pos 0.03 with only 0.5% to support (no room to run short), rel_vol 0.0 shows zero participation, and 12h is sideways so the pattern lacks a prior downtrend to continue. All three are either early bottoming attempts without EMA/momentum confirmation or continuation setups with no room; none clears 75.",
+      "selections": []
+    },
+    "council": null,
+    "judge": null,
+    "execution": null,
+    "status": "no_candidates",
+    "halt_step": "STAGE_1_SCREENER",
+    "halt_cause": "No candidate reached the 75 threshold. LINK (~48): confirmed inverse H&S is bullish in name, but price sits below all EMAs on both timeframes, 12h RSI 28 with negative MACD, and the last 4h candle printed a 66% upper-wick rejection \u2014 trend (12/30) and momentum (~10/20) fail badly, and it is only 3.5% above swing support. BCH (~47): deep oversold (12h RSI 21) with capitulation-grade rel_vol 4.0 and a confirmed inverse H&S hints at a possible bottom, but price is ~8% below the flat 12h EMA cluster and below all 4h EMAs with negative MACD on both TFs \u2014 no trend turn is in place yet, so confluence and trend scores stay far below qualification. GNO (~42): bear flag 'confirmed' but located at range_pos 0.03 with only 0.5% to support (no room to run short), rel_vol 0.0 shows zero participation, and 12h is sideways so the pattern lacks a prior downtrend to continue. All three are either early bottoming attempts without EMA/momentum confirmation or continuation setups with no room; none clears 75."
+  },
+  "cid": "bafyc7b30ecb87c5a76e91ce568a904deae1130dedb3bd7e",
+  "stored_at": "2026-11-13 21:24:55 UTC",
+  "stored_at_iso": "2026-11-13T21:24:55.132462+00:00",
+  "date_utc": "2026-11-13",
+  "time_utc": "21:24:55 UTC",
+  "timestamp_utc": "2026-11-13 21:24:55 UTC",
+  "created_at_utc": "2026-11-13T21:24:55.132462+00:00"
+}

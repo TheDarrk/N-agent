@@ -10,6 +10,27 @@ export const runtime = "nodejs";
 
 const BACKEND_URL = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
+// Short reads fail fast so a stalled backend can't pin Vercel functions for 300s each.
+const GET_TIMEOUT_MS = 20000;
+const WRITE_TIMEOUT_MS = 120000;
+
+function isStreamPath(p: string) {
+    return p.includes("/stream");
+}
+
+/** Parse backend body as JSON; HTML/plain-text error pages become a JSON error instead of throwing. */
+async function toJsonResponse(response: Response) {
+    const text = await response.text();
+    try {
+        return Response.json(JSON.parse(text), { status: response.status });
+    } catch {
+        return Response.json(
+            { error: "Backend returned a non-JSON response", status: response.status },
+            { status: response.ok ? 502 : response.status }
+        );
+    }
+}
+
 export async function GET(
     req: Request,
     { params }: { params: Promise<{ path: string[] }> }
@@ -23,6 +44,8 @@ export async function GET(
         const response = await fetch(`${BACKEND_URL}${backendPath}${queryString}`, {
             method: "GET",
             headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            ...(isStreamPath(backendPath) ? {} : { signal: AbortSignal.timeout(GET_TIMEOUT_MS) }),
         });
 
         const contentType = response.headers.get("content-type") || "";
@@ -37,8 +60,7 @@ export async function GET(
             });
         }
 
-        const data = await response.json();
-        return Response.json(data, { status: response.status });
+        return await toJsonResponse(response);
     } catch (e) {
         console.error(`[AUTONOMY PROXY] GET ${backendPath} error:`, e);
         return Response.json(
@@ -69,6 +91,7 @@ export async function POST(
             method: "POST",
             headers: { "Content-Type": "application/json" },
             ...(body ? { body: JSON.stringify(body) } : {}),
+            ...(isStreamPath(backendPath) ? {} : { signal: AbortSignal.timeout(WRITE_TIMEOUT_MS) }),
         });
 
         const contentType = response.headers.get("content-type") || "";
@@ -83,8 +106,7 @@ export async function POST(
             });
         }
 
-        const data = await response.json();
-        return Response.json(data, { status: response.status });
+        return await toJsonResponse(response);
     } catch (e) {
         console.error(`[AUTONOMY PROXY] POST ${backendPath} error:`, e);
         return Response.json(
@@ -115,10 +137,10 @@ export async function PATCH(
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             ...(body ? { body: JSON.stringify(body) } : {}),
+            ...(isStreamPath(backendPath) ? {} : { signal: AbortSignal.timeout(WRITE_TIMEOUT_MS) }),
         });
 
-        const data = await response.json();
-        return Response.json(data, { status: response.status });
+        return await toJsonResponse(response);
     } catch (e) {
         console.error(`[AUTONOMY PROXY] PATCH ${backendPath} error:`, e);
         return Response.json(
@@ -149,10 +171,10 @@ export async function PUT(
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             ...(body ? { body: JSON.stringify(body) } : {}),
+            ...(isStreamPath(backendPath) ? {} : { signal: AbortSignal.timeout(WRITE_TIMEOUT_MS) }),
         });
 
-        const data = await response.json();
-        return Response.json(data, { status: response.status });
+        return await toJsonResponse(response);
     } catch (e) {
         console.error(`[AUTONOMY PROXY] PUT ${backendPath} error:`, e);
         return Response.json(
@@ -181,12 +203,16 @@ export async function DELETE(
     try {
         const response = await fetch(`${BACKEND_URL}${backendPath}${queryString}`, {
             method: "DELETE",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                // Forward admin token so /api/admin/* endpoints (e.g. wipe-all) can authenticate
+                ...(req.headers.get("x-admin-token") ? { "X-Admin-Token": req.headers.get("x-admin-token") as string } : {}),
+            },
             ...(body ? { body: JSON.stringify(body) } : {}),
+            ...(isStreamPath(backendPath) ? {} : { signal: AbortSignal.timeout(WRITE_TIMEOUT_MS) }),
         });
 
-        const data = await response.json();
-        return Response.json(data, { status: response.status });
+        return await toJsonResponse(response);
     } catch (e) {
         console.error(`[AUTONOMY PROXY] DELETE ${backendPath} error:`, e);
         return Response.json(

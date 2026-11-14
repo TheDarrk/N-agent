@@ -43,6 +43,42 @@ class HyperliquidAdapter:
         self._meta_cache: Optional[Dict[str, Any]] = None
         self._sz_decimals_cache: Dict[str, int] = {}
 
+    MIN_ORDER_USD = 10.0  # Hyperliquid rejects orders below $10 notional
+
+    @classmethod
+    def for_user(cls, user_wallet: str) -> "HyperliquidAdapter":
+        """Adapter built from the USER'S OWN stored credentials (API wallet key + account address).
+        Returns an unconfigured adapter when the user has not added any."""
+        try:
+            from database import get_hyperliquid_credentials
+            creds = get_hyperliquid_credentials(user_wallet)
+        except Exception:
+            creds = None
+        if not creds:
+            inst = cls(private_key="", account_address=None, network="mainnet")
+            inst.private_key = ""
+            return inst
+        return cls(private_key=creds["api_private_key"], account_address=creds["account_address"], network=creds["network"])
+
+    def check_connection(self) -> Dict[str, Any]:
+        """Read-only: confirms the key signs for the account and returns equity. Places no orders."""
+        out: Dict[str, Any] = {"network": self.network, "account_address": self.account_address}
+        try:
+            out["api_wallet_address"] = Account.from_key(self.private_key).address
+            state = self.info.user_state(self.account_address or out["api_wallet_address"])
+            summary = state.get("marginSummary", {}) or {}
+            out["account_value_usd"] = float(summary.get("accountValue", 0) or 0)
+            out["withdrawable_usd"] = float(state.get("withdrawable", 0) or 0)
+            out["open_positions"] = len([p for p in state.get("assetPositions", []) if abs(float(p.get("position", {}).get("szi", 0))) > 0])
+            out["ok"] = True
+            out["min_order_usd"] = self.MIN_ORDER_USD
+            if out["account_value_usd"] < self.MIN_ORDER_USD:
+                out["warning"] = f"Account value is below the ${self.MIN_ORDER_USD:.0f} Hyperliquid minimum order size; deposit USDC before trading."
+        except Exception as e:
+            out["ok"] = False
+            out["error"] = str(e)[:300]
+        return out
+
     @property
     def info(self) -> Info:
         if self._info is None:
@@ -165,14 +201,29 @@ class HyperliquidAdapter:
         live_mid = self.get_mid_price(c)
         ref_price = live_mid if live_mid else entry_price
 
-        # 2. Compute size based on USD value and decimals
+        # 2. Compute size based on USD value and decimals (Hyperliquid minimum order value is $10)
+        if amount_usd < self.MIN_ORDER_USD:
+            return {
+                "success": False,
+                "error": f"Hyperliquid minimum order value is ${self.MIN_ORDER_USD:.0f}; requested ${amount_usd:.2f}."
+            }
         raw_sz = amount_usd / max(0.0001, ref_price)
         sz = self.round_size(c, raw_sz)
+        if sz <= 0 or sz * ref_price < self.MIN_ORDER_USD:
+            sz = self.round_size(c, (self.MIN_ORDER_USD * 1.02) / max(0.0001, ref_price))
         if sz <= 0:
             return {
                 "success": False,
                 "error": f"Computed position size {sz} is below minimum allowed lot size for {c}."
             }
+
+        # No leverage: force 1x isolated before opening.
+        try:
+            lev_res = ex.update_leverage(1, c, is_cross=False)
+            if isinstance(lev_res, dict) and lev_res.get("status") not in (None, "ok"):
+                return {"success": False, "error": f"Could not set 1x leverage for {c}: {lev_res.get('response')}", "coin": c}
+        except Exception as lev_err:
+            return {"success": False, "error": f"Could not set 1x leverage for {c}: {lev_err}", "coin": c}
 
         # 3. Format prices
         # For IOC market-like entry, apply acceptable slippage bound
@@ -185,12 +236,17 @@ class HyperliquidAdapter:
         formatted_sl = self.round_price(sl_price)
 
         # 4. Construct the 3 grouped orders
+        # Entry: market-like IOC when entry is at the market; resting GTC limit when the plan wants a better price.
+        entry_away_pct = abs(entry_price - ref_price) / max(1e-9, ref_price)
+        resting_entry = bool(entry_price and entry_away_pct > 0.005 and (
+            (is_buy and entry_price < ref_price) or ((not is_buy) and entry_price > ref_price)
+        ))
         primary_order = {
             "coin": c,
             "is_buy": is_buy,
             "sz": sz,
-            "limit_px": ioc_limit_px,
-            "order_type": {"limit": {"tif": "Ioc"}},
+            "limit_px": self.round_price(entry_price) if resting_entry else ioc_limit_px,
+            "order_type": {"limit": {"tif": "Gtc" if resting_entry else "Ioc"}},
             "reduce_only": False,
         }
 
@@ -229,7 +285,7 @@ class HyperliquidAdapter:
         orders_payload = [primary_order, sl_order, tp_order]
 
         print(f"[HYPERLIQUID: ORDER] Submitting atomic normalTpsl Bracket Order for {c}:")
-        print(f"  • Entry: {'BUY' if is_buy else 'SELL'} {sz} {c} @ ${ioc_limit_px} (IOC)")
+        print(f"  • Entry: {'BUY' if is_buy else 'SELL'} {sz} {c} @ ${primary_order['limit_px']} ({'GTC resting' if resting_entry else 'IOC'}) | leverage 1x isolated")
         print(f"  • Stop Loss: Trigger @ ${formatted_sl} (Market)")
         print(f"  • Take Profit: Trigger @ ${formatted_tp} (Market)")
 
@@ -246,7 +302,9 @@ class HyperliquidAdapter:
                 "coin": c,
                 "side": "BUY" if is_buy else "SELL",
                 "size": sz,
-                "entry_limit_price": ioc_limit_px,
+                "entry_limit_price": primary_order["limit_px"],
+                "entry_type": "resting_limit" if resting_entry else "market_ioc",
+                "leverage": 1,
                 "tp_trigger_price": formatted_tp,
                 "sl_trigger_price": formatted_sl,
                 "raw_response": res

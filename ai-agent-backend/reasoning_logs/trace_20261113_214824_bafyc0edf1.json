@@ -1,0 +1,29 @@
+{
+  "agent": "trader",
+  "user_wallet": "flame1.near",
+  "symbol": "NO_TRADE",
+  "timeframe": "4h",
+  "verdict": "STAND_ASIDE",
+  "stage": "STAGE_1_SCREENER_NO_CANDIDATES",
+  "halt_step": "STAGE_1_SCREENER",
+  "halt_cause": "All three candidates fall well below the 75 threshold. LINK (~47): price below all EMAs on both timeframes with 12h RSI at 28 (oversold) and a 66% upper-wick rejection candle; the 'confirmed' inverse H&S contradicts the breakdown location near range lows (range_pos 0.17), leaving no clean directional edge. BCH (~46): deeply oversold (12h RSI 21) with a 4.0x volume spike that reads as climactic capitulation rather than trend continuation \u2014 shorting into it is high squeeze risk (Extreme Fear regime), and longing against below-EMA downtrend structure and a 61% upper wick is catching a knife; the confirmed inverse H&S conflicts with price sitting 7.7% under its EMAs. GNO (~43): bear_flag confirmed but positioned at the extreme range low (range_pos 0.03) with only 0.5% to support \u2014 no room to run short \u2014 and rel_vol 0.0 shows zero participation behind the breakdown. No candidate offers trend alignment, momentum participation, and room-to-run simultaneously; all blocked.",
+  "confidence_score": 0,
+  "min_required": 75,
+  "expected_roi_pct": 0.0,
+  "reasoning": "All three candidates fall well below the 75 threshold. LINK (~47): price below all EMAs on both timeframes with 12h RSI at 28 (oversold) and a 66% upper-wick rejection candle; the 'confirmed' inverse H&S contradicts the breakdown location near range lows (range_pos 0.17), leaving no clean directional edge. BCH (~46): deeply oversold (12h RSI 21) with a 4.0x volume spike that reads as climactic capitulation rather than trend continuation \u2014 shorting into it is high squeeze risk (Extreme Fear regime), and longing against below-EMA downtrend structure and a 61% upper wick is catching a knife; the confirmed inverse H&S conflicts with price sitting 7.7% under its EMAs. GNO (~43): bear_flag confirmed but positioned at the extreme range low (range_pos 0.03) with only 0.5% to support \u2014 no room to run short \u2014 and rel_vol 0.0 shows zero participation behind the breakdown. No candidate offers trend alignment, momentum participation, and room-to-run simultaneously; all blocked.",
+  "chart_image": null,
+  "pipeline": {
+    "screener": {
+      "selection_reasoning": "All three candidates fall well below the 75 threshold. LINK (~47): price below all EMAs on both timeframes with 12h RSI at 28 (oversold) and a 66% upper-wick rejection candle; the 'confirmed' inverse H&S contradicts the breakdown location near range lows (range_pos 0.17), leaving no clean directional edge. BCH (~46): deeply oversold (12h RSI 21) with a 4.0x volume spike that reads as climactic capitulation rather than trend continuation \u2014 shorting into it is high squeeze risk (Extreme Fear regime), and longing against below-EMA downtrend structure and a 61% upper wick is catching a knife; the confirmed inverse H&S conflicts with price sitting 7.7% under its EMAs. GNO (~43): bear_flag confirmed but positioned at the extreme range low (range_pos 0.03) with only 0.5% to support \u2014 no room to run short \u2014 and rel_vol 0.0 shows zero participation behind the breakdown. No candidate offers trend alignment, momentum participation, and room-to-run simultaneously; all blocked.",
+      "selections": []
+    },
+    "status": "no_candidates"
+  },
+  "cid": "bafyc0edf1e1b62ed70e1f7efa4720951b3d54f39d7307f8",
+  "stored_at": "2026-11-13 21:48:24 UTC",
+  "stored_at_iso": "2026-11-13T21:48:24.589141+00:00",
+  "date_utc": "2026-11-13",
+  "time_utc": "21:48:24 UTC",
+  "timestamp_utc": "2026-11-13 21:48:24 UTC",
+  "created_at_utc": "2026-11-13T21:48:24.589141+00:00"
+}

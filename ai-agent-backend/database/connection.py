@@ -69,15 +69,18 @@ def get_last_sync_status() -> Dict[str, Any]:
     }
 
 
-def _debounced_sync(conn_raw, force: bool = False):
+def _debounced_sync(conn_raw, force: bool = False, min_interval: float = 1.0):
     """
-    Debounced Turso sync throttled to at most once per second.
+    Debounced Turso sync throttled to at most once per `min_interval` seconds.
     Pushes committed local changes to Turso cloud and pulls remote updates.
     """
     global _last_sync_time, _last_sync_ok
     now = time.monotonic()
+    # Cheap pre-check outside the lock so concurrent requests never queue behind a network sync.
+    if not force and _last_sync_time and (now - _last_sync_time < min_interval):
+        return
     with _sync_lock:
-        if not force and (now - _last_sync_time < 1.0):
+        if not force and _last_sync_time and (time.monotonic() - _last_sync_time < min_interval):
             return
         try:
             conn_raw.sync()
@@ -344,7 +347,8 @@ def get_connection(db_path: Optional[str] = None) -> Union[sqlite3.Connection, L
         token = os.getenv("TURSO_AUTH_TOKEN", TURSO_AUTH_TOKEN).strip()
 
         # If primary replica db file was wiped, clean up any orphaned metadata files (-info, -shm, -wal)
-        if not os.path.exists(target_path):
+        fresh_replica = not os.path.exists(target_path)
+        if fresh_replica:
             for suffix in ["-info", "-shm", "-wal", "-meta"]:
                 orphan = f"{target_path}{suffix}"
                 if os.path.exists(orphan):
@@ -353,22 +357,36 @@ def get_connection(db_path: Optional[str] = None) -> Union[sqlite3.Connection, L
                     except Exception:
                         pass
 
-        raw = libsql.connect(
-            target_path,
-            sync_url=url,
-            auth_token=token,
-            autocommit=True
-        )
+        # Concurrent threads opening the same embedded-replica file can briefly hit
+        # "database is locked"; retry with a short backoff instead of failing the request.
+        raw = None
+        for _attempt in range(6):
+            try:
+                raw = libsql.connect(
+                    target_path,
+                    sync_url=url,
+                    auth_token=token,
+                    autocommit=True
+                )
+                break
+            except ValueError as ce:
+                if "locked" not in str(ce).lower() or _attempt == 5:
+                    raise
+                time.sleep(0.15 * (_attempt + 1))
         wrapper = LibsqlConnectionWrapper(raw, is_replica=True)
 
-        # Pull latest state from Turso Cloud
+        # Pull latest state from Turso Cloud. Throttled: a blocking network sync on EVERY
+        # connection serialized all API calls (each request opens several) and stalled the server.
         try:
-            raw.sync()
-        except Exception as se:
-            logger.warning(f"[Turso initial sync warning] {se}")
+            pull_interval = float(os.getenv("TURSO_PULL_INTERVAL_SECONDS", "15"))
+        except ValueError:
+            pull_interval = 15.0
+        _debounced_sync(raw, force=fresh_replica, min_interval=pull_interval)
 
+        # NOTE: do NOT run PRAGMA foreign_keys here. On an embedded replica it is forwarded to
+        # Turso as a network round trip (~1s) and get_connection() runs several times per request.
+        # Writes execute on the Turso primary, which enforces foreign keys by default.
         try:
-            wrapper.execute("PRAGMA foreign_keys = ON;")
             wrapper.execute("PRAGMA busy_timeout = 30000;")
         except Exception:
             pass

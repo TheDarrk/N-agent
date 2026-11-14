@@ -8,7 +8,9 @@ import {
   getRun,
   listRuns,
   getActiveRun,
+  findRunningRun,
   setActiveRun,
+  waitForRun,
 } from "@/lib/agent-runs";
 import {
   TrendingUp,
@@ -209,8 +211,17 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   const hasLoadedSettingsRef = React.useRef<string | null>(null);
 
   // Load User Configuration & Hard Caps from SQLite DB
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   useEffect(() => {
-    if (!accountId || hasLoadedSettingsRef.current === accountId) return;
+    if (!accountId) {
+      setSettingsLoaded(true);
+      return;
+    }
+    if (hasLoadedSettingsRef.current === accountId) {
+      setSettingsLoaded(true);
+      return;
+    }
+    setSettingsLoaded(false);
     const loadSettings = async () => {
       try {
         const res = await fetch(`/api/settings/${accountId}`);
@@ -276,6 +287,8 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
         }
       } catch (err) {
         console.error("Failed to load user settings:", err);
+      } finally {
+        setSettingsLoaded(true);
       }
     };
     loadSettings();
@@ -307,6 +320,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
   const [tradeHistory, setTradeHistory] = useState<Trade[]>([]);
   const [droppedTrades, setDroppedTrades] = useState<DroppedTrade[]>([]);
   const [allowCrossChain, setAllowCrossChain] = useState(false);
+  const [fleetActive, setFleetActive] = useState(false);
   const [traces, setTraces] = useState<TradeTrace[]>([]);
   const [isLoadingTrades, setIsLoadingTrades] = useState(false);
   const [activeTraceTab, setActiveTraceTab] = useState<"traces" | "history">("traces");
@@ -352,6 +366,13 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
         const cfgData = await cfgRes.json();
         setAllowCrossChain(Boolean(cfgData.allow_cross_chain_trades));
       }
+      try {
+        const fleetRes = await fetch(`/api/fleet/${encodeURIComponent(accountId)}`);
+        if (fleetRes.ok) {
+          const fleet = await fleetRes.json();
+          setFleetActive(Boolean(fleet?.agents?.trader?.is_active));
+        }
+      } catch {}
       const traceRes = await fetch(`/api/trader/traces/${encodeURIComponent(accountId)}`);
       if (traceRes.ok) {
         const traceData = await traceRes.json();
@@ -385,46 +406,67 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
     if (!accountId) return;
     const abortCtrl = new AbortController();
 
+    const handleTraderEvent = (ev: any) => {
+      const stamp = () => new Date().toLocaleTimeString();
+      if (ev.type === "step") {
+        const stepNum = ev.step_number || 1;
+        setLiveProgressStep({
+          stepNumber: stepNum,
+          stepName: ev.step_name || "",
+          title: ev.title || "",
+          status: ev.status || "running",
+          message: ev.message || ev.agent_reasoning || "",
+        });
+        if (ev.message) setLiveEvents((prev) => [...prev.slice(-10), { time: stamp(), message: ev.message, step: stepNum }]);
+      } else if (ev.type === "subagent_research_start") {
+        setLiveEvents((prev) => [...prev.slice(-10), { time: stamp(), message: `Researcher subagent inspecting sources for ${ev.symbol || "candidate"}`, step: 3 }]);
+      } else if (ev.type === "subagent_research_done") {
+        setLiveEvents((prev) => [...prev.slice(-10), { time: stamp(), message: `Researcher subagent finished with ${ev.sources_count || 0} sources`, step: 3 }]);
+      } else if (ev.type === "final" && ev.result) {
+        setScanResult(ev.result);
+        setLiveProgressStep(null);
+      }
+    };
+
     async function checkActiveTraderRun() {
-      const activeRunId = getActiveRun("trader", accountId);
-      if (activeRunId) {
-        try {
-          const run = await getRun(activeRunId, accountId);
-          if (run) {
-            if (run.status === "completed" && run.result) {
-              setScanResult(run.result);
+      try {
+        const runningId = await findRunningRun("trader", accountId as string);
+        if (abortCtrl.signal.aborted) return;
+        if (runningId) {
+          setActiveRun("trader", accountId, runningId);
+          setIsScanning(true);
+          setLiveEvents([]);
+          setLiveProgressStep({
+            stepNumber: 1,
+            stepName: "Resuming",
+            title: "Reconnecting to running scan",
+            status: "running",
+            message: "Reattaching to the live scan running in the background...",
+          });
+          streamRun(runningId, handleTraderEvent, 0, abortCtrl.signal)
+            .then(() => {
+              // Aborted = user navigated away; the scan keeps running server-side, keep the key.
+              if (abortCtrl.signal.aborted) return;
               setActiveRun("trader", accountId, null);
               setIsScanning(false);
-              await fetchTrades();
-              return;
-            } else if (run.status === "failed") {
-              setActiveRun("trader", accountId, null);
-              setIsScanning(false);
-              return;
-            } else if (run.status === "running") {
-              setIsScanning(true);
-              streamRun(
-                activeRunId,
-                (ev) => {
-                  if (ev.type === "final" && ev.result) {
-                    setScanResult(ev.result);
-                  }
-                },
-                0,
-                abortCtrl.signal
-              )
-                .then(() => {
-                  setActiveRun("trader", accountId, null);
-                  setIsScanning(false);
-                  fetchTrades();
-                })
-                .catch(() => {});
-              return;
-            }
-          }
-        } catch (e) {
-          console.warn("[TRADER] Error reconnecting active run:", e);
+              setLiveProgressStep(null);
+              fetchTrades();
+            })
+            .catch(() => {});
+          return;
         }
+        const lastId = getActiveRun("trader", accountId);
+        if (lastId) {
+          const run = await getRun(lastId, accountId);
+          if (run?.status === "completed" && run.result) setScanResult(run.result);
+          setActiveRun("trader", accountId, null);
+          await fetchTrades();
+        }
+        setIsScanning(false);
+        setLiveProgressStep(null);
+      } catch (e) {
+        console.warn("[TRADER] Error reconnecting active run:", e);
+        setIsScanning(false);
       }
     }
 
@@ -433,7 +475,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
     return () => {
       abortCtrl.abort();
     };
-  }, [accountId, fetchTrades]);
+  }, [accountId]);
 
   // Handle adding custom coin (max 20)
   const handleAddCustomCoin = () => {
@@ -462,12 +504,19 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       return;
     }
 
-    // Auto-save settings and mark agent active in database & fleet
+    // Save the current configuration and mark the agent active BEFORE starting the run, so the
+    // pipeline reads the settings the user just set. Bounded wait: never block the run on a slow DB.
+    setIsScanning(true);
     try {
-      fetch("/api/trader/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const jsonPost = (url: string, payload: any) =>
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15000),
+        });
+      await Promise.allSettled([
+        jsonPost("/api/trader/settings", {
           user_wallet: accountId,
           trader_timeframe: timeframe,
           trader_min_confidence: minConfidence,
@@ -491,21 +540,11 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           trader_ema_macro: emaMacro,
           trader_ema_days: emaDays,
         }),
-      }).catch(() => {});
-
-      fetch("/api/fleet/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_wallet: accountId,
-          agent_id: "trader",
-          is_active: true,
-        }),
-      }).catch(() => {});
+        jsonPost("/api/fleet/config", { user_wallet: accountId, agent_id: "trader", is_active: true }),
+      ]);
       setSettingsConfirmed(true);
     } catch {}
 
-    setIsScanning(true);
     setLiveEvents([{ time: new Date().toLocaleTimeString(), message: "Starting Autonomous Trader market scan...", step: 1 }]);
     setLiveProgressStep({
       stepNumber: 1,
@@ -514,6 +553,8 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       status: "running",
       message: `Scanning 1-Click DEX universe in ${coinMode} mode...`
     });
+    let startedRunId: string | null = null;
+    let keepActiveRun = false;
     try {
       const { run_id } = await startRun("trader", {
         user_wallet: accountId,
@@ -524,6 +565,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
         enable_researcher_plugin: enableResearcher,
       });
 
+      startedRunId = run_id;
       setActiveRun("trader", accountId, run_id);
 
       await streamRun(
@@ -573,31 +615,41 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
       setLiveProgressStep(null);
       await fetchTrades(false);
     } catch (e: any) {
-      console.warn("Direct stream encounter, falling back to synchronous scan:", e);
-      try {
-        const res = await fetch("/api/trader/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_wallet: accountId,
-            coin_mode: coinMode,
-            custom_coins: coinMode === "custom" ? customCoins : undefined,
-            timeframe: timeframe,
-            min_confidence: minConfidence,
-            enable_researcher_plugin: enableResearcher,
-          }),
-        });
-        const data = await res.json();
-        setScanResult(data);
-        setLiveProgressStep(null);
+      if (startedRunId) {
+        // The run is already executing on the backend. NEVER start a second one — just wait for it.
+        console.warn("[TRADER] Live stream dropped; waiting for the background run to finish:", e);
+        const finished = await waitForRun(startedRunId, accountId);
+        if (finished?.status === "completed" && finished.result) {
+          setScanResult(finished.result);
+        }
+        keepActiveRun = !finished; // still running after the wait window -> let reconnect pick it up
         await fetchTrades(false);
-      } catch (err) {
-        console.error("Scan fallback error:", err);
+      } else {
+        console.warn("[TRADER] Could not start a background run, falling back to synchronous scan:", e);
+        try {
+          const res = await fetch("/api/trader/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_wallet: accountId,
+              coin_mode: coinMode,
+              custom_coins: coinMode === "custom" ? customCoins : undefined,
+              timeframe: timeframe,
+              min_confidence: minConfidence,
+              enable_researcher_plugin: enableResearcher,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data && !data.error) setScanResult(data);
+          await fetchTrades(false);
+        } catch (err) {
+          console.error("Scan fallback error:", err);
+        }
       }
     } finally {
       setIsScanning(false);
       setLiveProgressStep(null);
-      setActiveRun("trader", accountId, null);
+      if (!keepActiveRun) setActiveRun("trader", accountId, null);
     }
   };
 
@@ -679,6 +731,16 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
     }
   };
 
+  if (!settingsLoaded) {
+    return (
+      <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-6xl mx-auto space-y-4 animate-pulse" aria-busy="true" aria-label="Loading trader configuration">
+        <div className="h-12 w-72 rounded-xl bg-secondary/60" />
+        <div className="h-64 rounded-2xl bg-secondary/60 border border-border" />
+        <div className="h-48 rounded-2xl bg-secondary/60 border border-border" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-6xl mx-auto space-y-4 suite-stagger">
       {/* Header */}
@@ -705,7 +767,9 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
                   ? "Analysing the market"
                   : openTrades.length > 0
                     ? `Watching ${openTrades.length} open ${openTrades.length === 1 ? "trade" : "trades"}`
-                    : "Standing by"}
+                    : fleetActive
+                      ? "Active · waiting for next scan"
+                      : "Standing by"}
               </span>
             </div>
           </div>
@@ -821,7 +885,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
           {/* Active Live Run & Real-Time Chart: derived from manual scanResult OR latest autonomous background trace */}
           {(() => {
             const latestTrace = traces.length > 0 ? traces[0] : null;
-            const activeRun = scanResult || (latestTrace ? {
+            const baseRun = (scanResult && typeof scanResult === "object" && !scanResult.error ? scanResult : null) || (latestTrace ? {
               success: latestTrace.verdict === "ENTER_LONG",
               verdict: latestTrace.verdict,
               symbol: latestTrace.symbol,
@@ -849,7 +913,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               isAutonomousFeed: true
             } : null);
 
-            if (!activeRun && !isScanning) {
+            if (!baseRun && !isScanning) {
               return (
                 <TraderReady
                   connected={Boolean(accountId)}
@@ -865,7 +929,7 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               );
             }
 
-            const currentDisplayRun = activeRun || {
+            const activeRun: any = baseRun || {
               success: false,
               verdict: "EVALUATING",
               symbol: coinMode === "custom" ? customCoins[0] || "NEAR" : "MARKET",
@@ -873,9 +937,11 @@ export default function TraderSection({ accountId, onConnectWallet }: Props) {
               reasoning: "Autonomous Trader pipeline currently evaluating live candles and market heuristics...",
             };
 
+            const currentDisplayRun = activeRun;
+
             return (
               <div className={`p-4 rounded-2xl border transition-all ${
-                currentDisplayRun.success
+                activeRun.success
                   ? "bg-emerald-500/5 border-emerald-500/30"
                   : "bg-card border-border"
               }`}>

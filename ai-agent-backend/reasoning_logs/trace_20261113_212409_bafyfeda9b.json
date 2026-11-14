@@ -1,0 +1,29 @@
+{
+  "agent": "trader",
+  "user_wallet": "flame1.near",
+  "symbol": "NO_TRADE",
+  "timeframe": "4h",
+  "verdict": "STAND_ASIDE",
+  "stage": "STAGE_1_SCREENER_NO_CANDIDATES",
+  "halt_step": "STAGE_1_SCREENER",
+  "halt_cause": "No candidate reached the 75 threshold. LINK (~44): confirmed inverse H&S conflicts with price below all EMAs on both timeframes, 12h RSI 28 with negative MACD, and a 66% upper wick rejection overhead \u2014 contradictory evidence with only 3.5% to support. BCH (~46): 12h RSI 21 is deeply oversold with rel_vol 4.0 on a flat close, signaling capitulation/bottoming volume rather than a clean trend entry; shorting into extreme-fear oversold with a confirmed bullish inverse H&S is a squeeze risk, and 4.9% support sits close. GNO (~42): rel_vol 0.0 shows zero participation, range_pos 0.03 leaves only 0.5% to support (no room to run short), and the confirmed bear flag breaks down directly into the weekly low. All setups lack trend alignment, room to run, or non-contradictory pattern evidence.",
+  "confidence_score": 0,
+  "min_required": 75,
+  "expected_roi_pct": 0.0,
+  "reasoning": "No candidate reached the 75 threshold. LINK (~44): confirmed inverse H&S conflicts with price below all EMAs on both timeframes, 12h RSI 28 with negative MACD, and a 66% upper wick rejection overhead \u2014 contradictory evidence with only 3.5% to support. BCH (~46): 12h RSI 21 is deeply oversold with rel_vol 4.0 on a flat close, signaling capitulation/bottoming volume rather than a clean trend entry; shorting into extreme-fear oversold with a confirmed bullish inverse H&S is a squeeze risk, and 4.9% support sits close. GNO (~42): rel_vol 0.0 shows zero participation, range_pos 0.03 leaves only 0.5% to support (no room to run short), and the confirmed bear flag breaks down directly into the weekly low. All setups lack trend alignment, room to run, or non-contradictory pattern evidence.",
+  "chart_image": null,
+  "pipeline": {
+    "screener": {
+      "selection_reasoning": "No candidate reached the 75 threshold. LINK (~44): confirmed inverse H&S conflicts with price below all EMAs on both timeframes, 12h RSI 28 with negative MACD, and a 66% upper wick rejection overhead \u2014 contradictory evidence with only 3.5% to support. BCH (~46): 12h RSI 21 is deeply oversold with rel_vol 4.0 on a flat close, signaling capitulation/bottoming volume rather than a clean trend entry; shorting into extreme-fear oversold with a confirmed bullish inverse H&S is a squeeze risk, and 4.9% support sits close. GNO (~42): rel_vol 0.0 shows zero participation, range_pos 0.03 leaves only 0.5% to support (no room to run short), and the confirmed bear flag breaks down directly into the weekly low. All setups lack trend alignment, room to run, or non-contradictory pattern evidence.",
+      "selections": []
+    },
+    "status": "no_candidates"
+  },
+  "cid": "bafyfeda9b1485dc09397fe46cf442bf2360f195c75bbdf3",
+  "stored_at": "2026-11-13 21:24:09 UTC",
+  "stored_at_iso": "2026-11-13T21:24:09.559966+00:00",
+  "date_utc": "2026-11-13",
+  "time_utc": "21:24:09 UTC",
+  "timestamp_utc": "2026-11-13 21:24:09 UTC",
+  "created_at_utc": "2026-11-13T21:24:09.559966+00:00"
+}

@@ -618,19 +618,23 @@ export default function TraderSetup(p: Props) {
               <input
                 id="trader-max-amount"
                 type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
+                inputMode="decimal"
+                pattern="[0-9]*\.?[0-9]*"
                 value={p.maxTxAmount || ""}
                 onChange={(e) => {
-                  const v = e.target.value.replace(/[^0-9]/g, "");
-                  p.setMaxTxAmount(v ? Number(v) : 0);
+                  const v = e.target.value.replace(/[^0-9.]/g, "").replace(/^(\d*\.?\d{0,2}).*$/, "$1");
+                  p.setMaxTxAmount(v && v !== "." ? Number(v) : 0);
+                }}
+                onBlur={() => {
+                  // Minimum allowed trade size is $0.05
+                  if (p.maxTxAmount > 0 && p.maxTxAmount < 0.05) p.setMaxTxAmount(0.05);
                 }}
                 placeholder="50"
                 className="w-full rounded-xl border border-border bg-secondary/40 py-2 pl-7 pr-3 font-mono text-base font-bold text-foreground focus:border-primary/50 focus:outline-none"
               />
             </div>
             <div className="grid grid-cols-5 gap-1">
-              {[10, 25, 50, 100, 250].map((v) => (
+              {[0.05, 10, 25, 50, 100].map((v) => (
                 <button
                   key={v}
                   type="button"

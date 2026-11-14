@@ -1,0 +1,73 @@
+{
+  "reasoning": "1. User Intent: The user requested an institutional market-risk assessment for USDT, NEAR, and ETH covering macro regime classification, cross-asset correlations (including vs BTC/equities), a risk-on/risk-off sentiment read, USDT peg stability/depeg monitoring, one-month volatility/drawdown, and liquidity depth/microstructure. This is explicitly a market-risk query, not a yield/grant query.\n2. Quantitative Evidence: The retrieved_context is completely empty \u2014 zero sources were returned. There are no prices, correlation coefficients, peg deviations, volatility figures, drawdown statistics, order-book depths, or dates available. The coverage-gap log independently confirms all six requested dimensions went uncovered after multiple query families.\n3. Trade-offs & Comparisons: No comparative analysis (native vs. any alternative, asset vs. asset, regime vs. regime) is possible without any underlying data; fabricating comparisons would violate the evidence-only mandate.\n4. Actionable Formulation: The only defensible deliverable is a transparent data-gap report. No directional, yield, or hedging signal can be evidence-grounded; the sole actionable output is to withhold positioning and re-run retrieval against market-data sources.\n5. Gaps: All six requested mechanisms are missing: macro regime, correlation, risk-on/off, peg stability, volatility/drawdown, and liquidity microstructure.",
+  "title": "USDT, NEAR, ETH Institutional Risk Intelligence: Empty Evidence Set \u2014 Macro Regime, Correlation, Risk-On/Off, and USDT Peg Analytics Cannot Be Established",
+  "user_expectations_summary": "The user requested an institutional-grade, one-month market and risk assessment for USDT, NEAR, and ETH, specifically covering the prevailing macro regime, cross-asset correlations (including vs. BTC/equities), a risk-on/risk-off market read, and USDT peg stability/depeg monitoring, supplemented by volatility, drawdown, and liquidity microstructure analysis.",
+  "findings": "# Institutional Market & Risk Intelligence: USDT, NEAR, ETH\n\n## Executive Summary\nThe retrieval pipeline returned an **empty evidence set**: zero sources were retrieved for this request. As a result, none of the requested analytics \u2014 macro regime classification, cross-asset correlation among USDT, NEAR, and ETH (or versus BTC/equities benchmarks), a risk-on/risk-off sentiment determination, USDT peg stability and depeg monitoring, one-month volatility and drawdown measurement, or liquidity depth and market microstructure \u2014 can be answered on an evidence-grounded basis. In line with research policy, **no figures, correlations, peg levels, or regime labels have been fabricated**; this report documents the gap precisely and defines what data would be required to close it.\n\n## Evidence Availability Matrix\n| Requested Dimension | Status | Supporting Evidence |\n|---|---|---|\n| Macro regime analysis | **Not covered** | No sources retrieved |\n| Cross-asset correlation (USDT/NEAR/ETH vs. BTC/equities) | **Not covered** | No sources retrieved |\n| Risk-on / risk-off sentiment read | **Not covered** | No sources retrieved |\n| USDT peg stability & depeg risk monitoring | **Not covered** | No sources retrieved |\n| Volatility & drawdown monitoring (past month) | **Not covered** | No sources retrieved |\n| Liquidity depth & market microstructure | **Not covered** | No sources retrieved |\n\n## Analytical Implications of the Empty Evidence Set\n\n### 1. USDT Peg Stability\nNo source documents a current USDT/USD price, redemption status, or historical deviation band. **Peg parity cannot be confirmed or denied**, and depeg probability, tail severity, and historical stress behavior cannot be quantified. Any USDT-dependent strategy (collateral, settlement leg, quote currency) carries unverified counterparty/peg risk at this time.\n\n### 2. Cross-Asset Correlation\nWith no price series retrieved, pairwise correlations (USDT\u2013NEAR, USDT\u2013ETH, NEAR\u2013ETH) and beta exposures to BTC or equity indices are **unmeasurable**. Diversification assumptions and hedge ratios for a USDT/NEAR/ETH book cannot be validated.\n\n### 3. Risk-On / Risk-Off Regime\nNo sentiment, funding, breadth, or flow evidence exists to classify the current regime. Positioning calibrated to an assumed regime would be speculative rather than evidence-based.\n\n### 4. Volatility & Drawdown\nNo 30-day realized volatility, implied volatility, maximum drawdown, or return distribution data is available for NEAR or ETH. VaR, expected-shortfall, and stop-placement parameters **cannot be responsibly set** from this evidence set.\n\n### 5. Liquidity & Microstructure\nNo order-book depth, spread, slippage, or venue-level volume data was retrieved. Execution-cost and market-impact estimates for NEAR and ETH (and large USDT conversions) cannot be produced.\n\n## Required Inputs to Close the Gap\nA follow-up retrieval should target: (a) 30-day OHLCV series for USDT, NEAR, ETH plus BTC and a equity benchmark; (b) USDT primary-market/redemption and peg-deviation feeds; (c) realized/implied volatility and drawdown statistics; (d) funding rates and derivatives open interest for regime inference; and (e) top-of-book and depth snapshots across major venues. Until such sources are retrieved, this desk **withholds any directional or risk-positioning conclusion** on USDT, NEAR, and ETH.",
+  "risk_factors": [
+    "No evidence exists to verify USDT peg stability, so assuming dollar parity is unverified and depeg risk cannot be quantified.",
+    "Absence of correlation data prevents validation of diversification or hedge ratios across USDT, NEAR, ETH, and BTC/equity benchmarks.",
+    "Without volatility and drawdown data, VaR, expected-shortfall, and stop-loss parameters for NEAR and ETH would be arbitrary and potentially unsafe.",
+    "No liquidity-depth or microstructure evidence means execution slippage and market-impact costs for NEAR, ETH, or large USDT conversions cannot be estimated.",
+    "The risk-on/risk-off regime is undetermined, so any positioning calibrated to an assumed regime faces regime-mismatch risk.",
+    "With zero retrieved sources, data recency cannot be established and any externally recalled market figures would be stale and non-reproducible."
+  ],
+  "signals": [
+    {
+      "signal": "Withhold directional NEAR/ETH positioning and USDT-dependent deployments until peg-stability, correlation, volatility, and liquidity evidence is retrieved from market-data sources",
+      "direction": "WATCH",
+      "asset_or_target": "USDT, NEAR, ETH",
+      "confidence": 30,
+      "timeframe": "Immediate \u2014 until evidence re-retrieval is completed",
+      "rationale": "The retrieval returned an empty evidence set: no macro regime, correlation, risk-on/off, peg, volatility, or liquidity data exists to support any market call. The only evidence-supported action is to stand down and re-query, avoiding unfounded positioning in unverified peg and regime conditions.",
+      "supporting_sources": []
+    }
+  ],
+  "primary_signal": {
+    "signal": "Withhold directional NEAR/ETH positioning and USDT-dependent deployments until peg-stability, correlation, volatility, and liquidity evidence is retrieved from market-data sources",
+    "direction": "WATCH",
+    "asset_or_target": "USDT, NEAR, ETH",
+    "confidence": 30,
+    "timeframe": "Immediate \u2014 until evidence re-retrieval is completed",
+    "rationale": "The retrieval returned an empty evidence set: no macro regime, correlation, risk-on/off, peg, volatility, or liquidity data exists to support any market call. The only evidence-supported action is to stand down and re-query, avoiding unfounded positioning in unverified peg and regime conditions.",
+    "supporting_sources": []
+  },
+  "ecosystem_opportunities": [],
+  "sources_cited": [],
+  "coverage_gaps": [
+    "macro regime analysis: no KB evidence found after multiple query families",
+    "cross-asset correlation analysis (USDT/NEAR/ETH vs BTC/equities): no KB evidence found",
+    "risk-on/risk-off market sentiment read: no KB evidence found",
+    "USDT peg stability and depeg risk monitoring: no KB evidence found",
+    "volatility and drawdown monitoring over past month: no KB evidence found",
+    "liquidity depth and market microstructure: no KB evidence found",
+    "No selected evidence directly covered: macro regime analysis.",
+    "No selected evidence directly covered: cross-asset correlation analysis.",
+    "No selected evidence directly covered: risk-on/risk-off market sentiment.",
+    "No selected evidence directly covered: stablecoin peg stability and depeg risk.",
+    "No selected evidence directly covered: volatility and drawdown monitoring.",
+    "No selected evidence directly covered: liquidity depth and market microstructure."
+  ],
+  "tool_calls_used": 11,
+  "cid": "bafy5726aa43a89c0188fa5b6f8b74ee5057083a4e35a172",
+  "fee_paid_near": 0.0,
+  "requester": "user_garbage_00f334.near",
+  "created_at": "2026-11-13T22:40:19.516609+00:00",
+  "cot_step_cards": [],
+  "summary": "# Institutional Market & Risk Intelligence: USDT, NEAR, ETH\n\n## Executive Summary\nThe retrieval pipeline returned an **empty evidence set**: zero sources were retrieved for this request. As a result, none of the requested analytics \u2014 macro regime classification, cross-asset correlation among USDT, N...",
+  "regime": "ACCUMULATION",
+  "staking_and_yield_matrix": [],
+  "hackathons_and_opportunities": [],
+  "actionable_signal": {
+    "action": "WATCH",
+    "target_asset": "USDT, NEAR, ETH",
+    "confidence": 30,
+    "recommended_timeframe": "Immediate \u2014 until evidence re-retrieval is completed",
+    "key_levels_or_actions": "The retrieval returned an empty evidence set: no macro regime, correlation, risk-on/off, peg, volatility, or liquidity data exists to support any market call. The only evidence-supported action is to stand down and re-query, avoiding unfounded positioning in unverified peg and regime conditions."
+  },
+  "stored_at": "2026-11-13 22:40:19 UTC",
+  "stored_at_iso": "2026-11-13T22:40:19.517006+00:00",
+  "date_utc": "2026-11-13",
+  "time_utc": "22:40:19 UTC",
+  "timestamp_utc": "2026-11-13 22:40:19 UTC",
+  "created_at_utc": "2026-11-13T22:40:19.517006+00:00"
+}

@@ -6,6 +6,7 @@ market conditions, and execution details.
 """
 
 import os
+import html as _html
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
@@ -247,11 +248,17 @@ async def send_agent_action_email(
                     parts.append(f"""
                         <div style="margin-top: 4px; padding-left: 8px; border-left: 2px solid #334155;">
                             <span style="color: #94A3B8; font-weight: 600; font-size: 11px;">{sub_label}:</span> 
-                            <span style="color: #F8FAFC; font-weight: 500; font-size: 12px;">{sub_v}</span>
+                            <span style="color: #F8FAFC; font-weight: 500; font-size: 12px;">{_html.escape(str(sub_v))}</span>
                         </div>
                     """)
                 return "".join(parts)
             val_str = str(val).strip()
+            # "A | B | C" lists render as clean stacked lines
+            if " | " in val_str and not val_str.startswith("{"):
+                return "".join(
+                    f'<div style="padding: 2px 0;">{_html.escape(part.strip())}</div>'
+                    for part in val_str.split(" | ") if part.strip()
+                )
             # If stringified dict, attempt safe JSON or ast parsing
             if val_str.startswith("{") and val_str.endswith("}"):
                 try:
@@ -261,25 +268,40 @@ async def send_agent_action_email(
                         return _format_metric_val(parsed_dict)
                 except Exception:
                     pass
-            return val_str
+            return _html.escape(val_str)
 
         # Build metric cards (mobile-responsive card layout with zero overflow clipping)
         metric_cards_html = ""
         metric_rows_text = ""
         seen_cid = str(cid_reference or "").strip()
+        short_cards, long_cards = [], []
         if metrics:
             for k, v in metrics.items():
-                # Avoid duplicating CID if already in cid_reference
                 if str(k).lower() in ("decentralized cid", "decentralized trace", "audit trace cid", "cid") and seen_cid:
                     continue
                 val_rendered = _format_metric_val(v)
-                metric_cards_html += f"""
-                <div style="padding: 12px 14px; background: #0B0F19; border: 1px solid #1E293B; border-radius: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">{k}</div>
-                    <div style="font-size: 13px; font-weight: 600; color: #F1F5F9; line-height: 1.4; word-break: break-word; overflow-wrap: anywhere;">{val_rendered}</div>
-                </div>
-                """
-                metric_rows_text += f"  • {k}: {v}\n"
+                raw_len = len(str(v))
+                is_short = raw_len <= 28 and not isinstance(v, dict) and " | " not in str(v)
+                card = f"""
+                <div style="padding: 12px 14px; background: #0B0F19; border: 1px solid #1E293B; border-radius: 8px;">
+                    <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 5px;">{_html.escape(str(k))}</div>
+                    <div style="font-size: 13px; font-weight: 600; color: #F1F5F9; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere;">{val_rendered}</div>
+                </div>"""
+                (short_cards if is_short else long_cards).append(card)
+                metric_rows_text += f"  - {k}: {v}\n"
+
+        # Short values: two per row (table layout so Gmail/Outlook keep the grid); long values: full width
+        for i in range(0, len(short_cards), 2):
+            left = short_cards[i]
+            right = short_cards[i + 1] if i + 1 < len(short_cards) else ""
+            metric_cards_html += (
+                '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom: 8px;"><tr>'
+                f'<td width="50%" valign="top" style="padding-right: 4px;">{left}</td>'
+                f'<td width="50%" valign="top" style="padding-left: 4px;">{right}</td>'
+                '</tr></table>'
+            )
+        for card in long_cards:
+            metric_cards_html += f'<div style="margin-bottom: 8px;">{card}</div>'
 
         tx_section_html = ""
         if tx_hash:
@@ -319,9 +341,17 @@ async def send_agent_action_email(
             reasoning_html = f"""
             <div style="margin-top: 14px; background: #0B0F19; border-left: 3px solid {accent_color}; padding: 12px 16px; border-radius: 0 8px 8px 0; border: 1px solid #1E293B; border-left-width: 3px;">
                 <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Agent Rationale &amp; Evidence</div>
-                <div style="color: #CBD5E1; font-size: 13px; line-height: 1.6; word-break: break-word; overflow-wrap: anywhere;">{reasoning}</div>
+                <div style="color: #CBD5E1; font-size: 13px; line-height: 1.6; word-break: break-word; overflow-wrap: anywhere;">{_html.escape(str(reasoning)).replace(chr(10), "<br>")}</div>
             </div>
             """
+
+        app_url = os.getenv("NEPTUNE_APP_URL", "").strip()
+        cta_html = ""
+        if app_url:
+            cta_html = f"""
+            <div style="margin-top: 18px; text-align: center;">
+                <a href="{_html.escape(app_url)}" target="_blank" style="display: inline-block; border: 1px solid {accent_color}; color: {accent_color}; font-weight: 700; font-size: 12px; padding: 10px 24px; border-radius: 8px; text-decoration: none; letter-spacing: 0.6px; text-transform: uppercase;">Open Neptune AI</a>
+            </div>"""
 
         html_body = f"""
         <!DOCTYPE html>
@@ -346,10 +376,10 @@ async def send_agent_action_email(
                         </tr>
                     </table>
                     <h1 style="color: #F8FAFC; font-size: 17px; font-weight: 700; margin: 0 0 6px 0; line-height: 1.35; word-break: break-word;">
-                        {title}
+                        {_html.escape(str(title))}
                     </h1>
                     <p style="color: #94A3B8; font-size: 13px; margin: 0; line-height: 1.5; word-break: break-word;">
-                        {summary}
+                        {_html.escape(str(summary))}
                     </p>
                 </div>
 
@@ -359,6 +389,7 @@ async def send_agent_action_email(
                     {reasoning_html}
                     {tx_section_html}
                     {cid_section_html}
+                    {cta_html}
                 </div>
 
                 <!-- Footer -->

@@ -286,7 +286,9 @@ def get_swap_quote(
             pass
     
     token_in_data = get_token_by_symbol(t_in, tokens, chain=source_chain or chain_id)
-    token_out_data = get_token_by_symbol(t_out, tokens, chain=dest_chain)
+    # Same-chain swaps must resolve the output on NEAR too; otherwise a symbol like NEAR/ETH can match a
+    # bridged copy on another chain (e.g. BNB) and the quote fails with "No liquidity".
+    token_out_data = get_token_by_symbol(t_out, tokens, chain=dest_chain or (None if is_cross_chain else "near"))
     
     if not token_in_data:
         return {"error": f"Token {t_in} not found in supported list"}
@@ -303,6 +305,8 @@ def get_swap_quote(
         
     raw_out = token_out_data.get("defuseAssetId")
     asset_out = raw_out if (raw_out and ":" in raw_out) else (f"nep141:{raw_out}" if raw_out else "nep141:wrap.near")
+    if t_out in ("NEAR", "WNEAR") and not is_cross_chain:
+        asset_out = "nep141:wrap.near"
     amount_atomic = int(Decimal(str(amount)) * Decimal(10 ** decimals_in))
     
     print(f"[TOOL] Fetching 1-Click quote for {amount} {t_in} -> {t_out}")
@@ -414,6 +418,8 @@ def get_swap_quote(
         quote = data.get("quote") or data
         signature = data.get("signature", "")
         decimals_out = token_out_data.get("decimals", 18)
+        if t_out in ("NEAR", "WNEAR") and not is_cross_chain:
+            decimals_out = 24
         
         # For dry-run simulation quotes (no depositAddress generated)
         if dry:
@@ -1232,24 +1238,34 @@ async def get_wallet_portfolio(wallet_address: str, chain: str = "near") -> dict
         tokens = _token_cache if _token_cache else []
         
         async with httpx.AsyncClient() as client:
-            # 1. Fetch native NEAR balance
+            # 1. Fetch native NEAR balance (try several RPC endpoints; public RPCs are flaky)
             is_test = wallet_address.endswith(".testnet") or os.getenv("NEAR_NETWORK", "").lower() == "testnet"
-            rpc_url = "https://test.rpc.fastnear.com" if is_test else "https://rpc.mainnet.near.org"
-            resp = await client.post(rpc_url, json={
-                "jsonrpc": "2.0", "id": "1", "method": "query",
-                "params": {"request_type": "view_account", "finality": "final", "account_id": wallet_address}
-            }, timeout=10.0)
-            
-            if resp.status_code == 200:
-                result = resp.json().get("result", {})
-                if "amount" in result:
-                    # Subtract ~0.05 NEAR for storage to get liquid balance
-                    available = max(0, int(result["amount"]) - 50000000000000000000000)
-                    if available > 0:
-                        portfolio["near"] = available / 1e24
-            else:
-                print(f"[TOOL-DEBUG] NEAR RPC failed for {wallet_address}: {resp.status_code} {resp.text}")
-            
+            rpc_urls = (
+                ["https://test.rpc.fastnear.com"] if is_test
+                else ["https://rpc.mainnet.fastnear.com", "https://rpc.mainnet.near.org"]
+            )
+            last_rpc_err = ""
+            for rpc_url in rpc_urls:
+                try:
+                    resp = await client.post(rpc_url, json={
+                        "jsonrpc": "2.0", "id": "1", "method": "query",
+                        "params": {"request_type": "view_account", "finality": "final", "account_id": wallet_address}
+                    }, timeout=10.0)
+                    if resp.status_code == 200:
+                        result = resp.json().get("result", {})
+                        if "amount" in result:
+                            # Subtract ~0.05 NEAR for storage to get liquid balance
+                            available = max(0, int(result["amount"]) - 50000000000000000000000)
+                            if available > 0:
+                                portfolio["near"] = available / 1e24
+                        last_rpc_err = ""
+                        break
+                    last_rpc_err = f"{rpc_url} -> HTTP {resp.status_code}"
+                except Exception as rpc_exc:
+                    last_rpc_err = f"{rpc_url} -> {type(rpc_exc).__name__}: {rpc_exc}"
+            if last_rpc_err:
+                print(f"[TOOL-DEBUG] NEAR RPC failed for {wallet_address}: {last_rpc_err}")
+
             # 2. Fetch NEP-141 tokens via FastNEAR
             fn_resp = await client.get(f"https://api.fastnear.com/v1/account/{wallet_address}/ft", timeout=10.0)
             if fn_resp.status_code == 200:
@@ -1269,11 +1285,22 @@ async def get_wallet_portfolio(wallet_address: str, chain: str = "near") -> dict
                             decimals = t.get("decimals", 18)
                             break
                     
+                    if not matched_symbol:
+                        _static = {
+                            "usdt.tether-token.near": ("usdt", 6),
+                            "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1": ("usdc", 6),
+                            "wrap.near": ("wnear", 24),
+                            "eth.bridge.near": ("eth", 18),
+                            "nbtc.bridge.near": ("btc", 8),
+                        }
+                        if contract.lower() in _static:
+                            matched_symbol, decimals = _static[contract.lower()]
+
                     if matched_symbol:
                         portfolio[matched_symbol] = int(bal_str) / (10 ** decimals)
                     
     except Exception as e:
-        print(f"[TOOL] Error fetching portfolio for {wallet_address}: {e}")
+        print(f"[TOOL] Error fetching portfolio for {wallet_address}: {type(e).__name__}: {e}")
         
     return portfolio
 
@@ -1349,11 +1376,13 @@ async def create_1click_limit_order(
     """
     import httpx
     from decimal import Decimal
+    import knowledge_base
+    from knowledge_base import get_token_by_symbol
     if tokens is None:
-        tokens = load_tokens()
+        tokens = knowledge_base._token_cache or []
 
-    base_tok = get_token_by_symbol(base_symbol.upper(), tokens)
-    quote_tok = get_token_by_symbol(quote_symbol.upper(), tokens)
+    base_tok = get_token_by_symbol(base_symbol.upper(), tokens, chain="near") if tokens else None
+    quote_tok = get_token_by_symbol(quote_symbol.upper(), tokens, chain="near") if tokens else None
 
     base_asset = base_tok.get("defuseAssetId") if base_tok else (
         "nep141:wrap.near" if base_symbol.upper() in ("NEAR", "WNEAR") else f"nep141:{base_symbol.lower()}.near"

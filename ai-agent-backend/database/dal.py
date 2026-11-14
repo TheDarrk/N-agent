@@ -2784,6 +2784,151 @@ def update_agent_fleet_config(user_wallet: str, agent_id: str, is_active: bool, 
     return get_fleet_activity(user_wallet)
 
 
+def _ensure_agent_ui_config_table(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS agent_ui_config (
+            wallet_address TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (wallet_address, agent_id)
+        )"""
+    )
+
+
+def get_agent_ui_config(user_wallet: str, agent_id: str) -> Dict[str, Any]:
+    """Return the user's saved form configuration for an agent ({} if none)."""
+    conn = get_connection()
+    try:
+        _ensure_agent_ui_config_table(conn)
+        row = conn.execute(
+            "SELECT config_json FROM agent_ui_config WHERE wallet_address = ? AND agent_id = ?",
+            (user_wallet.strip().lower(), agent_id.lower()),
+        ).fetchone()
+        if not row:
+            return {}
+        try:
+            return json.loads(row["config_json"] or "{}")
+        except Exception:
+            return {}
+    finally:
+        conn.close()
+
+
+def save_agent_ui_config(user_wallet: str, agent_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Persist the user's form configuration for an agent."""
+    conn = get_connection()
+    try:
+        _ensure_agent_ui_config_table(conn)
+        conn.execute(
+            """INSERT INTO agent_ui_config (wallet_address, agent_id, config_json, updated_at)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(wallet_address, agent_id)
+               DO UPDATE SET config_json = excluded.config_json, updated_at = CURRENT_TIMESTAMP""",
+            (user_wallet.strip().lower(), agent_id.lower(), json.dumps(config or {})),
+        )
+        conn.commit()
+        return config or {}
+    finally:
+        conn.close()
+
+
+def _ensure_hyperliquid_config_table(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS hyperliquid_config (
+            wallet_address TEXT PRIMARY KEY,
+            account_address TEXT NOT NULL DEFAULT '',
+            encrypted_api_key TEXT NOT NULL DEFAULT '',
+            network TEXT NOT NULL DEFAULT 'mainnet',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+
+
+def save_hyperliquid_config(user_wallet: str, account_address: str, api_private_key: str, network: str = "mainnet") -> Dict[str, Any]:
+    """Store the user's OWN Hyperliquid account address + API (agent) wallet key, key encrypted per wallet."""
+    from database.encryption import get_encryption
+    wallet = user_wallet.strip().lower()
+    network = "testnet" if str(network).lower().strip() == "testnet" else "mainnet"
+    key = (api_private_key or "").strip()
+    enc = get_encryption().encrypt_field(wallet, "hyperliquid_api_key", key) if key else ""
+    conn = get_connection()
+    try:
+        _ensure_hyperliquid_config_table(conn)
+        existing = conn.execute("SELECT encrypted_api_key FROM hyperliquid_config WHERE wallet_address = ?", (wallet,)).fetchone()
+        if not enc and existing:
+            enc = existing["encrypted_api_key"]  # keep the stored key when only address/network are edited
+        conn.execute(
+            """INSERT INTO hyperliquid_config (wallet_address, account_address, encrypted_api_key, network, updated_at)
+               VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(wallet_address) DO UPDATE SET
+                 account_address = excluded.account_address,
+                 encrypted_api_key = excluded.encrypted_api_key,
+                 network = excluded.network,
+                 updated_at = CURRENT_TIMESTAMP""",
+            (wallet, (account_address or "").strip(), enc, network),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_hyperliquid_config_public(user_wallet)
+
+
+def get_hyperliquid_config_public(user_wallet: str) -> Dict[str, Any]:
+    """Safe view for the UI: never returns the key."""
+    conn = get_connection()
+    try:
+        _ensure_hyperliquid_config_table(conn)
+        row = conn.execute(
+            "SELECT account_address, encrypted_api_key, network, updated_at FROM hyperliquid_config WHERE wallet_address = ?",
+            (user_wallet.strip().lower(),),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {"configured": False, "account_address": "", "network": "mainnet", "has_key": False}
+    return {
+        "configured": bool(row["account_address"] and row["encrypted_api_key"]),
+        "account_address": row["account_address"],
+        "network": row["network"],
+        "has_key": bool(row["encrypted_api_key"]),
+        "updated_at": row["updated_at"],
+    }
+
+
+def get_hyperliquid_credentials(user_wallet: str) -> Optional[Dict[str, str]]:
+    """INTERNAL ONLY (trader execution): decrypted API key + account address, or None."""
+    from database.encryption import get_encryption
+    wallet = user_wallet.strip().lower()
+    conn = get_connection()
+    try:
+        _ensure_hyperliquid_config_table(conn)
+        row = conn.execute(
+            "SELECT account_address, encrypted_api_key, network FROM hyperliquid_config WHERE wallet_address = ?",
+            (wallet,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or not row["encrypted_api_key"]:
+        return None
+    try:
+        key = get_encryption().decrypt_field(wallet, "hyperliquid_api_key", row["encrypted_api_key"])
+    except Exception:
+        return None
+    return {"api_private_key": key, "account_address": row["account_address"], "network": row["network"]}
+
+
+def delete_hyperliquid_config(user_wallet: str) -> bool:
+    conn = get_connection()
+    try:
+        _ensure_hyperliquid_config_table(conn)
+        conn.execute("DELETE FROM hyperliquid_config WHERE wallet_address = ?", (user_wallet.strip().lower(),))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
 def get_database_health() -> Dict[str, Any]:
     """Computes real-time persistence metrics."""
     conn = get_connection()

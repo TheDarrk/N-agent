@@ -1,0 +1,44 @@
+{
+  "error": "1 validation error for RebalancerStrategySchema\n  Input should be a valid dictionary or instance of RebalancerStrategySchema [type=model_type, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.14/v/model_type",
+  "reason_code": "PROVIDER_ERROR",
+  "fallback": {
+    "strategy_name": "Defensive Fallback Capital Preservation",
+    "executive_summary": "Fallback strategy triggered ([PROVIDER_ERROR] 1 validation error for RebalancerStrategySchema\n  Input should be a valid dictionary or instance of RebalancerStrategySchema [type=model_type, input_v). Allocated 20.0% baseline to USDT stablecoins and held remaining capital balanced across candidate assets.",
+    "market_regime": "UNKNOWN",
+    "risk_level": "MODERATE",
+    "rebalance_cadence_days": 7,
+    "allocations": {
+      "USDT": 20.0,
+      "NEAR": 40.0,
+      "ETH": 40.0
+    },
+    "tp_sl_rules": [
+      {
+        "token_index": 0,
+        "symbol": "USDT",
+        "target_percentage": 20.0,
+        "tp_price_usd": 1.0,
+        "sl_price_usd": 1.0,
+        "action_reasoning": "Fallback USDT capital preservation buffer"
+      },
+      {
+        "token_index": 1,
+        "symbol": "NEAR",
+        "target_percentage": 40.0,
+        "tp_price_usd": 0.0,
+        "sl_price_usd": 0.0,
+        "action_reasoning": "[PROVIDER_ERROR] 1 validation error for RebalancerStrategySchema\n  Input should be a valid dictionary or instance of RebalancerStrategySchema [type=model_type, input_v"
+      },
+      {
+        "token_index": 2,
+        "symbol": "ETH",
+        "target_percentage": 40.0,
+        "tp_price_usd": 0.0,
+        "sl_price_usd": 0.0,
+        "action_reasoning": "[PROVIDER_ERROR] 1 validation error for RebalancerStrategySchema\n  Input should be a valid dictionary or instance of RebalancerStrategySchema [type=model_type, input_v"
+      }
+    ],
+    "source": "fallback",
+    "action_reasoning": "[PROVIDER_ERROR] 1 validation error for RebalancerStrategySchema\n  Input should be a valid dictionary or instance of RebalancerStrategySchema [type=model_type, input_v"
+  }
+}

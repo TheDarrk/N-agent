@@ -2,6 +2,7 @@
 
 import { toast } from "@/hooks/use-toast";
 import { setVisibleInterval } from "@/lib/visible-interval"
+import { startRun, streamRun, getRun, getActiveRun, setActiveRun, waitForRun, findRunningRun } from "@/lib/agent-runs";
 import { tilt3d } from "./trader/tilt-3d";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
@@ -50,6 +51,8 @@ type Props = {
 export default function ModeratorSection({ accountId, onConnectWallet }: Props) {
   const [status, setStatus] = useState<any>(null);
   const isFetchingRef = React.useRef(false);
+  const formSeededRef = React.useRef(false);
+  const [statusLoaded, setStatusLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isDeliberating, setIsDeliberating] = useState(false);
   const [isTogglingKillSwitch, setIsTogglingKillSwitch] = useState(false);
@@ -81,22 +84,25 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
-        if (data.user_kill_threshold !== undefined) {
-          setKillThreshold(data.user_kill_threshold);
-        }
-        if (data.moderator_frequency) {
-          setCadence(data.moderator_frequency);
+        // Only seed the editable fields on the first load; later polls must not clobber unsaved edits.
+        if (!formSeededRef.current) {
+          if (data.user_kill_threshold !== undefined) setKillThreshold(data.user_kill_threshold);
+          if (data.moderator_frequency) setCadence(data.moderator_frequency);
+          formSeededRef.current = true;
         }
       }
     } catch (e) {
       console.error("Moderator status error:", e);
     } finally {
+      setStatusLoaded(true);
       setIsLoading(false);
       isFetchingRef.current = false;
     }
   };
 
   useEffect(() => {
+    formSeededRef.current = false;
+    setStatusLoaded(!accountId);
     fetchStatus();
     return setVisibleInterval(fetchStatus, 25000);
   }, [accountId]);
@@ -171,6 +177,72 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
     }
   };
 
+  const handleModeratorEvent = (ev: any) => {
+    if (ev.type === "error") {
+      toast({
+        title: "Moderator Audit Error",
+        description: ev.error || ev.message || "An unexpected error occurred during deliberation.",
+        variant: "destructive",
+      });
+    } else if (ev.type === "step") {
+      setCurrentActiveModStep(ev.step_number);
+      setModeratorSteps((prev) => {
+        const next = [...prev];
+        const idx = next.findIndex((s) => s.step_number === ev.step_number);
+        const stepObj: ModeratorStepEvent = {
+          step_number: ev.step_number,
+          step_name: ev.step_name,
+          title: ev.title,
+          status: ev.status,
+          score: ev.score,
+          health: ev.health,
+          message: ev.message,
+          data: ev.data,
+        };
+        if (idx !== -1) next[idx] = stepObj;
+        else next.push(stepObj);
+        return next;
+      });
+    } else if (ev.type === "final" && ev.result) {
+      setStatus(ev.result);
+    }
+  };
+
+  // Resume an in-progress fleet audit after refresh / navigation
+  useEffect(() => {
+    if (!accountId) return;
+    const abortCtrl = new AbortController();
+    (async () => {
+      try {
+        const runningId = await findRunningRun("moderator", accountId);
+        if (abortCtrl.signal.aborted) return;
+        if (runningId) {
+          setActiveRun("moderator", accountId, runningId);
+          setIsDeliberating(true);
+          setModeratorSteps([]);
+          setCurrentActiveModStep(1);
+          await streamRun(runningId, handleModeratorEvent, 0, abortCtrl.signal);
+          if (abortCtrl.signal.aborted) return;
+          setActiveRun("moderator", accountId, null);
+          setIsDeliberating(false);
+          fetchStatus();
+          return;
+        }
+        const lastId = getActiveRun("moderator", accountId);
+        if (lastId) {
+          const run = await getRun(lastId, accountId);
+          if (run?.status === "completed" && run.result) setStatus(run.result as any);
+          setActiveRun("moderator", accountId, null);
+        }
+      } catch (e) {
+        console.warn("[MODERATOR] Error reconnecting active run:", e);
+        setIsDeliberating(false);
+      }
+    })();
+    return () => abortCtrl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
+
   // Run On-Demand Fleet Audit via real-time 4-Node stream
   const handleRunDeliberation = async () => {
     setIsDeliberating(true);
@@ -219,95 +291,32 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
       }).catch(() => {});
     } catch {}
 
+    let startedRunId: string | null = null;
+    let keepActiveRun = false;
     try {
-      const res = await fetch("/api/moderator/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_wallet: targetWallet }),
-      });
-
-      if (!res.ok || !res.body) {
-        // Fallback to synchronous endpoint
-        const fbRes = await fetch("/api/moderator/deliberate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_wallet: targetWallet }),
-        });
-        if (fbRes.ok) {
-          const data = await fbRes.json();
-          setStatus(data);
-        } else {
-          const errData = await fbRes.json().catch(() => null);
-          const errMsg = errData?.detail || errData?.error || `Fleet deliberation failed (HTTP ${fbRes.status}: ${fbRes.statusText})`;
-          toast({
-            title: "Fleet Deliberation Failed",
-            description: errMsg,
-            variant: "destructive",
-          });
-        }
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const ev = JSON.parse(line.trim());
-            if (ev.type === "error") {
-              toast({
-                title: "Moderator Audit Error",
-                description: ev.error || ev.message || "An unexpected error occurred during deliberation.",
-                variant: "destructive",
-              });
-            } else if (ev.type === "step") {
-              setCurrentActiveModStep(ev.step_number);
-              setModeratorSteps((prev) => {
-                const next = [...prev];
-                const idx = next.findIndex((s) => s.step_number === ev.step_number);
-                const stepObj: ModeratorStepEvent = {
-                  step_number: ev.step_number,
-                  step_name: ev.step_name,
-                  title: ev.title,
-                  status: ev.status,
-                  score: ev.score,
-                  health: ev.health,
-                  message: ev.message,
-                  data: ev.data,
-                };
-                if (idx !== -1) {
-                  next[idx] = stepObj;
-                } else {
-                  next.push(stepObj);
-                }
-                return next;
-              });
-            } else if (ev.type === "final" && ev.result) {
-              setStatus(ev.result);
-            }
-          } catch (pe) {
-            console.error("Moderator stream parse notice:", pe);
-          }
-        }
-      }
+      // Background run: keeps executing on the backend if the user refreshes or leaves this page.
+      const { run_id } = await startRun("moderator", { user_wallet: targetWallet });
+      startedRunId = run_id;
+      setActiveRun("moderator", targetWallet, run_id);
+      await streamRun(run_id, handleModeratorEvent, 0);
     } catch (e: any) {
-      console.error("Deliberation error:", e);
-      toast({
-        title: "Fleet Deliberation Network Error",
-        description: e?.message || String(e),
-        variant: "destructive",
-      });
+      if (startedRunId) {
+        console.warn("[MODERATOR] Live stream dropped; waiting for background run:", e);
+        const finished = await waitForRun(startedRunId, targetWallet);
+        if (finished?.status === "completed" && finished.result) setStatus(finished.result as any);
+        keepActiveRun = !finished;
+      } else {
+        console.error("Deliberation start error:", e);
+        toast({
+          title: "Fleet Deliberation Failed",
+          description: e?.message || String(e),
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsDeliberating(false);
+      if (!keepActiveRun) setActiveRun("moderator", targetWallet, null);
+      fetchStatus();
     }
   };
 
@@ -692,6 +701,16 @@ export default function ModeratorSection({ accountId, onConnectWallet }: Props) 
   const detailPoints = verdictPoints.slice(1);
   const visibleVerdictPoints = showAllVerdictPoints ? detailPoints : detailPoints.slice(0, 4);
   const extraVerdictCount = Math.max(0, detailPoints.length - 4);
+
+  if (!statusLoaded) {
+    return (
+      <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6 max-w-6xl mx-auto space-y-5 animate-pulse" aria-busy="true" aria-label="Loading moderator configuration">
+        <div className="h-20 rounded-2xl bg-secondary/60 border border-border" />
+        <div className="h-56 rounded-2xl bg-secondary/60 border border-border" />
+        <div className="h-40 rounded-2xl bg-secondary/60 border border-border" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6 max-w-6xl mx-auto space-y-5 suite-stagger">

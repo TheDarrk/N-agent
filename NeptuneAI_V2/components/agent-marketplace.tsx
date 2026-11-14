@@ -1039,7 +1039,7 @@ export default function AgentMarketplace({ accountId, onSelectAgentTab, onConnec
                   <input
                     type="number"
                     step="0.01"
-                    min="1"
+                    min="0.05"
                     required
                     value={publishPrice}
                     onChange={(e) => setPublishPrice(e.target.value)}

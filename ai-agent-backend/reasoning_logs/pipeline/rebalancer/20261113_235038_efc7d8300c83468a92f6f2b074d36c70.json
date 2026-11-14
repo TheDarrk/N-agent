@@ -1,0 +1,116 @@
+{
+  "run_id": "efc7d8300c83468a92f6f2b074d36c70",
+  "agent_type": "rebalancer",
+  "wallet": "flame1.near",
+  "status": "failed",
+  "error": "cancelled",
+  "logged_at": "2026-11-13T23:50:38.398016+00:00",
+  "event_count": 8,
+  "events": [
+    {
+      "type": "start",
+      "user_wallet": "flame1.near",
+      "selected_coins": [
+        "USDT",
+        "NEAR",
+        "ETH"
+      ],
+      "message": "Starting 4-Node Rebalance Strategy Generation for 3 assets..."
+    },
+    {
+      "type": "step",
+      "step_number": 1,
+      "step_name": "Multi-Timeframe Chart Analysis",
+      "title": "1h, 1d & 1w Candle Resampling",
+      "status": "running",
+      "message": "Fetching multi-timeframe candle data for USDT, NEAR, ETH..."
+    },
+    {
+      "type": "step",
+      "step_number": 1,
+      "step_name": "Multi-Timeframe Chart Analysis",
+      "title": "1h, 1d & 1w Candle Resampling",
+      "status": "completed",
+      "message": "Compiled multi-timeframe candles and indicators across 3 assets.",
+      "data": {
+        "symbols": [
+          "USDT",
+          "NEAR",
+          "ETH"
+        ],
+        "prices": {
+          "USDT": 1.0,
+          "NEAR": 3.417,
+          "ETH": 1923.43
+        }
+      }
+    },
+    {
+      "type": "step",
+      "step_number": 2,
+      "step_name": "Macro Beta & Correlation Matrix",
+      "title": "30-Day BTC Beta & Cross-Asset Correlation",
+      "status": "running",
+      "message": "Computing BTC Beta, cross-asset correlation matrix, and portfolio volatility..."
+    },
+    {
+      "type": "step",
+      "step_number": 2,
+      "step_name": "Macro Beta & Correlation Matrix",
+      "title": "30-Day BTC Beta & Cross-Asset Correlation",
+      "status": "completed",
+      "message": "Macro correlation matrix synthesized. BTC Beta range: 1.26 - 2.14.",
+      "data": {
+        "btc_beta": {
+          "ETH": 1.26,
+          "NEAR": 2.141
+        },
+        "btc_correlation": {
+          "ETH": 0.925,
+          "NEAR": 0.703
+        },
+        "correlation_matrix": {
+          "ETH": {
+            "ETH": 1.0,
+            "NEAR": 0.648
+          },
+          "NEAR": {
+            "ETH": 0.648,
+            "NEAR": 1.0
+          }
+        },
+        "avg_daily_volatility_pct": 4.11,
+        "est_annualized_volatility_pct": 78.5
+      }
+    },
+    {
+      "type": "step",
+      "step_number": 3,
+      "step_name": "On-Chain Holdings & Liquidity Context",
+      "title": "Balance Valuation & Candidate Indexing",
+      "status": "running",
+      "message": "Measuring live on-chain balances and building candidate index table..."
+    },
+    {
+      "type": "step",
+      "step_number": 3,
+      "step_name": "On-Chain Holdings & Liquidity Context",
+      "title": "Balance Valuation & Candidate Indexing",
+      "status": "completed",
+      "message": "Portfolio USD: $2.47 across 3 tokens.",
+      "data": {
+        "total_portfolio_usd": 2.4702754999999996,
+        "holdings_count": 3
+      }
+    },
+    {
+      "type": "step",
+      "step_number": 4,
+      "step_name": "Strategy Formulation & Guardrails",
+      "title": "Allocation Optimization & Stablecoin Floor",
+      "status": "running",
+      "message": "Calling LLM for weight optimization, enforcing 15.0% stablecoin floor..."
+    }
+  ],
+  "result": null
+}

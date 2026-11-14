@@ -53,6 +53,35 @@ def _prune_directory(directory: str, max_items: int = MAX_RECENT_ITEMS):
         print(f"[STORAGE] Prune error: {e}")
 
 
+PIPELINE_LOGS_DIR = os.getenv("PIPELINE_LOGS_DIR") or os.path.join(os.path.dirname(__file__), "reasoning_logs", "pipeline")
+MAX_PIPELINE_LOGS_PER_AGENT = int(os.getenv("MAX_PIPELINE_LOGS_PER_AGENT", "300"))
+
+
+def write_pipeline_log(run_id: str, agent_type: str, wallet: str, events: List[Dict[str, Any]],
+                       result: Optional[Dict[str, Any]], error: Optional[str]) -> Optional[str]:
+    """Persist the complete step-by-step pipeline of ONE run of ANY agent (trader, rebalancer,
+    research, moderator) as a JSON file: reasoning_logs/pipeline/<agent>/<ts>_<run_id>.json."""
+    agent_dir = os.path.join(PIPELINE_LOGS_DIR, (agent_type or "unknown").lower())
+    os.makedirs(agent_dir, exist_ok=True)
+    now_utc = datetime.now(timezone.utc)
+    safe_run = "".join(ch for ch in str(run_id) if ch.isalnum() or ch in "-_")[:40]
+    path = os.path.join(agent_dir, f"{now_utc.strftime('%Y%m%d_%H%M%S')}_{safe_run}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({
+            "run_id": run_id,
+            "agent_type": agent_type,
+            "wallet": wallet,
+            "status": "failed" if error else "completed",
+            "error": error,
+            "logged_at": now_utc.isoformat(),
+            "event_count": len(events),
+            "events": events,
+            "result": result,
+        }, f, indent=2, default=str)
+    _prune_directory(agent_dir, MAX_PIPELINE_LOGS_PER_AGENT)
+    return path
+
+
 async def upload_trade_trace(trace: Dict[str, Any]) -> str:
     """
     Store a trade reasoning trace.

@@ -72,8 +72,8 @@ export default function ShareAgentModal({
       return;
     }
 
-    if (pricingValue <= 0) {
-      setError("Please set a valid pricing value greater than 0.");
+    if (pricingValue < 0.05) {
+      setError("Please set a valid pricing value of at least $0.05.");
       return;
     }
 
@@ -233,8 +233,8 @@ export default function ShareAgentModal({
                 <div className="relative flex-1">
                   <input
                     type="number"
-                    min="1"
-                    step={isTrader ? "1" : "0.01"}
+                    min="0.05"
+                    step={"0.01"}
                     value={pricingValue}
                     onChange={(e) => setPricingValue(Number(e.target.value))}
                     className="w-full rounded-lg bg-background border border-border px-3 py-1.5 text-xs font-mono font-bold text-foreground focus:outline-none focus:border-primary"

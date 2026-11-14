@@ -1,0 +1,29 @@
+{
+  "agent": "trader",
+  "user_wallet": "flame1.near",
+  "symbol": "NO_TRADE",
+  "timeframe": "4h",
+  "verdict": "STAND_ASIDE",
+  "stage": "STAGE_1_SCREENER_NO_CANDIDATES",
+  "halt_step": "STAGE_1_SCREENER",
+  "halt_cause": "No candidate reached the 75 threshold. LINK (~45) and BCH (~43) both show price below all EMAs on 4h with sideways-to-down 12h structure and deeply oversold 12h RSI (28/21); their 'confirmed' inverse H&S patterns conflict with the prevailing bearish EMA order, and the last candles printed 61-66% upper wicks (active overhead rejection) \u2014 a long here is an unconfirmed knife-catch and a short is chasing oversold extremes into an Extreme-Fear squeeze environment with only 3.5-4.9% room to support. BCH's rel_vol 4.0 signals capitulation churn, not trend participation. GNO (~32) is disqualified outright: rel_vol 0.0 (no participation), price sitting 0.5% above swing-low support leaving no room for the confirmed bear flag to pay, and -5.8% already extended. All three fail on trend quality, location, and conflicting pattern evidence.",
+  "confidence_score": 0,
+  "min_required": 75,
+  "expected_roi_pct": 0.0,
+  "reasoning": "No candidate reached the 75 threshold. LINK (~45) and BCH (~43) both show price below all EMAs on 4h with sideways-to-down 12h structure and deeply oversold 12h RSI (28/21); their 'confirmed' inverse H&S patterns conflict with the prevailing bearish EMA order, and the last candles printed 61-66% upper wicks (active overhead rejection) \u2014 a long here is an unconfirmed knife-catch and a short is chasing oversold extremes into an Extreme-Fear squeeze environment with only 3.5-4.9% room to support. BCH's rel_vol 4.0 signals capitulation churn, not trend participation. GNO (~32) is disqualified outright: rel_vol 0.0 (no participation), price sitting 0.5% above swing-low support leaving no room for the confirmed bear flag to pay, and -5.8% already extended. All three fail on trend quality, location, and conflicting pattern evidence.",
+  "chart_image": null,
+  "pipeline": {
+    "screener": {
+      "selection_reasoning": "No candidate reached the 75 threshold. LINK (~45) and BCH (~43) both show price below all EMAs on 4h with sideways-to-down 12h structure and deeply oversold 12h RSI (28/21); their 'confirmed' inverse H&S patterns conflict with the prevailing bearish EMA order, and the last candles printed 61-66% upper wicks (active overhead rejection) \u2014 a long here is an unconfirmed knife-catch and a short is chasing oversold extremes into an Extreme-Fear squeeze environment with only 3.5-4.9% room to support. BCH's rel_vol 4.0 signals capitulation churn, not trend participation. GNO (~32) is disqualified outright: rel_vol 0.0 (no participation), price sitting 0.5% above swing-low support leaving no room for the confirmed bear flag to pay, and -5.8% already extended. All three fail on trend quality, location, and conflicting pattern evidence.",
+      "selections": []
+    },
+    "status": "no_candidates"
+  },
+  "cid": "bafy4d11df6a4142a0b6fe028ea4a35708d18057c3fdaeef",
+  "stored_at": "2026-11-13 21:23:03 UTC",
+  "stored_at_iso": "2026-11-13T21:23:03.561363+00:00",
+  "date_utc": "2026-11-13",
+  "time_utc": "21:23:03 UTC",
+  "timestamp_utc": "2026-11-13 21:23:03 UTC",
+  "created_at_utc": "2026-11-13T21:23:03.561363+00:00"
+}

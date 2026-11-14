@@ -5,6 +5,7 @@ import ReportView from "./research/report-view";
 import InfoTip from "./shared/info-tip";
 import AdvancedSection, { SettingBox, SettingGrid } from "./shared/advanced-section";
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { loadAgentConfig, useAutoSaveAgentConfig } from "@/lib/agent-config";
 import { setVisibleInterval } from "@/lib/visible-interval";
 import {
   startRun,
@@ -12,7 +13,9 @@ import {
   getRun,
   listRuns,
   getActiveRun,
+  findRunningRun,
   setActiveRun,
+  waitForRun,
 } from "@/lib/agent-runs";
 import {
   FileText,
@@ -146,6 +149,29 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
   );
   const [dateRange, setDateRange] = useState("1_month");
 
+  // DB-persisted form config (skeleton until loaded)
+  const [configLoaded, setConfigLoaded] = useState(false);
+  useEffect(() => {
+    if (!accountId) {
+      setConfigLoaded(true);
+      return;
+    }
+    setConfigLoaded(false);
+    const ctrl = new AbortController();
+    loadAgentConfig(accountId, "research", ctrl.signal).then((cfg) => {
+      if (ctrl.signal.aborted) return;
+      if (cfg) {
+        if (typeof cfg.topic === "string" && cfg.topic) setTopic(cfg.topic);
+        if (typeof cfg.userExpectations === "string" && cfg.userExpectations) setUserExpectations(cfg.userExpectations);
+        if (typeof cfg.linksInput === "string") setLinksInput(cfg.linksInput);
+        if (typeof cfg.dateRange === "string" && cfg.dateRange) setDateRange(cfg.dateRange);
+      }
+      setConfigLoaded(true);
+    });
+    return () => ctrl.abort();
+  }, [accountId]);
+  useAutoSaveAgentConfig(accountId, "research", { topic, userExpectations, linksInput, dateRange }, configLoaded);
+
   const [reports, setReports] = useState<Report[]>([]);
   const [activeReport, setActiveReport] = useState<Report | null>(() => {
     if (typeof window === "undefined" || !accountId) return null;
@@ -201,6 +227,9 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
     }
   }, [accountId, activeReport, isLoading]);
 
+  const fetchReportsRef = useRef(fetchReports);
+  fetchReportsRef.current = fetchReports;
+
   useEffect(() => {
     fetchReports();
     return setVisibleInterval(fetchReports, 20000);
@@ -246,6 +275,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       setLiveToolCalls((prev) => [...prev, data]);
     } else if (data.type === "run_finished") {
       setIsLoading(false);
+      setCurrentActiveStep(0);
     }
   }, []);
 
@@ -255,47 +285,49 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
     const abortCtrl = new AbortController();
 
     async function checkActiveOrLatest() {
-      const activeRunId = getActiveRun("research", accountId);
-      if (activeRunId) {
-        try {
-          const run = await getRun(activeRunId, accountId);
-          if (run) {
-            if (run.status === "completed" && run.result) {
-              setActiveReport(run.result as Report);
-              if (run.result.cot_step_cards) setStepCards(run.result.cot_step_cards);
+      try {
+        const runningId = await findRunningRun("research", accountId as string);
+        if (abortCtrl.signal.aborted) return;
+        if (runningId) {
+          setActiveRun("research", accountId, runningId);
+          setIsLoading(true);
+          setShowSteps(true);
+          setStepCards([]);
+          setLiveToolCalls([]);
+          setCurrentActiveStep(1);
+          streamRun(runningId, handleStreamEvent, 0, abortCtrl.signal)
+            .then(() => {
+              // Aborted = user navigated away; run continues server-side, keep the key.
+              if (abortCtrl.signal.aborted) return;
               setActiveRun("research", accountId, null);
               setIsLoading(false);
-              return;
-            } else if (run.status === "failed") {
-              setActiveRun("research", accountId, null);
-              setIsLoading(false);
-              return;
-            } else if (run.status === "running") {
-              setIsLoading(true);
-              setShowSteps(true);
-              streamRun(
-                activeRunId,
-                handleStreamEvent,
-                0,
-                abortCtrl.signal
-              )
-                .then(() => {
-                  setActiveRun("research", accountId, null);
-                  setIsLoading(false);
-                  fetchReports();
-                })
-                .catch(() => {});
-              return;
-            }
-          }
-        } catch (e) {
-          console.warn("[RESEARCH] Error reconnecting active run:", e);
+              setCurrentActiveStep(0);
+              fetchReportsRef.current();
+            })
+            .catch(() => {});
+          return;
         }
+        const lastId = getActiveRun("research", accountId);
+        if (lastId) {
+          const run = await getRun(lastId, accountId);
+          if (run?.status === "completed" && run.result) {
+            setActiveReport(run.result as Report);
+            if (run.result.cot_step_cards) setStepCards(run.result.cot_step_cards);
+          }
+          setActiveRun("research", accountId, null);
+        }
+        // Nothing is running any more: never leave a stale spinner behind.
+        setIsLoading(false);
+        setCurrentActiveStep(0);
+        fetchReportsRef.current();
+      } catch (e) {
+        console.warn("[RESEARCH] Error reconnecting active run:", e);
+        setIsLoading(false);
       }
 
       // If no active run or completed, fetch latest completed run from backend
       try {
-        const historyRuns = await listRuns(accountId, "research", 1);
+        const historyRuns = await listRuns(accountId as string, "research", 1);
         if (historyRuns.length > 0 && !activeReport) {
           const latestRun = await getRun(historyRuns[0].run_id, accountId);
           if (latestRun?.result) {
@@ -313,7 +345,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
     return () => {
       abortCtrl.abort();
     };
-  }, [accountId, handleStreamEvent, fetchReports]);
+  }, [accountId, handleStreamEvent]);
 
   const handleGenerate = async () => {
     if (!accountId) {
@@ -348,6 +380,8 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       }).catch(() => {});
     } catch {}
 
+    let startedRunId: string | null = null;
+    let keepActiveRun = false;
     try {
       const { run_id } = await startRun("research", {
         user_wallet: accountId,
@@ -357,6 +391,7 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
         date_range: dateRange,
       });
 
+      startedRunId = run_id;
       setActiveRun("research", accountId, run_id);
 
       await streamRun(run_id, handleStreamEvent, 0);
@@ -364,7 +399,18 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       setActiveRun("research", accountId, null);
       await fetchReports();
     } catch (e: any) {
-      console.warn("Direct stream encounter, falling back to synchronous generation:", e);
+      if (startedRunId) {
+        // Already running on the backend: wait for it, never start a duplicate.
+        console.warn("[RESEARCH] Live stream dropped; waiting for background run:", e);
+        const finished = await waitForRun(startedRunId, accountId);
+        if (finished?.status === "completed" && finished.result) {
+          setActiveReport(finished.result as Report);
+          if (finished.result.cot_step_cards) setStepCards(finished.result.cot_step_cards);
+        }
+        keepActiveRun = !finished;
+        await fetchReports();
+      } else {
+      console.warn("Could not start background run, falling back to synchronous generation:", e);
       try {
         const res = await fetch("/api/research/generate", {
           method: "POST",
@@ -388,10 +434,11 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       } catch (err) {
         console.error("Generate error:", err);
       }
+      }
     } finally {
       setIsLoading(false);
       setCurrentActiveStep(0);
-      setActiveRun("research", accountId, null);
+      if (!keepActiveRun) setActiveRun("research", accountId, null);
     }
   };
 
@@ -425,6 +472,16 @@ export default function ResearchSection({ accountId, onConnectWallet }: Props) {
       setIsHiringA2A(false);
     }
   };
+
+  if (!configLoaded) {
+    return (
+      <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-7xl mx-auto space-y-5 animate-pulse" aria-busy="true" aria-label="Loading research configuration">
+        <div className="h-24 rounded-2xl bg-secondary/60 border border-border" />
+        <div className="h-64 rounded-2xl bg-secondary/60 border border-border" />
+        <div className="h-40 rounded-2xl bg-secondary/60 border border-border" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 max-w-7xl mx-auto space-y-5 suite-stagger">

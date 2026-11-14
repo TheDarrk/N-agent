@@ -47,6 +47,27 @@ export function setActiveRun(agentType: string, wallet: string | null | undefine
   }
 }
 
+/**
+ * Find a run still executing for this agent: localStorage hint first, then the backend
+ * (survives cleared storage / other devices).
+ */
+export async function findRunningRun(agentType: string, wallet: string): Promise<string | null> {
+  const local = getActiveRun(agentType, wallet);
+  if (local) {
+    try {
+      const run = await getRun(local, wallet);
+      if (run?.status === "running") return local;
+    } catch {}
+  }
+  try {
+    const runs = await listRuns(wallet, agentType, 5);
+    const live = runs.find((r) => r.status === "running");
+    return live ? live.run_id : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function startRun(
   agentType: "research" | "rebalancer" | "trader" | "moderator",
   payload: Record<string, any>
@@ -182,4 +203,31 @@ export async function streamRun(
       await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * Math.pow(1.5, attempts), 5000)));
     }
   }
+}
+
+/**
+ * Poll a run until it is no longer "running" (or until timeout / abort).
+ * Used when the live stream drops (Vercel 300s cap, network blip, refresh) so the UI
+ * never starts a duplicate run; the backend keeps executing independently.
+ */
+export async function waitForRun(
+  runId: string,
+  wallet?: string | null,
+  signal?: AbortSignal,
+  timeoutMs = 15 * 60 * 1000,
+  intervalMs = 3000
+): Promise<AgentRunFull | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) return null;
+    try {
+      const run = await getRun(runId, wallet);
+      if (!run) return null;
+      if (run.status !== "running") return run;
+    } catch {
+      // transient backend/proxy error — keep polling
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return null;
 }

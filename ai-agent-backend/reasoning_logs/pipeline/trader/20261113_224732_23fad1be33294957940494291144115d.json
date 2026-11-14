@@ -1,0 +1,20 @@
+{
+  "run_id": "23fad1be33294957940494291144115d",
+  "agent_type": "trader",
+  "wallet": "flame1.near",
+  "status": "failed",
+  "error": "cancelled",
+  "logged_at": "2026-11-13T22:47:32.289649+00:00",
+  "event_count": 1,
+  "events": [
+    {
+      "type": "step",
+      "step_number": 1,
+      "step_name": "Pre-Scanner",
+      "title": "Market Universe & Tradeability Gate",
+      "status": "running",
+      "message": "Scanning 1-Click DEX universe in auto mode (1h timeframe)..."
+    }
+  ],
+  "result": null
+}

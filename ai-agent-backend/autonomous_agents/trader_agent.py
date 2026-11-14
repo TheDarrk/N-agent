@@ -300,6 +300,63 @@ class TraderAgent:
 
         return result
 
+    async def _build_portfolio_context(self, user_wallet: str):
+        """Read the agent execution wallet's REAL holdings and describe them to the LLMs.
+        Returns (context_text, held) where held = {SYMBOL: {"amount": float, "usd": float}} (dust excluded)."""
+        held: Dict[str, Dict[str, float]] = {}
+        wallet_id = user_wallet
+        try:
+            wv = validate_agent_execution_wallet(user_wallet=user_wallet, agent_id="trader")
+            wallet_id = wv.get("agent_wallet", user_wallet) or user_wallet
+            from tools import get_wallet_portfolio
+            from market_data import get_token_prices
+            portfolio = await get_wallet_portfolio(wallet_id)
+            prices = await get_token_prices(list(portfolio.keys())) if portfolio else {}
+            for sym_l, amt in portfolio.items():
+                sym = sym_l.upper()
+                amt = float(amt or 0.0)
+                if sym == "NEAR":
+                    amt = max(0.0, amt - 0.05)  # gas reserve is never tradable
+                px = 1.0 if sym in ("USDT", "USDC", "DAI") else float(prices.get(sym_l) or prices.get(sym) or 0.0)
+                usd = amt * px
+                if usd >= 0.05:  # below the $0.05 minimum trade size = dust
+                    held[sym] = {"amount": amt, "usd": round(usd, 4)}
+        except Exception as pf_err:
+            print(f"[TRADER: PORTFOLIO CONTEXT] Could not read holdings ({pf_err}); continuing without.")
+        lines = [f"- {sym}: {v['amount']:.6g} units (~${v['usd']:.2f})" for sym, v in held.items()]
+        ctx = (
+            f"AGENT WALLET HOLDINGS ({wallet_id}) - real on-chain balances, SPOT trading only:\n" +
+            ("\n".join(lines) if lines else "- (no tradable holdings)") + "\n" +
+            "RULES: LONG = buy a coin NOT already held. SHORT = sell a coin that IS held into USDT. "
+            "Never LONG a held coin; never SHORT a coin that is not held. Minimum trade size is $0.05."
+        )
+        return ctx, held
+
+    @staticmethod
+    def _hl_configured(user_wallet: str = "") -> bool:
+        try:
+            from autonomous_agents.hyperliquid_adapter import HyperliquidAdapter
+            return bool(HyperliquidAdapter.for_user(user_wallet).is_configured())
+        except Exception:
+            return False
+
+    def _make_selection_filter(self, held: Dict[str, Dict[str, float]], allow_short_without_holding: bool):
+        """Deterministic backstop for the holdings rules, independent of what the LLM decided."""
+        def _filter(selections):
+            kept, notes = [], []
+            for sel in selections:
+                coin = str(getattr(sel, "coin", None) or sel.get("coin", "")).upper()
+                direction = str(getattr(sel, "direction", None) or sel.get("direction", "")).upper()
+                if direction == "LONG" and coin in held:
+                    notes.append(f"dropped LONG {coin} (already holding ~${held[coin]['usd']:.2f})")
+                    continue
+                if direction == "SHORT" and coin not in held and not allow_short_without_holding:
+                    notes.append(f"dropped SHORT {coin} (not held, spot cannot short)")
+                    continue
+                kept.append(sel)
+            return kept, "; ".join(notes)
+        return _filter
+
     async def run_screener_council_judge_pipeline(
         self,
         user_wallet: str,
@@ -548,6 +605,10 @@ class TraderAgent:
             rag_query_fn=rag_query_wrapper,
             execute_fn=execute_callback
         )
+        _pf_ctx, _held = await self._build_portfolio_context(user_wallet)
+        pipeline.screener.portfolio_context = _pf_ctx
+        pipeline.council.portfolio_context = _pf_ctx
+        pipeline.screener.selection_filter = self._make_selection_filter(_held, allow_short_without_holding=self._hl_configured(user_wallet))
 
         pipeline_res = await pipeline.run(coin_data, dry_run=effective_dry_run, min_confidence=min_confidence)
 
@@ -941,6 +1002,10 @@ class TraderAgent:
                 rag_query_fn=rag_query_wrapper,
                 execute_fn=execute_callback
             )
+            _pf_ctx, _held = await self._build_portfolio_context(user_wallet)
+            pipeline.screener.portfolio_context = _pf_ctx
+            pipeline.council.portfolio_context = _pf_ctx
+            pipeline.screener.selection_filter = self._make_selection_filter(_held, allow_short_without_holding=self._hl_configured(user_wallet))
 
             # Run Screener
             screener_output = await pipeline.screener.screen(coin_data, min_confidence=min_confidence)
@@ -1862,21 +1927,33 @@ class TraderAgent:
 
         # ─── VENUE DISPATCH: HYPERLIQUID L1 BRACKET ORDER VS NEAR INTENTS ───
         from autonomous_agents.hyperliquid_adapter import HyperliquidAdapter
-        hl_adapter = HyperliquidAdapter()
+        hl_adapter = HyperliquidAdapter.for_user(user_wallet)  # user's OWN stored API wallet + account
 
         hl_executed = False
         hl_order_res = None
+        exec_token_in, exec_token_out, exec_amount = source_token, symbol.upper(), None
         if hl_adapter.is_configured() and hl_adapter.is_asset_supported(symbol):
             print(f"[TRADER: HYPERLIQUID] Configured with Agent Key! Placing native crash-proof Bracket Order (normalTpsl) on Hyperliquid...")
             is_buy = (verdict == "ENTER_LONG")
-            hl_order_res = hl_adapter.place_bracket_order(
-                coin=symbol,
-                is_buy=is_buy,
-                amount_usd=amount_usd,
-                entry_price=entry_price,
-                tp_price=tp_price,
-                sl_price=sl_price
-            )
+            fund_error = ""
+            if amount_usd >= hl_adapter.MIN_ORDER_USD:
+                from autonomous_agents.hl_funding import ensure_hyperliquid_margin
+                fund_res = await ensure_hyperliquid_margin(user_wallet, hl_adapter, amount_usd, agent_execution_wallet)
+                if fund_res.get("funded"):
+                    print(f"[TRADER: HYPERLIQUID FUNDING] Sent ${fund_res.get('usd_sent')} from the NEAR agent wallet via 1-Click (tx {fund_res.get('tx_hash')}).")
+                if not fund_res.get("ok"):
+                    fund_error = f"Hyperliquid funding failed: {fund_res.get('error')}"
+            if fund_error:
+                hl_order_res = {"success": False, "error": fund_error}
+            else:
+                hl_order_res = hl_adapter.place_bracket_order(
+                    coin=symbol,
+                    is_buy=is_buy,
+                    amount_usd=amount_usd,
+                    entry_price=entry_price,
+                    tp_price=tp_price,
+                    sl_price=sl_price
+                )
             if hl_order_res.get("success"):
                 hl_executed = True
                 target_chain = "hyperliquid"
@@ -1904,21 +1981,49 @@ class TraderAgent:
                     }
                 }
             else:
-                # Determine tokens based on agent's NEAR balance
-                token_in = source_token
-                token_out = symbol.upper()
+                # SPOT semantics:  LONG = buy `symbol` with the funding token;  SHORT = SELL a HELD `symbol` into USDT.
                 from knowledge_base import get_1click_token_price
-                source_price = get_1click_token_price(token_in)
-                if not source_price or source_price <= 0:
-                    quote_res = {"error": f"No live price available for execution source token {token_in}."}
-                    amount_in_source = 0.0
+                from tools import get_wallet_portfolio
+                _sym = symbol.upper()
+                _live_px = float(indicators.get("current_price") or entry_price or 0.0)
+                try:
+                    _wallet_holdings = await get_wallet_portfolio(agent_execution_wallet)
+                except Exception:
+                    _wallet_holdings = {}
+                _held_amt = float(_wallet_holdings.get(_sym.lower(), 0.0) or 0.0)
+                if _sym == "NEAR":
+                    _held_amt = max(0.0, _held_amt - 0.05)  # keep gas reserve
+                _held_usd = _held_amt * _live_px
+                quote_res = None
+                if verdict == "ENTER_SHORT":
+                    token_in, token_out = _sym, "USDT"
+                    if _held_usd < 0.05 or _live_px <= 0:
+                        quote_res = {"error": f"Cannot SELL {_sym}: agent wallet holds ~${_held_usd:.4f} (spot cannot short a coin that is not held)."}
+                        amount_in_source = 0.0
+                    else:
+                        amount_in_source = round(min(amount_usd / _live_px, _held_amt * 0.999), 6)
+                        if amount_in_source * _live_px < 0.05:
+                            amount_in_source = round(_held_amt * 0.999, 6)
                 else:
-                    amount_in_source = round(min(amount_usd / float(source_price), max(0.0, wallet_balance - 0.05)), 4)
+                    token_in, token_out = source_token, _sym
+                    if _held_usd >= 0.05 and _sym != source_token:
+                        quote_res = {"error": f"Already holding ~${_held_usd:.2f} of {_sym}; not adding to an existing long."}
+                        amount_in_source = 0.0
+                    else:
+                        source_price = get_1click_token_price(token_in)
+                        if not source_price or source_price <= 0:
+                            quote_res = {"error": f"No live price available for execution source token {token_in}."}
+                            amount_in_source = 0.0
+                        else:
+                            amount_in_source = round(min(amount_usd / float(source_price), max(0.0, wallet_balance - 0.05)), 4)
+                exec_token_in, exec_token_out, exec_amount = token_in, token_out, amount_in_source
                 dest_recipient = wallet_validation.get("destination_wallet", agent_execution_wallet)
 
                 print(f"[NEAR INTENTS: TOOL CALL] Requesting 1-Click swap quote: {amount_in_source} {token_in} -> {token_out} on {target_chain} (Recipient: {dest_recipient})...")
                 try:
                     from tools import get_swap_quote, create_near_intent_transaction
+                    if quote_res and "error" in quote_res:
+                        raise ValueError(quote_res["error"])
                     quote_res = get_swap_quote(
                         token_in=token_in,
                         token_out=token_out,
@@ -2021,32 +2126,54 @@ class TraderAgent:
             is_limit_order = True
 
         trade_status = "PENDING_ENTRY" if is_limit_order else "OPEN"
+        limit_failure_reason = ""
         if is_limit_order and not hl_executed:
+            # Native resting LIMIT order on NEAR Intents (POST /v0/orders). price = QUOTE units per 1 BASE unit.
+            #   LONG  (buy dip):   BUY  base=symbol, quote=funding token, price in funding-token units, we deposit quote.
+            #   SHORT (sell high): SELL base=symbol (held),  quote=USDT,   price in USD, we deposit base.
             from tools import create_1click_limit_order
-            source_price = get_1click_token_price(source_token) or current_market_price
-            amount_in_source = round(min(amount_usd / float(source_price), max(0.005, wallet_balance - 0.05)), 4)
-            limit_res = await create_1click_limit_order(
-                account_id=agent_execution_wallet,
-                base_symbol=source_token,
-                quote_symbol=symbol.upper(),
-                quantity=amount_in_source,
-                price=entry_price,
-                side="SELL" if verdict == "ENTER_SHORT" else "BUY"
-            )
+            from knowledge_base import get_1click_token_price
+            _sym = symbol.upper()
+            if verdict == "ENTER_SHORT":
+                lim_base, lim_quote, lim_side, lim_price = _sym, "USDT", "SELL", float(entry_price)
+                lim_qty = round(float(exec_amount or 0.0), 6)
+                exec_token_in, exec_token_out, exec_amount = _sym, "USDT", lim_qty
+            else:
+                _src_px = float(get_1click_token_price(source_token) or 0.0)
+                lim_base, lim_quote, lim_side = _sym, source_token, "BUY"
+                lim_price = (float(entry_price) / _src_px) if _src_px > 0 else 0.0
+                _budget_src = float(exec_amount or 0.0)
+                lim_qty = round(_budget_src / lim_price, 6) if lim_price > 0 else 0.0
+                exec_token_in, exec_token_out, exec_amount = source_token, _sym, _budget_src
+            limit_res = {"success": False, "error": "invalid limit parameters"}
+            # NEAR Intents rejects resting limit orders below ~$0.10 notional (market swaps accept $0.05).
+            _notional_usd = lim_qty * (float(entry_price) if lim_side == "SELL" else float(entry_price))
+            if lim_qty > 0 and lim_price > 0 and _notional_usd < 0.10:
+                limit_res = {"success": False, "error": f"Limit order notional ${_notional_usd:.3f} is below the $0.10 NEAR Intents minimum for resting orders"}
+            elif lim_qty > 0 and lim_price > 0:
+                limit_res = await create_1click_limit_order(
+                    account_id=agent_execution_wallet,
+                    base_symbol=lim_base,
+                    quote_symbol=lim_quote,
+                    quantity=lim_qty,
+                    price=lim_price,
+                    side=lim_side,
+                )
             if limit_res.get("success"):
                 deposit_addr = limit_res.get("deposit_address", "")
                 quote_tx_hash = limit_res.get("order_id", quote_tx_hash)
-                print(f"[TRADER: LIMIT ORDER PLACED] Confidential Limit Order {quote_tx_hash} resting on Defuse Solvers at target ${entry_price:.4f}.")
+                print(f"[TRADER: LIMIT ORDER PLACED] {lim_side} {lim_qty} {lim_base} @ {lim_price:.6f} {lim_quote} (order {quote_tx_hash}); funding deposit address next.")
+            else:
+                print(f"[TRADER: LIMIT ORDER FAILED] {limit_res.get('error')}; nothing executed for this entry.")
+                deposit_addr = ""
+                limit_failure_reason = f"Limit order was not placed: {str(limit_res.get('error'))[:200]}"
 
-        if deposit_addr:
+        exec_failure_reason = limit_failure_reason
+        if deposit_addr and exec_amount:
             try:
-                active_token_in = source_token
-                active_token_out = symbol.upper()
-                from knowledge_base import get_1click_token_price
-                source_price = get_1click_token_price(active_token_in)
-                if not source_price or source_price <= 0:
-                    raise ValueError(f"No live price available for execution source token {active_token_in}")
-                amount_in_source = round(min(amount_usd / float(source_price), max(0.0, wallet_balance - 0.05)), 4)
+                active_token_in = exec_token_in
+                active_token_out = exec_token_out
+                amount_in_source = float(exec_amount)
                 tx_payload = create_near_intent_transaction(
                     token_in=active_token_in,
                     token_out=active_token_out,
@@ -2055,7 +2182,7 @@ class TraderAgent:
                     deposit_address=deposit_addr,
                     account_id=agent_execution_wallet
                 )
-                print(f"[NEAR INTENTS: PAYLOAD] Created {len(tx_payload)} intent transactions for authorized signer '{agent_execution_wallet}'.")
+                print(f"[NEAR INTENTS: PAYLOAD] Created {len(tx_payload)} intent transactions for authorized signer '{agent_execution_wallet}' ({active_token_in} -> {active_token_out}, amount {amount_in_source}).")
 
                 # Autonomous On-Chain Broadcast via Delegated Agent Key
                 agent_key = get_agent_key(user_wallet, "near")
@@ -2063,7 +2190,7 @@ class TraderAgent:
                     from key_manager import decrypt_private_key
                     from autonomous_agents.near_submitter import submit_near_transaction
                     try:
-                        decrypted_key = decrypt_private_key(agent_key.get("encrypted_private_key"))
+                        decrypted_key = decrypt_private_key(agent_key.get("encrypted_private_key"), wallet_address=user_wallet)
                         print(f"[NEAR INTENTS: BROADCAST] Submitting {len(tx_payload)} transaction(s) to NEAR network for {agent_execution_wallet}...")
                         onchain_hash = await submit_near_transaction(
                             tx_payload=tx_payload,
@@ -2073,12 +2200,44 @@ class TraderAgent:
                         if onchain_hash:
                             quote_tx_hash = onchain_hash
                             print(f"[NEAR INTENTS: SUCCESS] Transaction broadcasted on-chain! Tx Hash: {onchain_hash}")
+                        else:
+                            exec_failure_reason = "Broadcast returned no transaction hash."
                     except Exception as submit_err:
+                        exec_failure_reason = f"{type(submit_err).__name__}: {str(submit_err)[:160]}"
                         print(f"[NEAR INTENTS: BROADCAST ERROR] Failed to broadcast transaction: {submit_err}")
                 else:
                     print(f"[NEAR INTENTS: MANUAL SIGN] No encrypted agent key found for {user_wallet}. Tx payload created for frontend wallet selector signing.")
             except Exception as tx_err:
+                exec_failure_reason = exec_failure_reason or f"Intent payload creation failed: {str(tx_err)[:160]}"
                 print(f"[NEAR INTENTS: NOTICE] Intent payload creation notice: {tx_err}")
+
+        # A trade that was never actually broadcast must NOT be recorded as OPEN.
+        if exec_failure_reason and not hl_executed:
+            drop_reason = f"On-chain execution failed: {exec_failure_reason}"
+            print(f"[TRADER: EXECUTION FAILED] {drop_reason} -> dropping trade (nothing was filled).")
+            dropped_id = record_dropped_trade(
+                user_wallet=user_wallet,
+                agent_id="trader",
+                symbol=symbol,
+                amount_usd=amount_usd,
+                reason=drop_reason,
+                is_cross_chain=is_cross_chain,
+                entry_price=entry_price,
+                target_chain=target_chain
+            )
+            return {
+                "success": False,
+                "status": "DROPPED",
+                "trade_id": dropped_id,
+                "symbol": symbol,
+                "verdict": verdict,
+                "drop_reason": drop_reason,
+                "confidence_score": confidence_score,
+                "min_confidence": min_confidence,
+                "expected_roi_pct": expected_roi_pct,
+                "amount_usd": amount_usd,
+                "reasoning": f"TRADE DROPPED: {drop_reason}",
+            }
 
         # ─── PERSISTENCE: Record Active Trade in SQLite for 60s Poller ──
         trade_id = create_active_trade(

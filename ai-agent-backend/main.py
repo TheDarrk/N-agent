@@ -3,8 +3,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Union
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
+import json
 import uuid
 import asyncio
 import uvicorn
@@ -438,7 +439,7 @@ async def chat_endpoint(body: ChatRequest, request: Request):
     )
 
 @app.get("/api/chat/history/{wallet_address}")
-async def get_chat_history_endpoint(wallet_address: str):
+def get_chat_history_endpoint(wallet_address: str):
     """Return persistent chat history for a normalized user wallet."""
     from database.connection import normalize_wallet
     from database.dal import get_chat_history
@@ -904,6 +905,7 @@ class RebalanceStrategyRequest(BaseModel):
     current_holdings: Optional[Dict[str, float]] = None
     cadence_days: Optional[int] = 7
     min_stable_pct: Optional[float] = 10.0
+    drift_threshold_pct: Optional[float] = 5.0
 
 class DryRunQuoteRequest(BaseModel):
     token_in: str
@@ -950,6 +952,25 @@ class ModeratorFrequencyRequest(BaseModel):
 RUNNING_TASKS: Dict[str, asyncio.Task] = {}
 
 
+async def _create_run_fast(norm_w, agent_type, title, params, setup=None):
+    """
+    Create the run row in a worker thread (keeps the event loop free; each Turso write is a network
+    round trip) and run the slower per-agent bookkeeping (user flags, scheduled job) in the background
+    so the client gets its run_id immediately.
+    """
+    if not norm_w:
+        raise HTTPException(status_code=400, detail="A valid wallet address is required to start a run")
+    run_id = await asyncio.to_thread(create_run, norm_w, agent_type, title=title, params=params)
+    if setup and norm_w:
+        def _safe_setup():
+            try:
+                setup()
+            except Exception as se:
+                logger.warning("Background setup for %s run %s failed: %s", agent_type, run_id, se)
+        asyncio.create_task(asyncio.to_thread(_safe_setup))
+    return run_id
+
+
 async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
     """
     Executes an agent pipeline independently of any HTTP connection.
@@ -972,6 +993,7 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
             logger.debug("Heartbeat worker notice for %s: %s", run_id, he)
 
     heartbeat_task = asyncio.create_task(_heartbeat_worker())
+    pipeline_events: list = []
     try:
         update_run_heartbeat(run_id)
         async for raw_item in gen_factory():
@@ -984,6 +1006,7 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
                 event = raw_item
 
             append_run_event(run_id, event)
+            pipeline_events.append(event)
 
             evt_type = event.get("type")
             if evt_type == "result":
@@ -1012,6 +1035,11 @@ async def _execute_run(run_id: str, agent_type: str, wallet: str, gen_factory):
         heartbeat_task.cancel()
         finish_run(run_id, result, cid, error)
         RUNNING_TASKS.pop(run_id, None)
+        try:
+            from decentralized_storage import write_pipeline_log
+            write_pipeline_log(run_id, agent_type, wallet, pipeline_events, result, error)
+        except Exception as log_err:
+            logger.warning("Pipeline log write failed for %s: %s", run_id, log_err)
 
 
 async def execute_persisted_job(job: Dict[str, Any]):
@@ -1073,7 +1101,8 @@ async def execute_persisted_job(job: Dict[str, Any]):
                 user_expectation=config.get("user_expectation", "Portfolio rebalance"),
                 current_holdings=config.get("current_holdings", {}),
                 cadence_days=config.get("cadence_days", 7),
-                min_stable_pct=config.get("min_stable_pct", 10.0)
+                min_stable_pct=config.get("min_stable_pct", 10.0),
+                drift_threshold_pct=config.get("drift_threshold_pct", 5.0)
             )
             task = asyncio.create_task(_execute_run(run_id, "rebalancer", wallet, gen_factory))
             RUNNING_TASKS[run_id] = task
@@ -1149,18 +1178,31 @@ async def _stream_run_events(run_id: str, wallet: Optional[str], after: int, req
     Resumable via after=seq. Disconnection never cancels the underlying task.
     """
     current_after = after
+    db_errors = 0
     while True:
-        events = get_run_events(run_id, after_seq=current_after)
-        for ev in events:
-            current_after = max(current_after, ev.get("seq", current_after))
-            yield json.dumps(ev) + "\n"
+        try:
+            events = await asyncio.to_thread(get_run_events, run_id, after_seq=current_after)
+            for ev in events:
+                current_after = max(current_after, ev.get("seq", current_after))
+                yield json.dumps(ev) + "\n"
 
-        run = get_run(run_id, wallet=wallet)
+            run = await asyncio.to_thread(get_run, run_id, wallet=wallet)
+            db_errors = 0
+        except Exception as de:
+            # Transient DB hiccup (e.g. "database is locked"): keep the stream alive and retry.
+            db_errors += 1
+            logger.warning("Run %s stream DB error (%d): %s", run_id, db_errors, de)
+            if db_errors >= 10:
+                yield json.dumps({"type": "error", "message": f"Run stream lost database access: {de}"}) + "\n"
+                break
+            await asyncio.sleep(1.0)
+            continue
+
         if not run:
             break
 
         if run.get("status") != "running":
-            trailing = get_run_events(run_id, after_seq=current_after)
+            trailing = await asyncio.to_thread(get_run_events, run_id, after_seq=current_after)
             for ev in trailing:
                 current_after = max(current_after, ev.get("seq", current_after))
                 yield json.dumps(ev) + "\n"
@@ -1176,12 +1218,12 @@ async def _stream_run_events(run_id: str, wallet: Optional[str], after: int, req
 
         if await request.is_disconnected():
             break
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(1.0)
 
 
 @app.get("/api/runs/{run_id}/stream")
 async def stream_run_endpoint(run_id: str, request: Request, after: int = 0, wallet: Optional[str] = None):
-    run = get_run(run_id, wallet=wallet)
+    run = await asyncio.to_thread(get_run, run_id, wallet=wallet)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     headers = {
@@ -1198,7 +1240,7 @@ async def stream_run_endpoint(run_id: str, request: Request, after: int = 0, wal
 
 
 @app.get("/api/runs")
-async def list_runs_endpoint(wallet: str, agent_type: Optional[str] = None, limit: int = 50, offset: int = 0):
+def list_runs_endpoint(wallet: str, agent_type: Optional[str] = None, limit: int = 50, offset: int = 0):
     norm_w = normalize_wallet(wallet)
     if not norm_w:
         raise HTTPException(status_code=400, detail="Valid wallet query parameter is required to access runs")
@@ -1207,7 +1249,7 @@ async def list_runs_endpoint(wallet: str, agent_type: Optional[str] = None, limi
 
 
 @app.get("/api/runs/{run_id}")
-async def get_run_endpoint(run_id: str, wallet: Optional[str] = None):
+def get_run_endpoint(run_id: str, wallet: Optional[str] = None):
     if not wallet or not normalize_wallet(wallet):
         raise HTTPException(status_code=400, detail="Wallet parameter is required to access encrypted run details")
     run = get_run(run_id, wallet=wallet)
@@ -1279,7 +1321,8 @@ async def trader_analyze(body: TraderScanRequest):
 @app.post("/api/trader/start")
 async def trader_start_endpoint(body: TraderScanRequest):
     norm_w = normalize_wallet(body.user_wallet)
-    if norm_w:
+
+    def _setup():
         upsert_user(norm_w, {
             "trader_active": 1,
             "trader_coin_mode": body.coin_mode or "auto",
@@ -1312,7 +1355,7 @@ async def trader_start_endpoint(body: TraderScanRequest):
         "min_confidence": body.min_confidence,
         "enable_researcher_plugin": body.enable_researcher_plugin
     }
-    run_id = create_run(norm_w, "trader", title=title, params=params)
+    run_id = await _create_run_fast(norm_w, "trader", title, params, _setup)
     from autonomous_agents.trader_agent import TraderAgent
     trader = TraderAgent()
     gen_factory = lambda: trader.run_pipeline_stream(
@@ -1350,7 +1393,7 @@ async def trader_stream_endpoint(body: TraderScanRequest, request: Request):
     )
 
 @app.get("/api/trader/trades/{wallet_address}")
-async def get_trader_trades(wallet_address: str):
+def get_trader_trades(wallet_address: str):
     """Get open positions, dropped trades, and history for the user."""
     from database import get_open_trades, get_user_trade_history, get_dropped_trades
     open_trades = get_open_trades(wallet_address)
@@ -1365,7 +1408,7 @@ async def get_trader_trades(wallet_address: str):
     }
 
 @app.post("/api/trader/settings")
-async def update_trader_settings(body: TraderSettingsRequest):
+def update_trader_settings(body: TraderSettingsRequest):
     """Save user trader preferences, researcher plugin & hard caps."""
     settings = {
         "trader_active": 1,
@@ -1446,7 +1489,7 @@ async def get_trade_traces(wallet_address: Optional[str] = None):
     return {"traces": traces, "count": len(traces)}
 
 @app.get("/api/trader/traces/{wallet_address}")
-async def get_trade_traces_for_wallet(wallet_address: str):
+def get_trade_traces_for_wallet(wallet_address: str):
     """Get recent 24 decentralized trade reasoning traces for a specific wallet."""
     from decentralized_storage import get_recent_trade_traces
     traces = get_recent_trade_traces(limit=24, wallet_address=wallet_address)
@@ -1494,12 +1537,13 @@ async def rebalancer_generate_strategy(body: RebalanceStrategyRequest):
 @app.post("/api/rebalancer/start")
 async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
     norm_w = normalize_wallet(body.user_wallet)
-    if norm_w:
+    cad_days = body.cadence_days or 7
+
+    def _setup():
         upsert_user(norm_w, {
             "rebalancer_active": 1,
-            "rebalancer_drift_threshold": 5.0,
+            "rebalancer_drift_threshold": float(body.drift_threshold_pct or 5.0),
         })
-        cad_days = body.cadence_days or 7
         schedule_or_update_persisted_job(
             wallet=norm_w,
             agent_type="rebalancer",
@@ -1510,7 +1554,8 @@ async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
                 "user_expectation": body.user_expectation or "",
                 "current_holdings": body.current_holdings,
                 "cadence_days": cad_days,
-                "min_stable_pct": body.min_stable_pct or 10.0
+                "min_stable_pct": body.min_stable_pct or 10.0,
+                "drift_threshold_pct": body.drift_threshold_pct or 5.0
             },
             enabled=1
         )
@@ -1521,9 +1566,10 @@ async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
         "user_expectation": body.user_expectation,
         "current_holdings": body.current_holdings,
         "cadence_days": body.cadence_days,
-        "min_stable_pct": body.min_stable_pct
+        "min_stable_pct": body.min_stable_pct,
+        "drift_threshold_pct": body.drift_threshold_pct
     }
-    run_id = create_run(norm_w, "rebalancer", title=title, params=params)
+    run_id = await _create_run_fast(norm_w, "rebalancer", title, params, _setup)
     from autonomous_agents.rebalancer_agent import RebalancerAgent
     rebalancer = RebalancerAgent()
     gen_factory = lambda: rebalancer.generate_strategy_stream(
@@ -1532,7 +1578,8 @@ async def rebalancer_start_endpoint(body: RebalanceStrategyRequest):
         user_expectation=body.user_expectation or "",
         current_holdings=body.current_holdings,
         cadence_days=body.cadence_days or 7,
-        min_stable_pct=body.min_stable_pct or 10.0
+        min_stable_pct=body.min_stable_pct or 10.0,
+        drift_threshold_pct=body.drift_threshold_pct or 5.0
     )
     task = asyncio.create_task(_execute_run(run_id, "rebalancer", norm_w, gen_factory))
     RUNNING_TASKS[run_id] = task
@@ -1658,8 +1705,6 @@ async def research_generate(body: ResearchRequest):
 @app.post("/api/research/start")
 async def research_start_endpoint(body: ResearchRequest):
     norm_w = normalize_wallet(body.user_wallet)
-    if norm_w:
-        upsert_user(norm_w, {"research_active": 1})
     title = body.topic or "NEAR Research Report"
     params = {
         "topic": body.topic,
@@ -1667,7 +1712,7 @@ async def research_start_endpoint(body: ResearchRequest):
         "links": body.links,
         "date_range": body.date_range
     }
-    run_id = create_run(norm_w, "research", title=title, params=params)
+    run_id = await _create_run_fast(norm_w, "research", title, params, lambda: upsert_user(norm_w, {"research_active": 1}))
     from autonomous_agents.research_agent import ResearchAgent
     researcher = ResearchAgent()
     gen_factory = lambda: researcher.generate_research_report_stream(
@@ -1751,7 +1796,7 @@ async def moderator_judge(wallet_address: str):
     return await moderator.evaluate_fleet_performance(wallet_address)
 
 @app.get("/api/fleet/{wallet_address}")
-async def get_agent_fleet(wallet_address: str):
+def get_agent_fleet(wallet_address: str):
     """Get all 4 specialized agents' avatars, live statuses, and historical telemetry."""
     from database import get_fleet_activity
     return get_fleet_activity(wallet_address)
@@ -1763,7 +1808,7 @@ class AgentFleetConfigRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 @app.post("/api/fleet/config")
-async def save_agent_fleet_config(body: AgentFleetConfigRequest):
+def save_agent_fleet_config(body: AgentFleetConfigRequest):
     """Activate/deactivate and configure an agent in the fleet."""
     from database import update_agent_fleet_config
     res = update_agent_fleet_config(
@@ -1788,8 +1833,87 @@ async def save_agent_fleet_config(body: AgentFleetConfigRequest):
         )
     return res
 
+class AgentUiConfigRequest(BaseModel):
+    config: Dict[str, Any]
+
+@app.get("/api/agent-config/{wallet_address}/{agent_id}")
+def read_agent_ui_config(wallet_address: str, agent_id: str):
+    """Load the user's saved form configuration (prompts, coins, etc.) for an agent."""
+    from database import get_agent_ui_config
+    return {"config": get_agent_ui_config(wallet_address, agent_id)}
+
+@app.post("/api/agent-config/{wallet_address}/{agent_id}")
+def write_agent_ui_config(wallet_address: str, agent_id: str, body: AgentUiConfigRequest):
+    """Persist the user's form configuration for an agent in the DB."""
+    from database import save_agent_ui_config
+    return {"config": save_agent_ui_config(wallet_address, agent_id, body.config)}
+
+class HyperliquidConfigRequest(BaseModel):
+    account_address: str
+    api_private_key: Optional[str] = ""
+    network: Optional[str] = "mainnet"
+
+
+@app.get("/api/hyperliquid/config/{wallet_address}")
+async def read_hyperliquid_config(wallet_address: str):
+    """Public view of the user's Hyperliquid settings (never returns the key)."""
+    from database import get_hyperliquid_config_public
+    return await asyncio.to_thread(get_hyperliquid_config_public, wallet_address)
+
+
+@app.post("/api/hyperliquid/config/{wallet_address}")
+async def write_hyperliquid_config(wallet_address: str, body: HyperliquidConfigRequest):
+    """Save the user's own Hyperliquid account address + API wallet key (key stored encrypted per wallet)."""
+    from database import save_hyperliquid_config
+    addr = (body.account_address or "").strip()
+    if not (addr.startswith("0x") and len(addr) == 42):
+        raise HTTPException(status_code=400, detail="Account address must be a 0x... Hyperliquid address (42 characters).")
+    key = (body.api_private_key or "").strip()
+    if key:
+        k = key[2:] if key.startswith("0x") else key
+        if len(k) != 64 or any(c not in "0123456789abcdefABCDEF" for c in k):
+            raise HTTPException(status_code=400, detail="API wallet private key must be 64 hex characters.")
+    return await asyncio.to_thread(save_hyperliquid_config, wallet_address, addr, key, body.network or "mainnet")
+
+
+@app.delete("/api/hyperliquid/config/{wallet_address}")
+async def remove_hyperliquid_config(wallet_address: str):
+    from database import delete_hyperliquid_config
+    return {"deleted": await asyncio.to_thread(delete_hyperliquid_config, wallet_address)}
+
+
+@app.post("/api/hyperliquid/test/{wallet_address}")
+async def test_hyperliquid_config(wallet_address: str):
+    """Read-only connectivity check: derives the API wallet address and reads the account's balance. Places no orders."""
+    from autonomous_agents.hyperliquid_adapter import HyperliquidAdapter
+    adapter = HyperliquidAdapter.for_user(wallet_address)
+    if not adapter.is_configured():
+        raise HTTPException(status_code=400, detail="Hyperliquid is not configured for this wallet.")
+    return await asyncio.to_thread(adapter.check_connection)
+
+
+class HyperliquidFundRequest(BaseModel):
+    amount_usd: float
+
+
+@app.post("/api/hyperliquid/fund/{wallet_address}")
+async def fund_hyperliquid(wallet_address: str, body: HyperliquidFundRequest):
+    """Move USDC from the user's NEAR agent wallet into their Hyperliquid perps balance via 1-Click (real funds)."""
+    from autonomous_agents.hyperliquid_adapter import HyperliquidAdapter
+    from autonomous_agents.hl_funding import ensure_hyperliquid_margin, MIN_FUND_USD
+    from database import validate_agent_execution_wallet
+    adapter = HyperliquidAdapter.for_user(wallet_address)
+    if not adapter.is_configured():
+        raise HTTPException(status_code=400, detail="Hyperliquid is not configured for this wallet.")
+    if body.amount_usd < MIN_FUND_USD:
+        raise HTTPException(status_code=400, detail=f"Minimum transfer to Hyperliquid is about ${MIN_FUND_USD:.2f}.")
+    v = validate_agent_execution_wallet(user_wallet=wallet_address, agent_id="trader")
+    agent_wallet = v.get("agent_wallet") or wallet_address
+    return await ensure_hyperliquid_margin(wallet_address, adapter, needed_usd=body.amount_usd, agent_wallet=agent_wallet, force_usd=body.amount_usd)
+
+
 @app.get("/api/network")
-async def get_current_network():
+def get_current_network():
     """Get active NEAR network mode."""
     from network_config import get_network, is_mainnet_allowed, get_near_rpc
     net = get_network()
@@ -1800,7 +1924,7 @@ async def get_current_network():
     }
 
 @app.post("/api/network")
-async def set_current_network(body: NetworkToggleRequest):
+def set_current_network(body: NetworkToggleRequest):
     """Set active NEAR network mode (testnet vs mainnet) - user decided."""
     import os
     selected_network = "mainnet" if body.network.lower() == "mainnet" else "testnet"
@@ -1828,6 +1952,21 @@ async def moderator_deliberate(body: ModeratorDeliberateRequest):
     from autonomous_agents.moderator_agent import ModeratorAgent
     moderator = ModeratorAgent()
     return await moderator.evaluate_fleet_performance(body.user_wallet)
+
+@app.post("/api/moderator/start")
+async def moderator_start_endpoint(body: ModeratorDeliberateRequest):
+    """Start a fleet audit as a background run (survives refresh / navigation, replayable via /api/runs/{id}/stream)."""
+    norm_w = normalize_wallet(body.user_wallet)
+    from autonomous_agents.moderator_agent import ModeratorAgent
+    moderator = ModeratorAgent()
+    run_id = await _create_run_fast(
+        norm_w, "moderator", "Fleet Audit", {"user_wallet": norm_w},
+        lambda: upsert_user(norm_w, {"moderator_active": 1})
+    )
+    gen_factory = lambda: moderator.evaluate_fleet_stream(norm_w)
+    task = asyncio.create_task(_execute_run(run_id, "moderator", norm_w, gen_factory))
+    RUNNING_TASKS[run_id] = task
+    return {"run_id": run_id, "status": "running"}
 
 @app.post("/api/moderator/stream")
 async def moderator_deliberate_stream(body: ModeratorDeliberateRequest):
@@ -2093,7 +2232,7 @@ class ActivateSubaccountRequest(BaseModel):
 
 
 @app.get("/api/agent-wallet/config/{wallet_address}")
-async def get_agent_wallet_configuration(wallet_address: str):
+def get_agent_wallet_configuration(wallet_address: str):
     """
     Get full Agent Wallet pool (up to 4 wallets) and agent assignment mapping.
     """
@@ -2185,7 +2324,7 @@ async def assign_agent_wallets_endpoint(body: AssignAgentWalletsRequest):
     """
     from database import assign_agent_wallets
     try:
-        updated_config = assign_agent_wallets(user_wallet=body.user_wallet, assignments=body.assignments)
+        updated_config = await asyncio.to_thread(assign_agent_wallets, user_wallet=body.user_wallet, assignments=body.assignments)
         return {"status": "success", "config": updated_config}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
